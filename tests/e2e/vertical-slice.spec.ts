@@ -20,6 +20,9 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     page,
     browser,
   }) => {
+    // Linux CI 中三次真实 WebGL 初始化约需 30 秒，保留完整流程并给予调度余量。
+    test.setTimeout(90_000);
+
     const name = `${gridLabel}端到端`;
     await createProject(page, gridLabel, name);
     const canvas = page.getByLabel("地图编辑画布");
