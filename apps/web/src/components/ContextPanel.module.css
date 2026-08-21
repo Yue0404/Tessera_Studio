@@ -64,6 +64,60 @@
   color: var(--color-accent);
   text-align: right;
 }
+.properties label,
+.layerControls,
+.layerControls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.properties > label,
+.layerControls {
+  justify-content: space-between;
+}
+.layerControls {
+  flex-wrap: wrap;
+  margin-top: 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.layerControls label:last-child {
+  flex-basis: 100%;
+}
+.layerControls input[type="range"] {
+  flex: 1;
+  accent-color: var(--color-accent);
+}
+.fieldGrid {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+.fieldGrid label,
+.properties > label {
+  justify-content: space-between;
+}
+.fieldGrid input[type="number"],
+.fieldGrid input[type="text"],
+.fieldGrid select,
+.fieldGrid textarea,
+.properties > label input[type="number"] {
+  width: 142px;
+  padding: 6px 8px;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+.fieldGrid textarea {
+  min-height: 54px;
+  resize: vertical;
+}
+.danger {
+  width: 100% !important;
+  color: #ffd8d0 !important;
+  border-color: rgb(227 97 77 / 65%) !important;
+}
 @media (max-width: 1280px) {
   .panel {
     width: 288px;

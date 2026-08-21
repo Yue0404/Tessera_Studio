@@ -1,15 +1,45 @@
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ProjectState } from "@tessera/core";
+import {
+  sortLayers,
+  type ConnectionData,
+  type EdgeStyle,
+  type FixedLayerState,
+  type ProjectState,
+  type OverlayData,
+  type SelectedObject,
+} from "@tessera/core";
 import styles from "./ContextPanel.module.css";
+import { SelectionInspector } from "./SelectionInspector.js";
 
 interface Props {
   panel: "properties" | "layers" | "modules" | "map";
   state: Readonly<ProjectState>;
+  selection: readonly SelectedObject[];
+  onSelectionColor(color: string): void;
+  onEdgeStyle(edgeId: string, style: EdgeStyle): void;
+  onOverlay(overlayId: string, overlay: OverlayData): void;
+  onConnection(connectionId: string, connection: ConnectionData): void;
+  onDeleteSelection(): void;
+  onLayerState(
+    layerId: string,
+    patch: Partial<Pick<FixedLayerState, "visible" | "locked" | "opacity">>,
+  ): void;
   onClose(): void;
 }
 
-export function ContextPanel({ panel, state, onClose }: Props) {
+export function ContextPanel({
+  panel,
+  state,
+  selection,
+  onSelectionColor,
+  onEdgeStyle,
+  onOverlay,
+  onConnection,
+  onDeleteSelection,
+  onLayerState,
+  onClose,
+}: Props) {
   const { t } = useTranslation();
   const titleKey =
     panel === "properties"
@@ -27,29 +57,67 @@ export function ContextPanel({ panel, state, onClose }: Props) {
           <X size={18} />
         </button>
       </header>
-      {panel === "properties" && <p>{t("inspector.help")}</p>}
+      {panel === "properties" && (
+        <SelectionInspector
+          state={state}
+          selection={selection}
+          onSelectionColor={onSelectionColor}
+          onEdgeStyle={onEdgeStyle}
+          onOverlay={onOverlay}
+          onConnection={onConnection}
+          onDelete={onDeleteSelection}
+        />
+      )}
       {panel === "layers" && (
         <ul>
-          {[
-            "cell-style",
-            "edge-style",
-            "placed-object",
-            "connection",
-            "annotation",
-          ].map((layer) => (
-            <li key={layer}>
-              <span>tessera.basic.{layer}</span>
+          {sortLayers(state.layers.values()).map((layer) => (
+            <li key={layer.layerId}>
+              <span>{t(`layer.${layer.layerId}`)}</span>
               <small>
-                {layer === "cell-style"
-                  ? 500
-                  : layer === "edge-style"
-                    ? 1500
-                    : layer === "placed-object"
-                      ? 3000
-                      : layer === "connection"
-                        ? 4300
-                        : 4400}
+                {layer.layerId} · {layer.zIndex}
               </small>
+              <div className={styles.layerControls}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={layer.visible}
+                    onChange={(event) =>
+                      onLayerState(layer.layerId, {
+                        visible: event.target.checked,
+                      })
+                    }
+                  />
+                  {t("layer.visible")}
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={layer.locked}
+                    disabled={layer.layerId === "tessera.system.grid"}
+                    onChange={(event) =>
+                      onLayerState(layer.layerId, {
+                        locked: event.target.checked,
+                      })
+                    }
+                  />
+                  {t("layer.locked")}
+                </label>
+                <label>
+                  {t("layer.opacity")}
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={layer.opacity}
+                    onChange={(event) =>
+                      onLayerState(layer.layerId, {
+                        opacity: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+              </div>
             </li>
           ))}
         </ul>

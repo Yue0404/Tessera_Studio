@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  BASIC_ELEMENTS,
   BASIC_LAYER_IDS,
   BASIC_MODULE_MANIFEST,
+  BASIC_OPERATIONS,
   createMigrationPlan,
   validateBuiltInBasicModule,
 } from "./index.js";
@@ -18,5 +20,34 @@ describe("内置基础模块", () => {
       status: "not-required",
       steps: [],
     });
+  });
+
+  it("tessera.basic 声明全部 MVP 元素与操作", () => {
+    expect(BASIC_ELEMENTS.map((element) => element.elementId)).toEqual([
+      "tessera.basic:cell.color",
+      "tessera.basic:edge.style",
+      "tessera.basic:marker",
+      "tessera.basic:text",
+      "tessera.basic:connection.line",
+      "tessera.basic:connection.arrow",
+    ]);
+    expect(BASIC_OPERATIONS).toEqual(
+      expect.arrayContaining([
+        "select",
+        "pan",
+        "brush",
+        "edge",
+        "marker",
+        "connection",
+        "box-select",
+        "cell.paint",
+        "cell.erase",
+        "cell.fill",
+        "edge.style",
+        "overlay.text.create",
+        "connection.line.create",
+        "connection.arrow.create",
+      ]),
+    );
   });
 });

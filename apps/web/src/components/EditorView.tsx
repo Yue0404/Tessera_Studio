@@ -1,21 +1,25 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import type { EditorTool } from "@tessera/core";
-import { EditorStore } from "@tessera/core";
+import { EditorStore, FillThresholdError } from "@tessera/core";
 import {
   parseProjectV1,
   PROJECT_EXTENSION,
   PROJECT_MIME,
   stringifyProjectV1,
 } from "@tessera/formats";
-import { TesseraRenderer } from "@tessera/renderer";
+import {
+  TesseraRenderer,
+  type BrushMode,
+  type ConnectionPlacement,
+  type OverlayPlacement,
+} from "@tessera/renderer";
 import type { ProjectRepository } from "@tessera/storage";
 import { AppCommandBar } from "./AppCommandBar.js";
 import { CanvasToolRail } from "./CanvasToolRail.js";
 import { ContextPanel } from "./ContextPanel.js";
 import { EditorStatusBar } from "./EditorStatusBar.js";
-import { ElementCatalog } from "./ElementCatalog.js";
+import { ElementCatalog, type TextPlacementOptions } from "./ElementCatalog.js";
 import styles from "./EditorView.module.css";
 
 type SaveStatusKey =
@@ -39,12 +43,35 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
   const canvasHost = useRef<HTMLDivElement>(null);
   const renderer = useRef<TesseraRenderer | undefined>(undefined);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [tool, setTool] = useState<EditorTool>("brush");
-  const toolRef = useRef(tool);
   const [brushColor, setBrushColor] = useState("#E3614D");
-  const brushColorRef = useRef(brushColor);
+  const [brushMode, setBrushMode] = useState<BrushMode>("paint");
   const [edgeColor, setEdgeColor] = useState("#D9B866");
-  const edgeColorRef = useRef(edgeColor);
+  const [overlay, setOverlay] = useState<OverlayPlacement>({
+    type: "marker",
+    anchor: "cell",
+  });
+  const [textOptions, setTextOptions] = useState<TextPlacementOptions>({
+    text: "",
+    fontSize: 18,
+    color: "#F4EFE4",
+    fontWeight: "normal",
+    align: "center",
+    rotation: 0,
+  });
+  const [connection, setConnection] = useState<ConnectionPlacement>({
+    kind: "arrow",
+    endpoint: "cell-center",
+    arrowMode: "end",
+    label: "",
+  });
+  const placementRef = useRef({
+    brushColor,
+    brushMode,
+    edgeColor,
+    overlay,
+    textOptions,
+    connection,
+  });
   const [catalogCollapsed, setCatalogCollapsed] = useState(false);
   const [contextPanel, setContextPanel] = useState<
     "properties" | "layers" | "modules" | "map" | null
@@ -53,9 +80,14 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
     useState<SaveStatusKey>("status.saved");
   const [errorKey, setErrorKey] = useState<string | null>(null);
 
-  toolRef.current = tool;
-  brushColorRef.current = brushColor;
-  edgeColorRef.current = edgeColor;
+  placementRef.current = {
+    brushColor,
+    brushMode,
+    edgeColor,
+    overlay,
+    textOptions,
+    connection,
+  };
 
   useEffect(() => {
     const host = canvasHost.current;
@@ -65,17 +97,94 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
       host,
       store.state,
       {
-        getTool: () => toolRef.current,
+        getToolState: () => store.toolState,
         beginStroke: () => store.beginBatch(),
         endStroke: () => store.commitBatch(),
+        cancelStroke: () => store.cancelBatch(),
+        pointerDown: (point, cellId) => store.pointerDown(point, cellId),
+        pointerMove: (point) => store.pointerMove(point),
+        pointerUp: (point) => store.pointerUp(point),
         paintCell: (row, column) =>
-          store.paintCell(row, column, alphaColor(brushColorRef.current)),
+          store.paintCell(
+            row,
+            column,
+            alphaColor(placementRef.current.brushColor),
+          ),
+        eraseCell: (row, column) => store.eraseCell(row, column),
+        fillCells: (row, column) => {
+          try {
+            store.fillCells(
+              row,
+              column,
+              alphaColor(placementRef.current.brushColor),
+            );
+          } catch (error) {
+            if (error instanceof FillThresholdError) {
+              setErrorKey("error.fillTooLarge");
+              return;
+            }
+            throw error;
+          }
+        },
+        getBrushMode: () => placementRef.current.brushMode,
         paintEdge: (edgeId, adjacentCellIds) =>
           store.paintEdge(
             edgeId,
             adjacentCellIds,
-            alphaColor(edgeColorRef.current),
+            alphaColor(placementRef.current.edgeColor),
           ),
+        getOverlayPlacement: () => placementRef.current.overlay,
+        placeOverlay: (point, cellId, edge) => {
+          const current = placementRef.current;
+          const anchor =
+            current.overlay.anchor === "map-point"
+              ? point
+              : current.overlay.anchor === "cell" && cellId !== null
+                ? { kind: "cell" as const, cellId }
+                : null;
+          const style = {
+            ...current.textOptions,
+            color: alphaColor(current.textOptions.color),
+            rotation: (current.textOptions.rotation * Math.PI) / 180,
+          };
+          if (current.overlay.anchor === "edge" && edge !== null) {
+            const edgeData = {
+              instanceId: crypto.randomUUID(),
+              ...edge,
+              strokeColor: store.state.style.defaultEdgeColor,
+              strokeWidth: Math.max(2, store.state.style.gridWidth * 2),
+              strokeOpacity: 1,
+              lineStyle: "solid" as const,
+            };
+            if (current.overlay.type === "text") {
+              store.placeEdgeText(edgeData, current.textOptions.text, style);
+            } else {
+              store.placeEdgeMarker(edgeData, alphaColor(current.brushColor));
+            }
+          } else if (anchor !== null) {
+            if (current.overlay.type === "text") {
+              store.placeText(anchor, current.textOptions.text, style);
+            } else {
+              store.placeMarker(anchor, alphaColor(current.brushColor));
+            }
+          }
+        },
+        getConnectionPlacement: () => placementRef.current.connection,
+        commitConnection: (start, end, edgeReferences) => {
+          const current = placementRef.current.connection;
+          void store.commitConnection(
+            start,
+            end,
+            {
+              kind: current.kind,
+              arrowMode: current.arrowMode,
+              label: current.label === "" ? null : current.label,
+            },
+            edgeReferences,
+          );
+        },
+        select: (objects, additive) => store.select(objects, additive),
+        cancelTool: () => store.cancelTool(),
       },
       t("canvas.label"),
     );
@@ -178,14 +287,22 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
           collapsed={catalogCollapsed}
           onToggle={() => setCatalogCollapsed((value) => !value)}
           brushColor={brushColor}
+          brushMode={brushMode}
           edgeColor={edgeColor}
+          overlay={overlay}
+          textOptions={textOptions}
+          connection={connection}
           onBrushColor={setBrushColor}
+          onBrushMode={setBrushMode}
           onEdgeColor={setEdgeColor}
+          onOverlay={setOverlay}
+          onTextOptions={setTextOptions}
+          onConnection={setConnection}
         />
         <CanvasToolRail
-          tool={tool}
+          tool={store.toolState.tool}
           catalogCollapsed={catalogCollapsed}
-          onTool={setTool}
+          onTool={(nextTool) => store.setTool(nextTool)}
           onContext={(panel) =>
             setContextPanel((current) => (current === panel ? null : panel))
           }
@@ -194,6 +311,23 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
           <ContextPanel
             panel={contextPanel}
             state={state}
+            selection={store.selection}
+            onSelectionColor={(color) =>
+              store.updateSelectionColor(alphaColor(color))
+            }
+            onEdgeStyle={(edgeId, style) =>
+              store.updateEdgeStyle(edgeId, style)
+            }
+            onOverlay={(overlayId, next) =>
+              store.updateOverlay(overlayId, next)
+            }
+            onConnection={(connectionId, next) =>
+              store.updateConnection(connectionId, next)
+            }
+            onDeleteSelection={() => store.deleteSelection()}
+            onLayerState={(layerId, patch) =>
+              store.setLayerState(layerId, patch)
+            }
             onClose={() => setContextPanel(null)}
           />
         )}
