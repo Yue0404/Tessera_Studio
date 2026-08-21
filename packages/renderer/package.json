@@ -1,0 +1,17 @@
+{
+  "name": "@tessera/renderer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@tessera/core": "workspace:*",
+    "pixi.js": "^8.16.0"
+  }
+}
