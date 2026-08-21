@@ -1,0 +1,547 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { I18nextProvider } from "react-i18next";
+import { StrictMode } from "react";
+import { createProject, EditorStore, type ProjectState } from "@tessera/core";
+import {
+  createFragmentFromStateV1,
+  stringifyFragmentV1,
+  stringifyProjectV1,
+} from "@tessera/formats";
+import { describe, expect, it, vi } from "vitest";
+import i18n from "./i18n.js";
+import { App } from "./App.js";
+
+vi.mock("./components/EditorView.js", () => ({
+  EditorView: ({
+    store,
+    externalErrorKey,
+    onOpenFile,
+    onOpenFragmentFile,
+  }: {
+    store: EditorStore;
+    externalErrorKey?: string | null;
+    onOpenFile(file: File): Promise<void>;
+    onOpenFragmentFile(file: File): Promise<void>;
+  }) => (
+    <div>
+      <span data-testid="editor-project">{store.state.name}</span>
+      <span data-testid="editor-cells">
+        {[...store.state.cells.values()].length}
+      </span>
+      <input
+        aria-label="编辑器打开工程"
+        type="file"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          if (file !== undefined) void onOpenFile(file);
+        }}
+      />
+      <input
+        aria-label="编辑器导入片段"
+        type="file"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          if (file !== undefined) void onOpenFragmentFile(file);
+        }}
+      />
+      {externalErrorKey ? (
+        <span data-testid="editor-error">{externalErrorKey}</span>
+      ) : null}
+    </div>
+  ),
+}));
+
+function project(name: string) {
+  return createProject({
+    name,
+    grid: { type: "square", width: 2, height: 2, cellSize: 24 },
+    style: {
+      canvasBackground: "#09141DFF",
+      defaultCellColor: "#14232DFF",
+      gridColor: "#59656AFF",
+      gridOpacity: 0.7,
+      gridWidth: 1,
+      defaultEdgeColor: "#59656AFF",
+    },
+  });
+}
+
+describe("App recovery", () => {
+  it("恢复失败不静默吞掉，并保留新建与载入入口", async () => {
+    const repository = {
+      loadLatest: vi.fn(async () => {
+        throw new Error("indexeddb-corrupt");
+      }),
+      save: vi.fn(async () => undefined),
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={repository} />
+      </I18nextProvider>,
+    );
+    expect(screen.getByRole("status").textContent).toContain("正在恢复");
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "本地工程恢复失败",
+      ),
+    );
+    expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined();
+    expect(screen.getByText("打开")).toBeDefined();
+  });
+
+  it("本地没有工程是正常空状态，不显示恢复错误", async () => {
+    const repository = {
+      loadLatest: vi.fn(async () => null),
+      save: vi.fn(async () => undefined),
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={repository} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined(),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("只关闭自身创建的 repository，不关闭调用方注入实例", async () => {
+    const ownedClose = vi.fn();
+    const owned = {
+      loadLatest: vi.fn(async () => null),
+      save: vi.fn(async () => undefined),
+      close: ownedClose,
+    };
+    const ownedView = render(
+      <I18nextProvider i18n={i18n}>
+        <App repositoryFactory={() => owned} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined(),
+    );
+    ownedView.unmount();
+    await waitFor(() => expect(ownedClose).toHaveBeenCalledTimes(1));
+
+    const suppliedClose = vi.fn();
+    const supplied = {
+      loadLatest: vi.fn(async () => null),
+      save: vi.fn(async () => undefined),
+      close: suppliedClose,
+    };
+    const suppliedView = render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={supplied} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined(),
+    );
+    suppliedView.unmount();
+    await Promise.resolve();
+    expect(suppliedClose).not.toHaveBeenCalled();
+  });
+
+  it("卸载时关闭 owned repository，迟到的恢复失败不再更新界面", async () => {
+    let rejectRecovery!: (error: unknown) => void;
+    const recovery = new Promise<ProjectState | null>((_resolve, reject) => {
+      rejectRecovery = reject;
+    });
+    const close = vi.fn();
+    const save = vi.fn(async () => undefined);
+    const view = render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repositoryFactory={() => ({
+            loadLatest: () => recovery,
+            save,
+            close,
+          })}
+        />
+      </I18nextProvider>,
+    );
+    expect(screen.getByRole("status")).toBeDefined();
+    view.unmount();
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    rejectRecovery(new Error("late-recovery-failure"));
+    await recovery.catch(() => undefined);
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("StrictMode 模拟 cleanup 不关闭复用实例，真实卸载才关闭", async () => {
+    const close = vi.fn();
+    const owned = {
+      loadLatest: vi.fn(async () => null),
+      save: vi.fn(async () => undefined),
+      close,
+    };
+    const view = render(
+      <StrictMode>
+        <I18nextProvider i18n={i18n}>
+          <App repositoryFactory={() => owned} />
+        </I18nextProvider>
+      </StrictMode>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined(),
+    );
+    await Promise.resolve();
+    expect(close).not.toHaveBeenCalled();
+    view.unmount();
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  });
+
+  it("初次保存失败被捕获并呈现，不产生未处理 Promise", async () => {
+    const repository = {
+      loadLatest: vi.fn(async () => null),
+      save: vi.fn(async () => {
+        throw new Error("initial-save-failed");
+      }),
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={repository} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined(),
+    );
+    fireEvent.change(screen.getByLabelText("工程名称"), {
+      target: { value: "初次保存失败" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-error").textContent).toBe(
+        "error.projectFileSaveFailed",
+      ),
+    );
+  });
+
+  it("并发选择按选择顺序串行保存，最晚文件最终保持为 latest", async () => {
+    let releaseFirstSave!: () => void;
+    const firstSaveGate = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    let latest: Readonly<ProjectState> | null = null;
+    const save = vi.fn(async (state: Readonly<ProjectState>) => {
+      if (save.mock.calls.length === 1) await firstSaveGate;
+      latest = state;
+    });
+    const repository = {
+      loadLatest: vi.fn(async () => latest),
+      save,
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={repository} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined(),
+    );
+    const input = screen.getByLabelText("打开");
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(
+            [stringifyProjectV1(project("先选择但后完成"))],
+            "first.tessera-project.json",
+          ),
+        ],
+      },
+    });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(
+            [stringifyProjectV1(project("最后选择"))],
+            "second.tessera-project.json",
+          ),
+        ],
+      },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+
+    releaseFirstSave();
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-project").textContent).toBe("最后选择"),
+    );
+    expect(save).toHaveBeenCalledTimes(2);
+    expect((await repository.loadLatest())?.name).toBe("最后选择");
+  });
+
+  it("同 ID 完整工程默认可作为副本打开", async () => {
+    const current = project("同一工程");
+    const save = vi.fn<(state: Readonly<ProjectState>) => Promise<void>>(
+      async () => undefined,
+    );
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={{ loadLatest: async () => current, save }} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-project")).toBeDefined(),
+    );
+    fireEvent.change(screen.getByLabelText("编辑器打开工程"), {
+      target: {
+        files: [
+          new File(
+            [stringifyProjectV1(current, { mode: "full" })],
+            "same.tessera-project.json",
+          ),
+        ],
+      },
+    });
+    const copy = await screen.findByRole("button", { name: "作为副本打开" });
+    fireEvent.click(copy);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect((save.mock.calls[0]?.[0] as ProjectState).projectId).not.toBe(
+      current.projectId,
+    );
+  });
+
+  it("替换同 ID 工程必须经过二次明确确认，取消不保存", async () => {
+    const current = project("同一工程");
+    const save = vi.fn<(state: Readonly<ProjectState>) => Promise<void>>(
+      async () => undefined,
+    );
+    const view = render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={{ loadLatest: async () => current, save }} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-project")).toBeDefined(),
+    );
+    const open = () =>
+      fireEvent.change(screen.getByLabelText("编辑器打开工程"), {
+        target: {
+          files: [
+            new File(
+              [stringifyProjectV1(current, { mode: "full" })],
+              "same.tessera-project.json",
+            ),
+          ],
+        },
+      });
+    open();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "替换本地工程" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "确认替换本地工程" }),
+    ).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(save).not.toHaveBeenCalled();
+
+    open();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "替换本地工程" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "确认替换本地工程" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect((save.mock.calls[0]?.[0] as ProjectState).projectId).toBe(
+      current.projectId,
+    );
+    view.unmount();
+  });
+
+  it("同 ID 决策等待期间卸载会清理 Promise 且不会保存", async () => {
+    const current = project("卸载清理");
+    const save = vi.fn<(state: Readonly<ProjectState>) => Promise<void>>(
+      async () => undefined,
+    );
+    const view = render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={{ loadLatest: async () => current, save }} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-project")).toBeDefined(),
+    );
+    fireEvent.change(screen.getByLabelText("编辑器打开工程"), {
+      target: {
+        files: [
+          new File(
+            [stringifyProjectV1(current, { mode: "full" })],
+            "same.tessera-project.json",
+          ),
+        ],
+      },
+    });
+    await screen.findByRole("dialog", { name: "本地已有同一工程" });
+    view.unmount();
+    await Promise.resolve();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("Fragment 取消不改工程，确认后保存成功才替换编辑态", async () => {
+    const current = project("片段目标");
+    const source = new EditorStore(project("片段来源"));
+    source.paintCell(0, 0, "#AA0000FF");
+    const fragment = stringifyFragmentV1(
+      createFragmentFromStateV1(source.state, {
+        fragmentId: crypto.randomUUID(),
+        bounds: { minX: 0, minY: 0, maxX: 24, maxY: 24 },
+        includedLayerIds: ["tessera.basic.cell-style"],
+      }),
+    );
+    const save = vi.fn(async () => undefined);
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={{ loadLatest: async () => current, save }} />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-cells").textContent).toBe("0"),
+    );
+    const choose = () =>
+      fireEvent.change(screen.getByLabelText("编辑器导入片段"), {
+        target: { files: [new File([fragment], "part.tessera-fragment.json")] },
+      });
+    choose();
+    fireEvent.click(await screen.findByRole("button", { name: "取消" }));
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByTestId("editor-cells").textContent).toBe("0");
+
+    choose();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "确认合并并保存" }),
+    );
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-cells").textContent).toBe("1"),
+    );
+  });
+
+  it("Fragment 保存失败保持原工程并显示错误", async () => {
+    const current = project("片段目标");
+    const source = new EditorStore(project("片段来源"));
+    source.paintCell(0, 0, "#AA0000FF");
+    const fragment = stringifyFragmentV1(
+      createFragmentFromStateV1(source.state, {
+        fragmentId: crypto.randomUUID(),
+        bounds: { minX: 0, minY: 0, maxX: 24, maxY: 24 },
+        includedLayerIds: ["tessera.basic.cell-style"],
+      }),
+    );
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{
+            loadLatest: async () => current,
+            save: async () => {
+              throw new Error("quota");
+            },
+          }}
+        />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-cells").textContent).toBe("0"),
+    );
+    fireEvent.change(screen.getByLabelText("编辑器导入片段"), {
+      target: { files: [new File([fragment], "part.tessera-fragment.json")] },
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "确认合并并保存" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("本地保存失败"),
+    );
+    expect(screen.getByTestId("editor-cells").textContent).toBe("0");
+  });
+
+  it("迟到的 Fragment 平移结果在取消后被丢弃，加载失败会受控呈现", async () => {
+    const target = project("并发目标");
+    const source = new EditorStore(
+      createProject({
+        name: "越界来源",
+        grid: { type: "square", width: 4, height: 4, cellSize: 24 },
+        style: {
+          canvasBackground: "#09141DFF",
+          defaultCellColor: "#14232DFF",
+          gridColor: "#59656AFF",
+          gridOpacity: 0.7,
+          gridWidth: 1,
+          defaultEdgeColor: "#59656AFF",
+        },
+      }),
+    );
+    source.paintCell(3, 3, "#AA0000FF");
+    const fragment = stringifyFragmentV1(
+      createFragmentFromStateV1(source.state, {
+        fragmentId: crypto.randomUUID(),
+        bounds: { minX: 72, minY: 72, maxX: 96, maxY: 96 },
+        includedLayerIds: ["tessera.basic.cell-style"],
+      }),
+    );
+    const workflow = await import("./fragment-file-workflow.js");
+    let releaseTranslation!: (module: typeof workflow) => void;
+    const delayedTranslation = new Promise<typeof workflow>((resolve) => {
+      releaseTranslation = resolve;
+    });
+    let loadCount = 0;
+    const delayedLoader = () => {
+      loadCount += 1;
+      return loadCount === 2 ? delayedTranslation : Promise.resolve(workflow);
+    };
+    const save = vi.fn(async () => undefined);
+    const view = render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{ loadLatest: async () => target, save }}
+          fragmentWorkflowLoader={delayedLoader}
+        />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-project")).toBeDefined(),
+    );
+    fireEvent.change(screen.getByLabelText("编辑器导入片段"), {
+      target: {
+        files: [new File([fragment], "late.tessera-fragment.json")],
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "检查平移" }));
+    expect(loadCount).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    releaseTranslation(workflow);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByTestId("editor-cells").textContent).toBe("0");
+    view.unmount();
+
+    loadCount = 0;
+    const rejectingLoader = () => {
+      loadCount += 1;
+      return loadCount === 2
+        ? Promise.reject(new Error("chunk-load-failed"))
+        : Promise.resolve(workflow);
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{ loadLatest: async () => target, save }}
+          fragmentWorkflowLoader={rejectingLoader}
+        />
+      </I18nextProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-project")).toBeDefined(),
+    );
+    fireEvent.change(screen.getByLabelText("编辑器导入片段"), {
+      target: {
+        files: [new File([fragment], "failed.tessera-fragment.json")],
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "检查平移" }));
+    await screen.findByText("片段无法合并，当前工程未改变。");
+    expect(screen.getByRole("dialog")).toBeDefined();
+    expect(save).not.toHaveBeenCalled();
+  });
+});

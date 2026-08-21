@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { normalizeRotationDegrees } from "@tessera/core";
 import type {
   ConnectionData,
   EdgeStyle,
@@ -195,15 +196,15 @@ export function SelectionInspector(props: Props) {
             <span>{t("inspector.rotation")}</span>
             <input
               type="number"
-              min="-6.28"
+              min="-360"
               max="360"
               step="1"
-              value={Math.round((overlay.style.rotation * 180) / Math.PI)}
-              onChange={(event) =>
-                updateOverlay({
-                  rotation: (Number(event.target.value) * Math.PI) / 180,
-                })
-              }
+              value={overlay.style.rotation}
+              onChange={(event) => {
+                const rotation = Number(event.target.value);
+                if (!Number.isFinite(rotation)) return;
+                updateOverlay({ rotation: normalizeRotationDegrees(rotation) });
+              }}
             />
           </label>
         </div>

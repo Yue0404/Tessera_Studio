@@ -20,6 +20,8 @@ import { GridRenderer } from "./grid-renderer.js";
 import { OverlayRenderer } from "./overlay-renderer.js";
 import { endpointPoint, overlayAnchorPoint } from "./render-utils.js";
 import { hitTestProjectObject } from "./project-hit-test.js";
+import { enableRenderLayerSorting } from "./render-layer-order.js";
+import { InteractionRangeState } from "./interaction-range-state.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
 export interface OverlayPlacement {
@@ -78,6 +80,7 @@ export class TesseraRenderer {
   readonly #connectionRenderer: ConnectionRenderer;
   readonly #overlayRenderer: OverlayRenderer;
   readonly #canvasLabel: string;
+  readonly #ranges = new InteractionRangeState();
   #state: Readonly<ProjectState>;
   #visible: VisibleCell[] = [];
   #painting = false;
@@ -97,6 +100,7 @@ export class TesseraRenderer {
     this.#state = state;
     this.#interaction = interaction;
     this.#canvasLabel = canvasLabel;
+    enableRenderLayerSorting(this.#content);
     this.#gridRenderer = new GridRenderer(this.#content);
     this.#connectionRenderer = new ConnectionRenderer(this.#content);
     this.#overlayRenderer = new OverlayRenderer(this.#content);
@@ -140,7 +144,8 @@ export class TesseraRenderer {
     this.#state = state;
     const width = Math.max(1, this.#host.clientWidth);
     const height = Math.max(1, this.#host.clientHeight);
-    const viewport = this.#viewport(width, height);
+    this.#ranges.updateViewport(this.#camera, width, height);
+    const viewport = this.#ranges.getViewportBounds();
     this.#visible = visibleCellsInRect(
       state.grid,
       viewport.minX,
@@ -183,13 +188,12 @@ export class TesseraRenderer {
     this.#application.destroy({ removeView: true }, { children: true });
   }
 
-  #viewport(width: number, height: number): MapRect {
-    return {
-      minX: -this.#camera.x,
-      minY: -this.#camera.y,
-      maxX: width - this.#camera.x,
-      maxY: height - this.#camera.y,
-    };
+  getViewportBounds(): MapRect {
+    return this.#ranges.getViewportBounds();
+  }
+
+  getSelectionBounds(): MapRect | null {
+    return this.#ranges.getSelectionBounds();
   }
 
   #screenPoint(event: PointerEvent): MapPoint {
@@ -446,13 +450,11 @@ export class TesseraRenderer {
     this.#painting = false;
     this.#interaction.pointerUp(point);
     if (toolState.tool === "box-select" && start !== null) {
-      const rect = {
-        minX: Math.min(start.x, point.x),
-        minY: Math.min(start.y, point.y),
-        maxX: Math.max(start.x, point.x),
-        maxY: Math.max(start.y, point.y),
-      };
-      this.#interaction.select(this.#boxSelection(rect), event.shiftKey);
+      const rect = this.#ranges.commitSelection(start, point);
+      this.#interaction.select(
+        rect === null ? [] : this.#boxSelection(rect),
+        event.shiftKey,
+      );
     }
     this.#lastScreenPoint = null;
     this.render(this.#state);

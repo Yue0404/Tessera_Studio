@@ -1,5 +1,13 @@
 import { createProject, edgeIdentity, EditorStore } from "@tessera/core";
-import { describe, expect, it } from "vitest";
+import {
+  createPartialProjectV1,
+  parseProjectV1,
+  stringifyProjectV1,
+  toProjectV1,
+  type ProjectV1Document,
+} from "@tessera/formats";
+import Dexie from "dexie";
+import { describe, expect, it, vi } from "vitest";
 import { ProjectRecoveryError, ProjectRepository } from "./index.js";
 
 describe("ProjectRepository", () => {
@@ -41,6 +49,75 @@ describe("ProjectRepository", () => {
     repository.close();
   });
 
+  it("冻结时钟下全局激活时间仍严格单调，旧文档后保存也成为 latest", async () => {
+    const repository = new ProjectRepository(`active-${crypto.randomUUID()}`);
+    const makeProject = (name: string, updatedAt: string) => ({
+      ...createProject({
+        name,
+        grid: { type: "square" as const, width: 2, height: 2, cellSize: 24 },
+        style: {
+          canvasBackground: "#09141DFF",
+          defaultCellColor: "#14232DFF",
+          gridColor: "#59656AFF",
+          gridOpacity: 0.7,
+          gridWidth: 1,
+          defaultEdgeColor: "#59656AFF",
+        },
+      }),
+      updatedAt,
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    try {
+      await repository.save(
+        makeProject("较新的文档", "2030-01-01T00:00:00.000Z"),
+      );
+      await repository.save(
+        makeProject("后载入的旧文档", "2000-01-01T00:00:00.000Z"),
+      );
+      expect((await repository.loadLatest())?.name).toBe("后载入的旧文档");
+    } finally {
+      now.mockRestore();
+      repository.close();
+    }
+  });
+
+  it("内部恢复与 preserve 保存不会反复改写 partial 身份", async () => {
+    const repository = new ProjectRepository(`partial-${crypto.randomUUID()}`);
+    const store = new EditorStore(
+      createProject({
+        name: "部分工程恢复",
+        grid: { type: "square", width: 4, height: 4, cellSize: 32 },
+        style: {
+          canvasBackground: "#09141DFF",
+          defaultCellColor: "#14232DFF",
+          gridColor: "#59656AFF",
+          gridOpacity: 0.7,
+          gridWidth: 1,
+          defaultEdgeColor: "#59656AFF",
+        },
+      }),
+    );
+    store.paintCell(0, 0, "#E3614DFF");
+    const partial = createPartialProjectV1(toProjectV1(store.state), {
+      bounds: { minX: 0, minY: 0, maxX: 32, maxY: 32 },
+      includedLayerIds: ["tessera.basic.cell-style"],
+    });
+    await repository.saveDocument(partial, "partial-import");
+    const restored = await repository.loadLatest();
+    expect(restored).not.toBeNull();
+    expect(restored?.projectId).toBe(partial.projectId);
+    expect(restored?.formatSource).toMatchObject({
+      exportScope: "partial",
+      isComplete: false,
+    });
+    if (restored === null) throw new Error("partial-restore-missing");
+    await repository.save(restored);
+    const restoredAgain = await repository.loadLatest();
+    expect(restoredAgain?.projectId).toBe(partial.projectId);
+    expect(restoredAgain?.formatSource.exportScope).toBe("partial");
+    repository.close();
+  });
+
   it.each(["missing", "corrupted"] as const)(
     "当前指针 %s 时回退并修复到上一个有效修订",
     async (failure) => {
@@ -69,6 +146,36 @@ describe("ProjectRepository", () => {
       repository.close();
     },
   );
+
+  it("多工程回退损坏修订时保留当前工程活跃顺序", async () => {
+    const repository = new ProjectRepository(`fallback-${crypto.randomUUID()}`);
+    const makeStore = (name: string) =>
+      new EditorStore(
+        createProject({
+          name,
+          grid: { type: "square", width: 4, height: 4, cellSize: 24 },
+          style: {
+            canvasBackground: "#09141DFF",
+            defaultCellColor: "#14232DFF",
+            gridColor: "#59656AFF",
+            gridOpacity: 0.7,
+            gridWidth: 1,
+            defaultEdgeColor: "#59656AFF",
+          },
+        }),
+      );
+    const secondNewest = makeStore("工程 B");
+    const latest = makeStore("工程 A");
+    await repository.save(secondNewest.state);
+    await repository.save(latest.state);
+    latest.paintCell(0, 0, "#E3614DFF");
+    await repository.save(latest.state);
+    await repository.corruptCurrentRevisionForTest(latest.state.projectId);
+
+    expect((await repository.loadLatest())?.name).toBe("工程 A");
+    expect((await repository.loadLatest())?.name).toBe("工程 A");
+    repository.close();
+  });
 
   it("当前工程指针丢失时从不可变修订恢复", async () => {
     const repository = new ProjectRepository(`test-${crypto.randomUUID()}`);
@@ -176,4 +283,175 @@ describe("ProjectRepository", () => {
     expect((await repository.loadLatest())?.cells.size).toBe(2);
     repository.close();
   });
+
+  it("两个 Repository 交错保存时存储修订单调且旧快照不清理后续编辑", async () => {
+    const databaseName = `interleaved-${crypto.randomUUID()}`;
+    const firstRepository = new ProjectRepository(databaseName);
+    const secondRepository = new ProjectRepository(databaseName);
+    const firstState = createProject({
+      name: "交错保存",
+      grid: { type: "square", width: 256, height: 256, cellSize: 32 },
+      style: {
+        canvasBackground: "#09141DFF",
+        defaultCellColor: "#14232DFF",
+        gridColor: "#59656AFF",
+        gridOpacity: 0.7,
+        gridWidth: 1,
+        defaultEdgeColor: "#59656AFF",
+      },
+    });
+    const staleState = parseProjectV1(stringifyProjectV1(firstState));
+    const firstStore = new EditorStore(firstState);
+    firstStore.paintCell(1, 1, "#E3614DFF");
+    firstStore.paintCell(2, 2, "#D9B866FF");
+    const firstSaved = await firstRepository.save(firstStore.state);
+    expect(firstSaved.revision).toBe(0);
+    expect((await firstRepository.loadLatest())?.cells.size).toBe(2);
+
+    const staleStore = new EditorStore(staleState);
+    staleStore.paintCell(3, 3, "#6AAE75FF");
+    const staleTransactionId = staleStore.state.lastTransactionId;
+    const staleSavePromise = secondRepository.save(staleStore.state);
+    staleState.cells.touchRuntimeChunk(2, 2);
+    staleStore.paintCell(130, 130, "#D9B866FF");
+    const nextTransactionId = staleStore.state.lastTransactionId;
+    const staleSaved = await staleSavePromise;
+
+    expect(staleSaved).toMatchObject({
+      revision: 1,
+      transactionId: staleTransactionId,
+    });
+    expect(nextTransactionId).not.toBe(staleTransactionId);
+    expect((await firstRepository.loadLatest())?.cells.size).toBe(1);
+    expect(staleState.cells.evictRuntimeChunks(0)).not.toContain("2:2");
+
+    const finalSaved = await secondRepository.save(staleStore.state);
+    expect(finalSaved).toMatchObject({
+      revision: 2,
+      transactionId: nextTransactionId,
+    });
+    expect((await firstRepository.loadLatest())?.cells.size).toBe(2);
+    expect(staleState.cells.evictRuntimeChunks(0)).toContain("2:2");
+    firstRepository.close();
+    secondRepository.close();
+  });
+
+  it("saveDocument 原子保存 Fragment 合并结果并保留 transactionId", async () => {
+    const repository = new ProjectRepository(`test-${crypto.randomUUID()}`);
+    const state = createProject({
+      name: "Fragment 合并保存",
+      grid: { type: "square", width: 8, height: 8, cellSize: 32 },
+      style: {
+        canvasBackground: "#09141DFF",
+        defaultCellColor: "#14232DFF",
+        gridColor: "#59656AFF",
+        gridOpacity: 0.7,
+        gridWidth: 1,
+        defaultEdgeColor: "#59656AFF",
+      },
+    });
+    const store = new EditorStore(state);
+    store.paintCell(2, 2, "#E3614DFF");
+    const document = toProjectV1(store.state) as ProjectV1Document;
+    const saved = await repository.saveDocument(document, "fragment-merge-1");
+    expect(saved).toMatchObject({
+      revision: 0,
+      transactionId: "fragment-merge-1",
+    });
+    expect(
+      await repository.latestRevisionTransactionIdForTest(state.projectId),
+    ).toBe("fragment-merge-1");
+    expect((await repository.loadLatest())?.cells.size).toBe(1);
+    repository.close();
+  });
+
+  it("指针修复写失败映射 project-load-failed 而非损坏修订", async () => {
+    const repository = new ProjectRepository(`test-${crypto.randomUUID()}`);
+    const project = createProject({
+      name: "指针修复失败",
+      grid: { type: "square", width: 4, height: 4, cellSize: 32 },
+      style: {
+        canvasBackground: "#09141DFF",
+        defaultCellColor: "#14232DFF",
+        gridColor: "#59656AFF",
+        gridOpacity: 0.7,
+        gridWidth: 1,
+        defaultEdgeColor: "#59656AFF",
+      },
+    });
+    await repository.save(project);
+    const store = new EditorStore(project);
+    store.paintCell(1, 1, "#E3614DFF");
+    await repository.save(store.state);
+    await repository.corruptCurrentRevisionForTest(project.projectId);
+    repository.failNextPointerRepairForTest();
+    await expect(repository.loadLatest()).rejects.toMatchObject({
+      code: "project-load-failed",
+      message: "project-load-failed",
+      details: { operation: "loadLatest" },
+    });
+    repository.close();
+  });
+
+  it.each([1, 2] as const)(
+    "Dexie v%s 工程数据前向升级到共享 v3 后仍可读取和追加修订",
+    async (legacyVersion) => {
+      const databaseName = `legacy-v${legacyVersion}-${crypto.randomUUID()}`;
+      const project = createProject({
+        name: `legacy-v${legacyVersion}`,
+        grid: { type: "square", width: 4, height: 4, cellSize: 32 },
+        style: {
+          canvasBackground: "#09141DFF",
+          defaultCellColor: "#14232DFF",
+          gridColor: "#59656AFF",
+          gridOpacity: 0.7,
+          gridWidth: 1,
+          defaultEdgeColor: "#59656AFF",
+        },
+      });
+      const revisionId = `${project.projectId}:0:legacy`;
+      const legacy = new Dexie(databaseName);
+      legacy.version(1).stores({
+        projects: "&projectId,updatedAt",
+        revisions: "&revisionId,projectId,[projectId+revision],createdAt",
+      });
+      if (legacyVersion === 2) {
+        legacy.version(2).stores({
+          projects: "&projectId,updatedAt",
+          revisions:
+            "&revisionId,projectId,[projectId+revision],createdAt,transactionId",
+        });
+      }
+      await legacy.table("revisions").add({
+        revisionId,
+        projectId: project.projectId,
+        revision: 0,
+        createdAt: project.createdAt,
+        ...(legacyVersion === 1 ? {} : { transactionId: "legacy-tx" }),
+        document: stringifyProjectV1(project),
+      });
+      await legacy.table("projects").add({
+        projectId: project.projectId,
+        currentRevisionId: revisionId,
+        revision: 0,
+        updatedAt: project.updatedAt,
+      });
+      legacy.close();
+
+      const repository = new ProjectRepository(databaseName);
+      const restored = await repository.loadLatest();
+      expect(restored?.name).toBe(`legacy-v${legacyVersion}`);
+      expect(await repository.revisionCount(project.projectId)).toBe(1);
+      expect(
+        await repository.latestRevisionTransactionIdForTest(project.projectId),
+      ).toBe(legacyVersion === 1 ? undefined : "legacy-tx");
+      if (restored === null) throw new Error("legacy-project-missing");
+      const store = new EditorStore(restored);
+      store.paintCell(1, 1, "#E3614DFF");
+      await repository.save(store.state);
+      expect(await repository.revisionCount(project.projectId)).toBe(2);
+      expect((await repository.loadLatest())?.cells.size).toBe(1);
+      repository.close();
+    },
+  );
 });

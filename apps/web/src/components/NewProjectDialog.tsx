@@ -13,6 +13,8 @@ interface Props {
   onCreate(project: ProjectState): void;
   onCancel?: (() => void) | undefined;
   onOpenFile?: ((file: File) => Promise<void>) | undefined;
+  externalErrorKey?: string | null | undefined;
+  onDismissExternalError?: (() => void) | undefined;
   optionalPackages?: readonly PackageChoice[] | undefined;
 }
 
@@ -24,6 +26,8 @@ export function NewProjectDialog({
   onCreate,
   onCancel,
   onOpenFile,
+  externalErrorKey = null,
+  onDismissExternalError,
   optionalPackages = OPTIONAL_PACKAGE_PLACEHOLDERS,
 }: Props) {
   const { t } = useTranslation();
@@ -308,11 +312,18 @@ export function NewProjectDialog({
         </div>
         <div className={styles.bottomBar}>
           <div className={styles.validationArea}>
-            {errorKey === null ? (
+            {(externalErrorKey ?? errorKey) === null ? (
               <span className={styles.validStatus}>{t("new.ready")}</span>
             ) : (
-              <p role="alert" className={styles.error}>
-                {t(errorKey)}
+              <p
+                role="alert"
+                className={styles.error}
+                onClick={() => {
+                  setErrorKey(null);
+                  onDismissExternalError?.();
+                }}
+              >
+                {t(externalErrorKey ?? errorKey ?? "error.invalidProject")}
               </p>
             )}
           </div>
@@ -324,7 +335,8 @@ export function NewProjectDialog({
                   type="file"
                   accept=".tessera-project.json"
                   onChange={(event) => {
-                    const file = event.target.files?.[0];
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
                     if (file !== undefined)
                       void onOpenFile(file).catch(() =>
                         setErrorKey("error.invalidProject"),

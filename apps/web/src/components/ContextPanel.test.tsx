@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
-import { createProject } from "@tessera/core";
+import { createProject, EditorStore } from "@tessera/core";
 import { describe, expect, it, vi } from "vitest";
 import i18n from "../i18n.js";
 import { ContextPanel } from "./ContextPanel.js";
@@ -81,5 +81,33 @@ describe("ContextPanel", () => {
     });
     expect(onSelectionColor).toHaveBeenCalledWith("#112233");
     expect(screen.getByText("地格")).toBeDefined();
+  });
+
+  it("文字旋转直接读写度数并在输入时规范化", () => {
+    const store = new EditorStore(project());
+    const overlayId = store.placeText({ x: 32, y: 32 }, "九十度", {
+      rotation: 90,
+    });
+    const onOverlay = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          panel="properties"
+          state={store.state}
+          selection={[{ kind: "overlay", id: overlayId }]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={onOverlay}
+          onConnection={vi.fn()}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const rotation = screen.getByLabelText("旋转（度）");
+    expect((rotation as HTMLInputElement).value).toBe("90");
+    fireEvent.change(rotation, { target: { value: "450" } });
+    expect(onOverlay.mock.calls[0]?.[1].style.rotation).toBe(90);
   });
 });

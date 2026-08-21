@@ -1,19 +1,49 @@
 export const PROJECT_MIME = "application/vnd.tessera.project+json";
 export const PROJECT_EXTENSION = ".tessera-project.json";
 
-const extensions = { type: "object", additionalProperties: true } as const;
+export const extensionsSchema = {
+  type: "object",
+  additionalProperties: true,
+} as const;
+const extensions = extensionsSchema;
 const color = { type: "string", pattern: "^#[0-9A-Fa-f]{8}$" } as const;
-const uuid = { type: "string", format: "uuid" } as const;
-const cellId = {
+export const uuidSchema = { type: "string", format: "uuid" } as const;
+const uuid = uuidSchema;
+export const semVerSchema = {
   type: "string",
-  pattern: "^cell:(square|hex-pointy):[0-9]+:[0-9]+$",
+  pattern:
+    "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+} as const;
+const namespacedIdPattern = "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$";
+export const moduleIdSchema = {
+  type: "string",
+  minLength: 3,
+  maxLength: 128,
+  pattern: namespacedIdPattern,
+} as const;
+export const layerIdSchema = moduleIdSchema;
+export const elementIdSchema = {
+  type: "string",
+  maxLength: 192,
+  pattern:
+    "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+:[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$",
+} as const;
+const canonicalCoordinate = "(?:0|[1-9][0-9]{0,4})";
+export const cellIdSchema = {
+  type: "string",
+  pattern: `^cell:(square|hex-pointy):${canonicalCoordinate}:${canonicalCoordinate}$`,
+} as const;
+const cellId = cellIdSchema;
+export const edgeIdSchema = {
+  type: "string",
+  pattern: `^edge:(square|hex-pointy):${canonicalCoordinate}:${canonicalCoordinate}(?:\\|${canonicalCoordinate}:${canonicalCoordinate}|\\|boundary:(?:top|right|bottom|left|upper-right|lower-right|lower-left|upper-left))$`,
 } as const;
 const instanceBase = {
   instanceId: uuid,
-  attributes: { type: "object", additionalProperties: false },
+  attributes: { type: "object", additionalProperties: true },
   extensions,
 } as const;
-const cellLayerInstance = {
+export const layerInstanceSchema = {
   type: "object",
   additionalProperties: false,
   required: [
@@ -26,63 +56,18 @@ const cellLayerInstance = {
   ],
   properties: {
     ...instanceBase,
-    elementId: { const: "tessera.basic:cell.color" },
-    layerId: { const: "tessera.basic.cell-style" },
+    elementId: elementIdSchema,
+    layerId: layerIdSchema,
     styleOverrides: {
       type: "object",
-      additionalProperties: false,
-      required: ["fillColor", "fillOpacity"],
-      properties: {
-        fillColor: color,
-        fillOpacity: { type: "number", minimum: 0, maximum: 1 },
-      },
+      additionalProperties: true,
     },
   },
 } as const;
-const edgeLayerInstance = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "instanceId",
-    "elementId",
-    "layerId",
-    "styleOverrides",
-    "attributes",
-    "extensions",
-  ],
-  properties: {
-    ...instanceBase,
-    attributes: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        persistence: { enum: ["explicit-style", "reference-only"] },
-      },
-    },
-    elementId: { const: "tessera.basic:edge.style" },
-    layerId: { const: "tessera.basic.edge-style" },
-    styleOverrides: {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "strokeColor",
-        "strokeOpacity",
-        "strokeWidth",
-        "lineCap",
-        "lineStyle",
-      ],
-      properties: {
-        strokeColor: color,
-        strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
-        strokeWidth: { type: "number", exclusiveMinimum: 0 },
-        lineCap: { enum: ["round", "butt", "square"] },
-        lineStyle: { enum: ["solid", "dashed"] },
-      },
-    },
-  },
-} as const;
+const cellLayerInstance = layerInstanceSchema;
+const edgeLayerInstance = layerInstanceSchema;
 
-const mapPoint = {
+export const mapPointSchema = {
   type: "object",
   additionalProperties: false,
   required: ["x", "y"],
@@ -91,6 +76,7 @@ const mapPoint = {
     y: { type: "number" },
   },
 } as const;
+const mapPoint = mapPointSchema;
 const connectionEndpoint = {
   oneOf: [
     {
@@ -105,7 +91,7 @@ const connectionEndpoint = {
       required: ["kind", "edgeId", "extensions"],
       properties: {
         kind: { const: "edge-midpoint" },
-        edgeId: { type: "string", minLength: 1 },
+        edgeId: edgeIdSchema,
         extensions,
       },
     },
@@ -119,23 +105,17 @@ const connectionEndpoint = {
 } as const;
 const connectionStyle = {
   type: "object",
-  additionalProperties: false,
-  required: ["strokeColor", "strokeWidth", "strokeOpacity", "lineStyle"],
-  properties: {
-    strokeColor: color,
-    strokeWidth: { type: "number", exclusiveMinimum: 0 },
-    strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
-    lineStyle: { enum: ["solid", "dashed"] },
-  },
+  additionalProperties: true,
 } as const;
 const connectionCommon = {
   connectionId: uuid,
-  layerId: { const: "tessera.basic.connection" },
+  elementId: elementIdSchema,
+  layerId: layerIdSchema,
   start: connectionEndpoint,
   end: connectionEndpoint,
   styleOverrides: connectionStyle,
-  attributes: { type: "object", additionalProperties: false },
-  label: { type: ["string", "null"], maxLength: 2048 },
+  attributes: { type: "object", additionalProperties: true },
+  label: { type: ["string", "null"], maxLength: 4096 },
   extensions,
 } as const;
 const lineConnection = {
@@ -156,7 +136,7 @@ const lineConnection = {
   properties: {
     ...connectionCommon,
     kind: { const: "line" },
-    elementId: { const: "tessera.basic:connection.line" },
+    elementId: connectionCommon.elementId,
   },
 } as const;
 const arrowConnection = {
@@ -166,7 +146,7 @@ const arrowConnection = {
   properties: {
     ...connectionCommon,
     kind: { const: "arrow" },
-    elementId: { const: "tessera.basic:connection.arrow" },
+    elementId: connectionCommon.elementId,
     arrowStart: { type: "boolean" },
     arrowEnd: { type: "boolean" },
   },
@@ -185,7 +165,7 @@ const overlayAnchor = {
       required: ["kind", "edgeId", "extensions"],
       properties: {
         kind: { const: "edge" },
-        edgeId: { type: "string", minLength: 1 },
+        edgeId: edgeIdSchema,
         extensions,
       },
     },
@@ -193,47 +173,19 @@ const overlayAnchor = {
 } as const;
 const markerStyle = {
   type: "object",
-  additionalProperties: false,
-  required: ["size", "rotation", "opacity", "color", "markerShape"],
-  properties: {
-    size: { type: "number", exclusiveMinimum: 0 },
-    rotation: { type: "number" },
-    opacity: { type: "number", minimum: 0, maximum: 1 },
-    color,
-    markerShape: { enum: ["circle", "diamond", "pin"] },
-  },
+  additionalProperties: true,
 } as const;
 const textStyle = {
   type: "object",
-  additionalProperties: false,
-  required: [
-    "fontSize",
-    "rotation",
-    "opacity",
-    "color",
-    "fontWeight",
-    "align",
-    "backgroundVisible",
-  ],
-  properties: {
-    fontSize: { type: "number", exclusiveMinimum: 0 },
-    rotation: { type: "number" },
-    opacity: { type: "number", minimum: 0, maximum: 1 },
-    color,
-    fontWeight: { enum: ["normal", "bold"] },
-    align: { enum: ["left", "center", "right"] },
-    backgroundVisible: { type: "boolean" },
-  },
+  additionalProperties: true,
 } as const;
 const markerAttributes = {
   type: "object",
-  additionalProperties: false,
+  additionalProperties: true,
 } as const;
 const textAttributes = {
   type: "object",
-  additionalProperties: false,
-  required: ["text"],
-  properties: { text: { type: "string", maxLength: 2048 } },
+  additionalProperties: true,
 } as const;
 const anchoredMarkerOverlay = {
   type: "object",
@@ -253,8 +205,8 @@ const anchoredMarkerOverlay = {
   properties: {
     kind: { const: "anchored-overlay" },
     overlayId: uuid,
-    elementId: { const: "tessera.basic:marker" },
-    layerId: { const: "tessera.basic.placed-object" },
+    elementId: elementIdSchema,
+    layerId: layerIdSchema,
     overlayType: { const: "marker" },
     anchor: overlayAnchor,
     styleOverrides: markerStyle,
@@ -267,8 +219,8 @@ const anchoredTextOverlay = {
   ...anchoredMarkerOverlay,
   properties: {
     ...anchoredMarkerOverlay.properties,
-    elementId: { const: "tessera.basic:text" },
-    layerId: { const: "tessera.basic.annotation" },
+    elementId: elementIdSchema,
+    layerId: layerIdSchema,
     overlayType: { const: "text" },
     styleOverrides: textStyle,
     attributes: textAttributes,
@@ -292,8 +244,8 @@ const freeMarkerOverlay = {
   properties: {
     kind: { const: "free-overlay" },
     overlayId: uuid,
-    elementId: { const: "tessera.basic:marker" },
-    layerId: { const: "tessera.basic.placed-object" },
+    elementId: elementIdSchema,
+    layerId: layerIdSchema,
     overlayType: { const: "marker" },
     point: mapPoint,
     styleOverrides: markerStyle,
@@ -306,8 +258,8 @@ const freeTextOverlay = {
   ...freeMarkerOverlay,
   properties: {
     ...freeMarkerOverlay.properties,
-    elementId: { const: "tessera.basic:text" },
-    layerId: { const: "tessera.basic.annotation" },
+    elementId: elementIdSchema,
+    layerId: layerIdSchema,
     overlayType: { const: "text" },
     styleOverrides: textStyle,
     attributes: textAttributes,
@@ -318,6 +270,74 @@ export const projectV1Schema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   type: "object",
   additionalProperties: false,
+  allOf: [
+    {
+      if: {
+        properties: { exportScope: { const: "full" } },
+        required: ["exportScope"],
+      },
+      then: {
+        properties: {
+          isComplete: { const: true },
+        },
+      },
+    },
+    {
+      if: {
+        properties: { exportScope: { const: "partial" } },
+        required: ["exportScope"],
+      },
+      then: {
+        properties: {
+          isComplete: { const: false },
+          lineage: { $ref: "#/$defs/lineage" },
+        },
+      },
+    },
+  ],
+  $defs: {
+    bounds: {
+      type: "object",
+      additionalProperties: false,
+      required: ["minX", "minY", "maxX", "maxY"],
+      properties: {
+        minX: { type: "number" },
+        minY: { type: "number" },
+        maxX: { type: "number" },
+        maxY: { type: "number" },
+      },
+    },
+    lineage: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "sourceProjectId",
+        "originScope",
+        "selectionBounds",
+        "includedLayerIds",
+        "omittedLayerIds",
+        "extensions",
+      ],
+      properties: {
+        sourceProjectId: uuid,
+        originScope: { enum: ["full", "partial"] },
+        selectionBounds: { $ref: "#/$defs/bounds" },
+        includedLayerIds: {
+          type: "array",
+          maxItems: 8192,
+          uniqueItems: true,
+          items: layerIdSchema,
+        },
+        omittedLayerIds: {
+          type: "array",
+          maxItems: 8192,
+          uniqueItems: true,
+          items: layerIdSchema,
+        },
+        extensions,
+      },
+    },
+  },
   required: [
     "kind",
     "formatVersion",
@@ -344,17 +364,16 @@ export const projectV1Schema = {
   properties: {
     kind: { const: "tessera-project" },
     formatVersion: { const: "1" },
-    createdWithAppVersion: {
-      type: "string",
-      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-    },
+    createdWithAppVersion: semVerSchema,
     projectId: uuid,
     name: { type: "string", minLength: 1, maxLength: 128 },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
-    exportScope: { const: "full" },
-    isComplete: { const: true },
-    lineage: { type: "null" },
+    exportScope: { enum: ["full", "partial"] },
+    isComplete: { type: "boolean" },
+    lineage: {
+      anyOf: [{ type: "null" }, { $ref: "#/$defs/lineage" }],
+    },
     grid: {
       type: "object",
       additionalProperties: false,
@@ -373,7 +392,7 @@ export const projectV1Schema = {
         orientation: { enum: ["axis-aligned", "pointy"] },
         width: { type: "integer", minimum: 1, maximum: 40000 },
         height: { type: "integer", minimum: 1, maximum: 40000 },
-        cellSize: { type: "number", minimum: 12, maximum: 96 },
+        cellSize: { type: "number", exclusiveMinimum: 0 },
         coordinateEncoding: { const: "row-column-zero-based" },
         chunkSizeCells: { const: 64 },
         extensions,
@@ -388,8 +407,8 @@ export const projectV1Schema = {
         additionalProperties: false,
         required: ["moduleId", "version", "packageSourceKind", "extensions"],
         properties: {
-          moduleId: { type: "string", minLength: 1 },
-          version: { type: "string", pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+          moduleId: moduleIdSchema,
+          version: semVerSchema,
           packageSourceKind: {
             enum: ["built-in", "user-file", "generated-local"],
           },
@@ -414,11 +433,8 @@ export const projectV1Schema = {
           "extensions",
         ],
         properties: {
-          layerId: { type: "string", minLength: 1 },
-          moduleVersion: {
-            type: "string",
-            pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-          },
+          layerId: layerIdSchema,
+          moduleVersion: semVerSchema,
           zIndex: { type: "integer" },
           visible: { type: "boolean" },
           locked: { type: "boolean" },
@@ -518,7 +534,7 @@ export const projectV1Schema = {
                 layerInstances: {
                   type: "array",
                   minItems: 1,
-                  maxItems: 1,
+                  maxItems: 8192,
                   items: cellLayerInstance,
                 },
                 extensions,
@@ -529,7 +545,7 @@ export const projectV1Schema = {
             type: "array",
             maxItems: 16384,
             uniqueItems: true,
-            items: { type: "string", minLength: 1 },
+            items: edgeIdSchema,
           },
           ownedOverlayIds: {
             type: "array",
@@ -537,7 +553,12 @@ export const projectV1Schema = {
             uniqueItems: true,
             items: uuid,
           },
-          ownedDomainGroupIds: { type: "array", maxItems: 0 },
+          ownedDomainGroupIds: {
+            type: "array",
+            maxItems: 16384,
+            uniqueItems: true,
+            items: uuid,
+          },
           extensions,
         },
       },
@@ -555,7 +576,7 @@ export const projectV1Schema = {
             formatVersion: { const: "1" },
             edges: {
               type: "array",
-              maxItems: 3200000000,
+              maxItems: 2000000,
               items: {
                 type: "object",
                 additionalProperties: false,
@@ -568,7 +589,7 @@ export const projectV1Schema = {
                 ],
                 properties: {
                   kind: { const: "edge" },
-                  edgeId: { type: "string", minLength: 1 },
+                  edgeId: edgeIdSchema,
                   adjacentCellIds: {
                     type: "array",
                     minItems: 1,
@@ -578,8 +599,8 @@ export const projectV1Schema = {
                   },
                   layerInstances: {
                     type: "array",
-                    minItems: 1,
-                    maxItems: 1,
+                    minItems: 0,
+                    maxItems: 8192,
                     items: edgeLayerInstance,
                   },
                   extensions,
@@ -597,7 +618,7 @@ export const projectV1Schema = {
             formatVersion: { const: "1" },
             connections: {
               type: "array",
-              maxItems: 1000000,
+              maxItems: 2000000,
               items: { oneOf: [lineConnection, arrowConnection] },
             },
             extensions,
@@ -611,7 +632,7 @@ export const projectV1Schema = {
             formatVersion: { const: "1" },
             overlays: {
               type: "array",
-              maxItems: 1000000,
+              maxItems: 2000000,
               items: {
                 oneOf: [
                   anchoredMarkerOverlay,
@@ -626,8 +647,66 @@ export const projectV1Schema = {
         },
       },
     },
-    domainGroups: { type: "array", maxItems: 0 },
-    embeddedAssets: { type: "array", maxItems: 0 },
+    domainGroups: {
+      type: "array",
+      maxItems: 2000000,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "kind",
+          "groupId",
+          "elementId",
+          "layerId",
+          "memberCellIds",
+          "attributes",
+          "styleOverrides",
+          "extensions",
+        ],
+        properties: {
+          kind: { const: "domain-group" },
+          groupId: uuid,
+          elementId: elementIdSchema,
+          layerId: layerIdSchema,
+          memberCellIds: {
+            type: "array",
+            minItems: 1,
+            maxItems: 2000000,
+            uniqueItems: true,
+            items: cellId,
+          },
+          attributes: { type: "object", additionalProperties: true },
+          styleOverrides: { type: "object", additionalProperties: true },
+          extensions,
+        },
+      },
+    },
+    embeddedAssets: {
+      type: "array",
+      maxItems: 4096,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "assetId",
+          "mimeType",
+          "bytes",
+          "encoding",
+          "data",
+          "extensions",
+        ],
+        properties: {
+          assetId: uuid,
+          mimeType: {
+            enum: ["image/png", "image/webp", "font/woff2", "application/json"],
+          },
+          bytes: { type: "integer", minimum: 0, maximum: 16777216 },
+          encoding: { const: "base64" },
+          data: { type: "string", maxLength: 22369624 },
+          extensions,
+        },
+      },
+    },
     viewState: { type: "null" },
     extensions,
   },

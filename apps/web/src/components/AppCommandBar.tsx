@@ -1,4 +1,12 @@
-import { Download, FileUp, FolderOpen, Redo2, Save, Undo2 } from "lucide-react";
+import {
+  Download,
+  FileInput,
+  FileUp,
+  FolderOpen,
+  Redo2,
+  Save,
+  Undo2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ToolButton } from "./ToolButton.js";
 import styles from "./AppCommandBar.module.css";
@@ -10,6 +18,7 @@ interface Props {
   canRedo: boolean;
   onNew(): void;
   onOpen(): void;
+  onImportFragment(): void;
   onSave(): void;
   onExport(): void;
   onUndo(): void;
@@ -30,6 +39,12 @@ export function AppCommandBar(props: Props) {
         </ToolButton>
         <ToolButton label={t("action.open")} onClick={props.onOpen}>
           <FolderOpen size={18} />
+        </ToolButton>
+        <ToolButton
+          label={t("action.importFragment")}
+          onClick={props.onImportFragment}
+        >
+          <FileInput size={18} />
         </ToolButton>
         <ToolButton label={t("action.save")} onClick={props.onSave}>
           <Save size={18} />

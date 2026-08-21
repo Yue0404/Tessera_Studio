@@ -1,0 +1,131 @@
+.backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(3 10 15 / 72%);
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px;
+  color: var(--color-text);
+  background: #13232d;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 18px 60px rgb(0 0 0 / 45%);
+}
+
+.dialog h2,
+.dialog p {
+  margin-top: 0;
+}
+
+.muted {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.field,
+.option,
+.layers {
+  display: grid;
+  gap: 7px;
+  margin: 14px 0;
+}
+
+.option label,
+.layers label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rect {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dialog input[type="text"],
+.dialog input[type="number"] {
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--color-text);
+  background: #091820;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.actions button {
+  padding: 8px 14px;
+  color: var(--color-text);
+  background: #223945;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.actions .primary {
+  color: #071015;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.actions .danger {
+  color: #fff;
+  background: #7d2925;
+  border-color: var(--color-danger);
+}
+
+.error {
+  color: #ffaaa1;
+}
+
+.choiceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.choiceGrid button {
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  padding: 16px;
+  color: var(--color-text);
+  background: #172d38;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choiceGrid button:focus-visible,
+.choiceGrid button:hover {
+  border-color: var(--color-accent);
+}
+
+.choiceGrid span {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .choiceGrid {
+    grid-template-columns: 1fr;
+  }
+}

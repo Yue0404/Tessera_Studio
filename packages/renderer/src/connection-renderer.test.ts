@@ -38,13 +38,34 @@ const pixiMock = vi.hoisted(() => {
     fill() {
       return this;
     }
+
+    destroy() {
+      return undefined;
+    }
   }
-  return { Graphics, instances };
+  class Container {
+    readonly children: any[] = [];
+
+    addChild(...children: any[]) {
+      this.children.push(...children);
+      return children[0];
+    }
+
+    removeChildren() {
+      return this.children.splice(0);
+    }
+
+    destroy() {
+      return undefined;
+    }
+  }
+  return { Container, Graphics, instances };
 });
 
 vi.mock("pixi.js", () => ({
   Graphics: pixiMock.Graphics,
-  Container: vi.fn(),
+  Container: pixiMock.Container,
+  Text: vi.fn(),
 }));
 
 import { ConnectionRenderer } from "./connection-renderer.js";
