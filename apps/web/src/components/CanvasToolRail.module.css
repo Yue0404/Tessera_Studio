@@ -1,0 +1,35 @@
+.toolRail,
+.contextRail {
+  position: absolute;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px;
+  background: var(--color-surface-translucent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
+  transition: left 160ms ease;
+}
+.toolRail {
+  top: 76px;
+  left: 340px;
+}
+.toolRail[data-collapsed="true"] {
+  left: 62px;
+}
+.contextRail {
+  top: 76px;
+  right: 12px;
+}
+@media (max-width: 1280px) {
+  .toolRail {
+    left: 316px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toolRail {
+    transition: none;
+  }
+}

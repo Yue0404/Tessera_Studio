@@ -1,2 +1,18 @@
 # 工作文档（包括其全部子目录和文件）
 docs/
+
+# 用户本地生成或导入的全部扩展包、归档、临时解包目录与缓存
+# 扩展包源码、规范和构建脚本应放在其他受跟踪目录；此目录只作本地包仓库。
+/local-modules/
+*.tessera-module.zip
+*.tessera-preset.zip
+
+# Node / pnpm / Vite / 测试生成物
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+test-results/
+playwright-report/
+.vite/
+*.tsbuildinfo

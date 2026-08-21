@@ -1,0 +1,46 @@
+:root {
+  font-family: Inter, "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  color: #f2eee4;
+  background: #09141d;
+  font-synthesis: none;
+  --color-bg-app: #09141d;
+  --color-bg-canvas: #0d2635;
+  --color-surface-1: #101c25;
+  --color-surface-2: #14232d;
+  --color-surface-translucent: rgb(11 22 31 / 94%);
+  --color-border: #33434d;
+  --color-border-strong: #59656a;
+  --color-text: #f2eee4;
+  --color-text-muted: #a7adb0;
+  --color-accent: #d9b866;
+  --color-accent-strong: #f0cb75;
+  --color-teal: #4ab7ad;
+  --color-danger: #e3614d;
+  --color-focus: #73a7d8;
+  --radius-control: 8px;
+  --radius-panel: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  color: inherit;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

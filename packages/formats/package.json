@@ -1,0 +1,17 @@
+{
+  "name": "@tessera/formats",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@tessera/core": "workspace:*",
+    "ajv": "^8.18.0"
+  }
+}

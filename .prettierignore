@@ -1,0 +1,8 @@
+dist
+coverage
+playwright-report
+test-results
+pnpm-lock.yaml
+docs
+.pnpm-store
+packages/formats/src/project-validator.generated.ts
