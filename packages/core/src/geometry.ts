@@ -127,6 +127,56 @@ export function visibleCells(
   return result;
 }
 
+export function visibleCellsInRect(
+  grid: ProjectGrid,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+): VisibleCell[] {
+  const rowStep = grid.type === "square" ? grid.cellSize : 1.5 * grid.cellSize;
+  const columnStep =
+    grid.type === "square" ? grid.cellSize : SQRT_3 * grid.cellSize;
+  const rowStart = Math.max(0, Math.floor(minY / rowStep) - 2);
+  const rowEnd = Math.min(grid.height - 1, Math.ceil(maxY / rowStep) + 2);
+  const columnStart = Math.max(0, Math.floor(minX / columnStep) - 2);
+  const columnEnd = Math.min(grid.width - 1, Math.ceil(maxX / columnStep) + 2);
+  const result: VisibleCell[] = [];
+  for (let row = rowStart; row <= rowEnd; row += 1) {
+    for (let column = columnStart; column <= columnEnd; column += 1) {
+      result.push({
+        row,
+        column,
+        cellId: cellId(grid.type, row, column),
+        polygon: cellPolygon(grid, row, column),
+        center: cellCenter(grid, row, column),
+      });
+    }
+  }
+  return result;
+}
+
+export function edgeSegment(
+  grid: ProjectGrid,
+  edgeId: string,
+  adjacentCellIds: readonly string[],
+): readonly [Point, Point] | undefined {
+  const ownId = adjacentCellIds[0];
+  if (ownId === undefined) return undefined;
+  const parts = ownId.split(":");
+  const row = Number(parts.at(-2));
+  const column = Number(parts.at(-1));
+  if (!Number.isInteger(row) || !Number.isInteger(column)) return undefined;
+  const polygon = cellPolygon(grid, row, column);
+  for (let side = 0; side < polygon.length; side += 1) {
+    if (edgeIdentity(grid, { row, column }, side).edgeId !== edgeId) continue;
+    const start = polygon[side];
+    const end = polygon[(side + 1) % polygon.length];
+    if (start !== undefined && end !== undefined) return [start, end];
+  }
+  return undefined;
+}
+
 function containsPoint(polygon: readonly Point[], point: Point): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
@@ -233,7 +283,7 @@ export function edgeIdentity(
   const first = ordered[0];
   const second = ordered[1];
   if (first === undefined || second === undefined)
-    throw new Error("无法规范化边坐标");
+    throw new Error("edge-coordinate-normalization-failed");
   return {
     edgeId: `edge:${grid.type}:${first.row}:${first.column}|${second.row}:${second.column}`,
     adjacentCellIds: [
@@ -243,7 +293,11 @@ export function edgeIdentity(
   };
 }
 
-function distanceToSegment(point: Point, start: Point, end: Point): number {
+export function distanceToSegment(
+  point: Point,
+  start: Point,
+  end: Point,
+): number {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const lengthSquared = dx * dx + dy * dy;
@@ -259,6 +313,29 @@ function distanceToSegment(point: Point, start: Point, end: Point): number {
           ),
         );
   return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
+}
+
+export function cellNeighbors(
+  grid: ProjectGrid,
+  cell: CellCoordinate,
+): CellCoordinate[] {
+  const sideCount = grid.type === "square" ? 4 : 6;
+  const result: CellCoordinate[] = [];
+  for (let side = 0; side < sideCount; side += 1) {
+    const neighbor =
+      grid.type === "square"
+        ? squareNeighbor(cell.row, cell.column, side)
+        : hexNeighbor(cell.row, cell.column, side);
+    if (
+      neighbor.row >= 0 &&
+      neighbor.column >= 0 &&
+      neighbor.row < grid.height &&
+      neighbor.column < grid.width
+    ) {
+      result.push(neighbor);
+    }
+  }
+  return result;
 }
 
 export function nearestEdge(cell: VisibleCell, point: Point): number {

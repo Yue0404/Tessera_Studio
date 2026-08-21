@@ -14,7 +14,7 @@
     "dev": "pnpm --filter @tessera/web dev",
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm schema:check && pnpm -r --if-present typecheck",
-    "lint": "eslint .",
+    "lint": "node scripts/check-domain-literals.mjs && eslint .",
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",

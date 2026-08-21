@@ -1,11 +1,29 @@
-import type { EdgeLike, EdgeManagerContract, EdgeOverride } from "./types.js";
+import type {
+  EdgeLike,
+  EdgeManagerContract,
+  EdgeOverride,
+  EdgeStyle,
+} from "./types.js";
+
+export class EdgeManagerError extends Error {
+  constructor(
+    readonly code: string,
+    readonly details: Readonly<Record<string, unknown>> = {},
+  ) {
+    super(code);
+    this.name = "EdgeManagerError";
+  }
+}
 
 export class Edge implements EdgeLike {
   readonly instanceId: string;
   readonly edgeId: string;
   readonly adjacentCellIds: readonly string[];
+  #persistence: "explicit-style" | "reference-only";
   #strokeColor: string;
   #strokeWidth: number;
+  #strokeOpacity: number;
+  #lineStyle: "solid" | "dashed";
 
   constructor(data: EdgeOverride) {
     if (
@@ -13,13 +31,18 @@ export class Edge implements EdgeLike {
       data.adjacentCellIds.length > 2 ||
       new Set(data.adjacentCellIds).size !== data.adjacentCellIds.length
     ) {
-      throw new Error(`Edge 邻接地格无效: ${data.edgeId}`);
+      throw new EdgeManagerError("edge-adjacency-invalid", {
+        edgeId: data.edgeId,
+      });
     }
     this.instanceId = data.instanceId;
     this.edgeId = data.edgeId;
     this.adjacentCellIds = Object.freeze([...data.adjacentCellIds]);
+    this.#persistence = data.persistence ?? "explicit-style";
     this.#strokeColor = data.strokeColor;
     this.#strokeWidth = data.strokeWidth;
+    this.#strokeOpacity = data.strokeOpacity;
+    this.#lineStyle = data.lineStyle;
   }
 
   get strokeColor(): string {
@@ -28,10 +51,25 @@ export class Edge implements EdgeLike {
   get strokeWidth(): number {
     return this.#strokeWidth;
   }
+  get strokeOpacity(): number {
+    return this.#strokeOpacity;
+  }
+  get lineStyle(): "solid" | "dashed" {
+    return this.#lineStyle;
+  }
+  get persistence(): "explicit-style" | "reference-only" {
+    return this.#persistence;
+  }
 
-  updateStyle(strokeColor: string, strokeWidth: number): void {
-    this.#strokeColor = strokeColor;
-    this.#strokeWidth = strokeWidth;
+  updateStyle(style: EdgeStyle): void {
+    this.#strokeColor = style.strokeColor;
+    this.#strokeWidth = style.strokeWidth;
+    this.#strokeOpacity = style.strokeOpacity;
+    this.#lineStyle = style.lineStyle;
+  }
+
+  setPersistence(persistence: "explicit-style" | "reference-only"): void {
+    this.#persistence = persistence;
   }
 }
 
@@ -42,7 +80,7 @@ export class EdgeManager implements EdgeManagerContract {
   constructor(edges: Iterable<EdgeOverride> = []) {
     for (const edge of edges) {
       if (this.#edgesById.has(edge.edgeId))
-        throw new Error(`重复 Edge: ${edge.edgeId}`);
+        throw new EdgeManagerError("edge-duplicate", { edgeId: edge.edgeId });
       this.#edgesById.set(edge.edgeId, new Edge(edge));
     }
   }
@@ -64,7 +102,9 @@ export class EdgeManager implements EdgeManagerContract {
     const existing = this.#edgesById.get(data.edgeId);
     if (existing !== undefined) {
       if (existing.adjacentCellIds.join("|") !== data.adjacentCellIds.join("|"))
-        throw new Error(`Edge 邻接关系冲突: ${data.edgeId}`);
+        throw new EdgeManagerError("edge-adjacency-conflict", {
+          edgeId: data.edgeId,
+        });
       return existing;
     }
     const edge = new Edge(data);
@@ -72,10 +112,22 @@ export class EdgeManager implements EdgeManagerContract {
     return edge;
   }
 
-  updateStyle(edgeId: string, strokeColor: string, strokeWidth: number): Edge {
+  updateStyle(edgeId: string, style: EdgeStyle): Edge {
     const edge = this.#edgesById.get(edgeId);
-    if (edge === undefined) throw new Error(`Edge 不存在: ${edgeId}`);
-    edge.updateStyle(strokeColor, strokeWidth);
+    if (edge === undefined)
+      throw new EdgeManagerError("edge-not-found", { edgeId });
+    edge.updateStyle(style);
+    return edge;
+  }
+
+  setPersistence(
+    edgeId: string,
+    persistence: "explicit-style" | "reference-only",
+  ): Edge {
+    const edge = this.#edgesById.get(edgeId);
+    if (edge === undefined)
+      throw new EdgeManagerError("edge-not-found", { edgeId });
+    edge.setPersistence(persistence);
     return edge;
   }
 

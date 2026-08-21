@@ -7,6 +7,7 @@ interface StoredRevision {
   projectId: string;
   revision: number;
   createdAt: string;
+  transactionId: string;
   document: string;
 }
 
@@ -27,6 +28,11 @@ class TesseraDatabase extends Dexie {
       projects: "&projectId,updatedAt",
       revisions: "&revisionId,projectId,[projectId+revision],createdAt",
     });
+    this.version(2).stores({
+      projects: "&projectId,updatedAt",
+      revisions:
+        "&revisionId,projectId,[projectId+revision],createdAt,transactionId",
+    });
   }
 }
 
@@ -40,15 +46,19 @@ export class ProjectRepository {
 
   async save(
     state: Readonly<ProjectState>,
-  ): Promise<{ revisionId: string; revision: number }> {
+  ): Promise<{ revisionId: string; revision: number; transactionId: string }> {
     // 在事务前固定快照，保存期间的新编辑属于下一修订。
     const document = stringifyProjectV1(state);
     const revisionId = `${state.projectId}:${state.revision}:${crypto.randomUUID()}`;
+    const transactionId =
+      state.lastTransactionId ??
+      `${state.projectId}:snapshot:${state.revision}`;
     const record: StoredRevision = {
       revisionId,
       projectId: state.projectId,
       revision: state.revision,
       createdAt: new Date().toISOString(),
+      transactionId,
       document,
     };
     if (this.#failNextSave) {
@@ -72,7 +82,14 @@ export class ProjectRepository {
         }
       },
     );
-    return { revisionId, revision: record.revision };
+    if (
+      state.revision === record.revision &&
+      (state.lastTransactionId ??
+        `${state.projectId}:snapshot:${state.revision}`) === transactionId
+    ) {
+      state.cells.markAllClean();
+    }
+    return { revisionId, revision: record.revision, transactionId };
   }
 
   async loadLatest(): Promise<ProjectState | null> {
@@ -137,6 +154,16 @@ export class ProjectRepository {
       .equals(projectId)
       .count();
   }
+  async latestRevisionTransactionIdForTest(
+    projectId: string,
+  ): Promise<string | undefined> {
+    const revisions = await this.#database.revisions
+      .where("projectId")
+      .equals(projectId)
+      .toArray();
+    revisions.sort((left, right) => right.revision - left.revision);
+    return revisions[0]?.transactionId;
+  }
   async deleteCurrentRevisionForTest(projectId: string): Promise<void> {
     const pointer = await this.#database.projects.get(projectId);
     if (pointer !== undefined)
@@ -176,11 +203,16 @@ export class ProjectRepository {
 }
 
 export class ProjectRecoveryError extends Error {
+  readonly code = "project-recovery-no-valid-revision";
+  readonly details: Readonly<Record<string, unknown>>;
+  readonly issues: readonly unknown[] = [];
+
   constructor(
     readonly projectId: string,
     readonly candidateCount: number,
   ) {
-    super(`工程 ${projectId} 没有可恢复的有效修订`);
+    super("project-recovery-no-valid-revision");
     this.name = "ProjectRecoveryError";
+    this.details = { projectId, candidateCount };
   }
 }

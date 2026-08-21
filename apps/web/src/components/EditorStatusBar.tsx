@@ -16,6 +16,12 @@ export function EditorStatusBar({ state }: { state: Readonly<ProjectState> }) {
       <span data-testid="edge-count">
         {t("status.edges")}: {state.edges.size}
       </span>
+      <span data-testid="overlay-count">
+        {t("status.overlays")}: {state.overlays.size}
+      </span>
+      <span data-testid="connection-count">
+        {t("status.connections")}: {state.connections.size}
+      </span>
       <span>{t("status.zoom")}</span>
     </div>
   );

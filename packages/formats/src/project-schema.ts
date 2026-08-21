@@ -52,19 +52,265 @@ const edgeLayerInstance = {
   ],
   properties: {
     ...instanceBase,
+    attributes: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        persistence: { enum: ["explicit-style", "reference-only"] },
+      },
+    },
     elementId: { const: "tessera.basic:edge.style" },
     layerId: { const: "tessera.basic.edge-style" },
     styleOverrides: {
       type: "object",
       additionalProperties: false,
-      required: ["strokeColor", "strokeOpacity", "strokeWidth", "lineCap"],
+      required: [
+        "strokeColor",
+        "strokeOpacity",
+        "strokeWidth",
+        "lineCap",
+        "lineStyle",
+      ],
       properties: {
         strokeColor: color,
         strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
         strokeWidth: { type: "number", exclusiveMinimum: 0 },
         lineCap: { enum: ["round", "butt", "square"] },
+        lineStyle: { enum: ["solid", "dashed"] },
       },
     },
+  },
+} as const;
+
+const mapPoint = {
+  type: "object",
+  additionalProperties: false,
+  required: ["x", "y"],
+  properties: {
+    x: { type: "number" },
+    y: { type: "number" },
+  },
+} as const;
+const connectionEndpoint = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "cellId", "extensions"],
+      properties: { kind: { const: "cell-center" }, cellId, extensions },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "edgeId", "extensions"],
+      properties: {
+        kind: { const: "edge-midpoint" },
+        edgeId: { type: "string", minLength: 1 },
+        extensions,
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "point", "extensions"],
+      properties: { kind: { const: "map-point" }, point: mapPoint, extensions },
+    },
+  ],
+} as const;
+const connectionStyle = {
+  type: "object",
+  additionalProperties: false,
+  required: ["strokeColor", "strokeWidth", "strokeOpacity", "lineStyle"],
+  properties: {
+    strokeColor: color,
+    strokeWidth: { type: "number", exclusiveMinimum: 0 },
+    strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
+    lineStyle: { enum: ["solid", "dashed"] },
+  },
+} as const;
+const connectionCommon = {
+  connectionId: uuid,
+  layerId: { const: "tessera.basic.connection" },
+  start: connectionEndpoint,
+  end: connectionEndpoint,
+  styleOverrides: connectionStyle,
+  attributes: { type: "object", additionalProperties: false },
+  label: { type: ["string", "null"], maxLength: 2048 },
+  extensions,
+} as const;
+const lineConnection = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "kind",
+    "connectionId",
+    "elementId",
+    "layerId",
+    "start",
+    "end",
+    "styleOverrides",
+    "attributes",
+    "label",
+    "extensions",
+  ],
+  properties: {
+    ...connectionCommon,
+    kind: { const: "line" },
+    elementId: { const: "tessera.basic:connection.line" },
+  },
+} as const;
+const arrowConnection = {
+  type: "object",
+  additionalProperties: false,
+  required: [...lineConnection.required, "arrowStart", "arrowEnd"],
+  properties: {
+    ...connectionCommon,
+    kind: { const: "arrow" },
+    elementId: { const: "tessera.basic:connection.arrow" },
+    arrowStart: { type: "boolean" },
+    arrowEnd: { type: "boolean" },
+  },
+} as const;
+const overlayAnchor = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "cellId", "extensions"],
+      properties: { kind: { const: "cell" }, cellId, extensions },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "edgeId", "extensions"],
+      properties: {
+        kind: { const: "edge" },
+        edgeId: { type: "string", minLength: 1 },
+        extensions,
+      },
+    },
+  ],
+} as const;
+const markerStyle = {
+  type: "object",
+  additionalProperties: false,
+  required: ["size", "rotation", "opacity", "color", "markerShape"],
+  properties: {
+    size: { type: "number", exclusiveMinimum: 0 },
+    rotation: { type: "number" },
+    opacity: { type: "number", minimum: 0, maximum: 1 },
+    color,
+    markerShape: { enum: ["circle", "diamond", "pin"] },
+  },
+} as const;
+const textStyle = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "fontSize",
+    "rotation",
+    "opacity",
+    "color",
+    "fontWeight",
+    "align",
+    "backgroundVisible",
+  ],
+  properties: {
+    fontSize: { type: "number", exclusiveMinimum: 0 },
+    rotation: { type: "number" },
+    opacity: { type: "number", minimum: 0, maximum: 1 },
+    color,
+    fontWeight: { enum: ["normal", "bold"] },
+    align: { enum: ["left", "center", "right"] },
+    backgroundVisible: { type: "boolean" },
+  },
+} as const;
+const markerAttributes = {
+  type: "object",
+  additionalProperties: false,
+} as const;
+const textAttributes = {
+  type: "object",
+  additionalProperties: false,
+  required: ["text"],
+  properties: { text: { type: "string", maxLength: 2048 } },
+} as const;
+const anchoredMarkerOverlay = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "kind",
+    "overlayId",
+    "elementId",
+    "layerId",
+    "overlayType",
+    "anchor",
+    "styleOverrides",
+    "attributes",
+    "orderInLayer",
+    "extensions",
+  ],
+  properties: {
+    kind: { const: "anchored-overlay" },
+    overlayId: uuid,
+    elementId: { const: "tessera.basic:marker" },
+    layerId: { const: "tessera.basic.placed-object" },
+    overlayType: { const: "marker" },
+    anchor: overlayAnchor,
+    styleOverrides: markerStyle,
+    attributes: markerAttributes,
+    orderInLayer: { type: "integer", minimum: -1000000, maximum: 1000000 },
+    extensions,
+  },
+} as const;
+const anchoredTextOverlay = {
+  ...anchoredMarkerOverlay,
+  properties: {
+    ...anchoredMarkerOverlay.properties,
+    elementId: { const: "tessera.basic:text" },
+    layerId: { const: "tessera.basic.annotation" },
+    overlayType: { const: "text" },
+    styleOverrides: textStyle,
+    attributes: textAttributes,
+  },
+} as const;
+const freeMarkerOverlay = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "kind",
+    "overlayId",
+    "elementId",
+    "layerId",
+    "overlayType",
+    "point",
+    "styleOverrides",
+    "attributes",
+    "orderInLayer",
+    "extensions",
+  ],
+  properties: {
+    kind: { const: "free-overlay" },
+    overlayId: uuid,
+    elementId: { const: "tessera.basic:marker" },
+    layerId: { const: "tessera.basic.placed-object" },
+    overlayType: { const: "marker" },
+    point: mapPoint,
+    styleOverrides: markerStyle,
+    attributes: markerAttributes,
+    orderInLayer: { type: "integer", minimum: -1000000, maximum: 1000000 },
+    extensions,
+  },
+} as const;
+const freeTextOverlay = {
+  ...freeMarkerOverlay,
+  properties: {
+    ...freeMarkerOverlay.properties,
+    elementId: { const: "tessera.basic:text" },
+    layerId: { const: "tessera.basic.annotation" },
+    overlayType: { const: "text" },
+    styleOverrides: textStyle,
+    attributes: textAttributes,
   },
 } as const;
 
@@ -285,7 +531,12 @@ export const projectV1Schema = {
             uniqueItems: true,
             items: { type: "string", minLength: 1 },
           },
-          ownedOverlayIds: { type: "array", maxItems: 0 },
+          ownedOverlayIds: {
+            type: "array",
+            maxItems: 16384,
+            uniqueItems: true,
+            items: uuid,
+          },
           ownedDomainGroupIds: { type: "array", maxItems: 0 },
           extensions,
         },
@@ -344,7 +595,11 @@ export const projectV1Schema = {
           required: ["formatVersion", "connections", "extensions"],
           properties: {
             formatVersion: { const: "1" },
-            connections: { type: "array", maxItems: 0 },
+            connections: {
+              type: "array",
+              maxItems: 1000000,
+              items: { oneOf: [lineConnection, arrowConnection] },
+            },
             extensions,
           },
         },
@@ -354,7 +609,18 @@ export const projectV1Schema = {
           required: ["formatVersion", "overlays", "extensions"],
           properties: {
             formatVersion: { const: "1" },
-            overlays: { type: "array", maxItems: 0 },
+            overlays: {
+              type: "array",
+              maxItems: 1000000,
+              items: {
+                oneOf: [
+                  anchoredMarkerOverlay,
+                  anchoredTextOverlay,
+                  freeMarkerOverlay,
+                  freeTextOverlay,
+                ],
+              },
+            },
             extensions,
           },
         },

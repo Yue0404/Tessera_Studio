@@ -1,10 +1,15 @@
 import {
+  BoxSelect,
   Brush,
+  Hand,
   Layers3,
   Map,
+  MapPin,
+  MousePointer2,
   Package,
   PanelRight,
   PenLine,
+  Waypoints,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { EditorTool } from "@tessera/core";
@@ -24,6 +29,20 @@ export function CanvasToolRail(props: Props) {
     <>
       <div className={styles.toolRail} data-collapsed={props.catalogCollapsed}>
         <ToolButton
+          label={t("tool.select")}
+          active={props.tool === "select"}
+          onClick={() => props.onTool("select")}
+        >
+          <MousePointer2 size={19} />
+        </ToolButton>
+        <ToolButton
+          label={t("tool.pan")}
+          active={props.tool === "pan"}
+          onClick={() => props.onTool("pan")}
+        >
+          <Hand size={19} />
+        </ToolButton>
+        <ToolButton
           label={t("tool.brush")}
           active={props.tool === "brush"}
           onClick={() => props.onTool("brush")}
@@ -36,6 +55,27 @@ export function CanvasToolRail(props: Props) {
           onClick={() => props.onTool("edge")}
         >
           <PenLine size={19} />
+        </ToolButton>
+        <ToolButton
+          label={t("tool.marker")}
+          active={props.tool === "marker"}
+          onClick={() => props.onTool("marker")}
+        >
+          <MapPin size={19} />
+        </ToolButton>
+        <ToolButton
+          label={t("tool.connection")}
+          active={props.tool === "connection"}
+          onClick={() => props.onTool("connection")}
+        >
+          <Waypoints size={19} />
+        </ToolButton>
+        <ToolButton
+          label={t("tool.boxSelect")}
+          active={props.tool === "box-select"}
+          onClick={() => props.onTool("box-select")}
+        >
+          <BoxSelect size={19} />
         </ToolButton>
       </div>
       <div className={styles.contextRail}>
