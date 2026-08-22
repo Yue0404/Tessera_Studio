@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { chromium } from "@playwright/test";
 import { createServer } from "vite";
-import { isExpectedCiv6ModuleArchivePath } from "./archive-path-contract.mjs";
+import { inspectExistingCiv6ModuleArchivePath } from "./archive-path-contract.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "../../..");
@@ -385,9 +385,13 @@ async function main() {
     assert(extraction.ok === true, "合成包生成未成功。");
     assert(isAbsolute(extraction.archivePath), "CLI 未返回绝对归档路径。");
     assert(existsSync(extraction.archivePath), "CLI 返回的归档不存在。");
+    const archiveLocation = inspectExistingCiv6ModuleArchivePath(
+      extraction.archivePath,
+      output,
+    );
     assert(
-      isExpectedCiv6ModuleArchivePath(extraction.archivePath, output),
-      "CLI 返回的归档位置不符合单一 ZIP 制品契约。",
+      archiveLocation.matches,
+      `CLI 返回的归档位置不符合单一 ZIP 制品契约（actual=${archiveLocation.diagnostic.actualName}; expected=${archiveLocation.diagnostic.expectedName}; relative=${archiveLocation.diagnostic.relative}）。`,
     );
     assert(!existsSync(output), "内部 staging 目录被误留为正式制品。");
     const safeExtraction = { ...extraction };
