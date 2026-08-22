@@ -48,12 +48,20 @@
   <data name="SelectGameFolderTitle" xml:space="preserve"><value>选择 Civilization VI 正式游戏安装根目录</value></data>
   <data name="SelectOutputFolderTitle" xml:space="preserve"><value>选择 tessera.civ6 的本地输出父目录</value></data>
   <data name="ErrorTitle" xml:space="preserve"><value>无法完成操作</value></data>
-  <data name="ErrorUnknown" xml:space="preserve"><value>操作失败。错误码：{0}</value></data>
+  <data name="ErrorUnknownAction" xml:space="preserve"><value>操作失败，请检查输入后重试。</value></data>
+  <data name="ErrorCodeLine" xml:space="preserve"><value>错误码：{0}</value></data>
+  <data name="ErrorFieldLine" xml:space="preserve"><value>位置/字段：{0}</value></data>
+  <data name="FieldInputDirectory" xml:space="preserve"><value>游戏安装根目录</value></data>
+  <data name="FieldOutputDirectory" xml:space="preserve"><value>本地输出位置</value></data>
+  <data name="FieldModuleVersion" xml:space="preserve"><value>模块版本</value></data>
+  <data name="FieldGeneratorVersion" xml:space="preserve"><value>生成器版本</value></data>
+  <data name="FieldInternalHidden" xml:space="preserve"><value>内部位置（已隐藏）</value></data>
   <data name="ErrorGameNotFound" xml:space="preserve"><value>未在有界的已知位置找到正式游戏安装。请手动选择安装根目录。</value></data>
   <data name="ErrorGameBase" xml:space="preserve"><value>所选目录不是完整的文明 6 正式游戏安装，缺少 Base 基线。</value></data>
   <data name="ErrorExpansion" xml:space="preserve"><value>所选安装缺少 Rise and Fall 或 Gathering Storm 正式扩展基线。</value></data>
   <data name="ErrorOutputRequired" xml:space="preserve"><value>请先选择本地输出位置。</value></data>
   <data name="ErrorOverlap" xml:space="preserve"><value>输出位置不能与正式游戏安装目录重叠。</value></data>
+  <data name="ErrorOperationInvalid" xml:space="preserve"><value>所选路径无效，请重新选择可访问的目录。</value></data>
   <data name="ErrorOpenOutput" xml:space="preserve"><value>无法打开输出目录。</value></data>
   <data name="ProgressChecking" xml:space="preserve"><value>正在检查正式游戏安装…</value></data>
   <data name="ProgressScanning" xml:space="preserve"><value>正在读取内容目录…</value></data>

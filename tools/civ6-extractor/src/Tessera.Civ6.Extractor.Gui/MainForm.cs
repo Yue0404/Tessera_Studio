@@ -297,10 +297,11 @@ public sealed class MainForm : Form
             _ => GuiText.Get("StatusIdle"),
         };
 
-        if (next.Stage == "failed" && next.Error is not null && lastPresentedError != next.Error.Code)
+        var errorIdentity = next.Error is null ? null : $"{next.Error.Code}\u001f{next.Error.FieldPath}";
+        if (next.Stage == "failed" && next.Error is not null && lastPresentedError != errorIdentity)
         {
-            lastPresentedError = next.Error.Code;
-            PresentError(next.Error.Code);
+            lastPresentedError = errorIdentity;
+            PresentError(next.Error.Code, next.Error.FieldPath);
         }
         else if (next.Stage != "failed")
         {
@@ -308,12 +309,16 @@ public sealed class MainForm : Form
         }
     }
 
-    private void PresentError(string code) => MessageBox.Show(
-        this,
-        GuiText.Error(code),
-        GuiText.Get("ErrorTitle"),
-        MessageBoxButtons.OK,
-        MessageBoxIcon.Error);
+    private void PresentError(string code, string? fieldPath = null)
+    {
+        var presentation = GuiText.DescribeError(code, fieldPath);
+        MessageBox.Show(
+            this,
+            presentation.DialogText,
+            GuiText.Get("ErrorTitle"),
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Error);
+    }
 
     private static string Storefront(string? value) => value switch
     {

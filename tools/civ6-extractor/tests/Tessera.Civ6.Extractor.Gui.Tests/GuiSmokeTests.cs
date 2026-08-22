@@ -120,6 +120,70 @@ public sealed class GuiSmokeTests
         Assert.DoesNotContain("Progress", resolved, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void 已知错误显示行动错误码和安全相对位置()
+    {
+        var presentation = GuiText.DescribeError(
+            "game-expansion-required",
+            "DLC/Expansion2/Expansion2.modinfo");
+
+        Assert.Equal(GuiText.Get("ErrorExpansion"), presentation.Action);
+        Assert.Equal("game-expansion-required", presentation.Code);
+        Assert.Equal("DLC/Expansion2/Expansion2.modinfo", presentation.Field);
+        Assert.Contains("错误码：game-expansion-required", presentation.DialogText, StringComparison.Ordinal);
+        Assert.Contains("位置/字段：DLC/Expansion2/Expansion2.modinfo", presentation.DialogText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void 未知错误无字段时仍提供本地化行动和稳定错误码()
+    {
+        var presentation = GuiText.DescribeError("future-stable-code");
+
+        Assert.Equal(GuiText.Get("ErrorUnknownAction"), presentation.Action);
+        Assert.Null(presentation.Field);
+        Assert.Contains("错误码：future-stable-code", presentation.DialogText, StringComparison.Ordinal);
+        Assert.DoesNotContain("位置/字段", presentation.DialogText, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("inputDirectory", "FieldInputDirectory")]
+    [InlineData("outputDirectory", "FieldOutputDirectory")]
+    public void 输入输出字段只显示本地化字段名(string fieldPath, string expectedKey)
+    {
+        var presentation = GuiText.DescribeError("operation-invalid", fieldPath);
+
+        Assert.Equal(GuiText.Get(expectedKey), presentation.Field);
+        Assert.DoesNotContain("Directory", presentation.DialogText, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Users\Example\CivilizationVI.exe")]
+    [InlineData(@"D:\SteamLibrary\steamapps\common\Sid Meier's Civilization VI")]
+    [InlineData("../private/output")]
+    public void 绝对或穿越位置被隐藏且不泄露原文(string unsafeField)
+    {
+        var presentation = GuiText.DescribeError("operation-invalid", unsafeField);
+
+        Assert.Equal(GuiText.Get("FieldInternalHidden"), presentation.Field);
+        Assert.DoesNotContain(unsafeField, presentation.DialogText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SteamLibrary", presentation.DialogText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void 工作流内部异常文本不会进入展示结果()
+    {
+        var workflowError = new ExtractionWorkflowError(
+            "operation-invalid",
+            "inputDirectory",
+            "SECRET internal exception C:\\Users\\Example");
+
+        var presentation = GuiText.DescribeError(workflowError.Code, workflowError.FieldPath);
+
+        Assert.DoesNotContain("SECRET", presentation.DialogText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Example", presentation.DialogText, StringComparison.Ordinal);
+        Assert.Contains("operation-invalid", presentation.DialogText, StringComparison.Ordinal);
+    }
+
     private static T Find<T>(Control root, string name)
         where T : Control => Assert.IsType<T>(Assert.Single(root.Controls.Find(name, true)));
 
