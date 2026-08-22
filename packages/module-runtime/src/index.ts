@@ -16,7 +16,11 @@ export {
 } from "./legacy.js";
 export { ModuleRuntimeError, type ModuleRuntimeErrorCode } from "./errors.js";
 export { createMigrationPlan } from "./migration.js";
-export { resolveLocalizedText } from "./semantic.js";
+export {
+  appVersionCompatible,
+  moduleVersionSatisfies,
+  resolveLocalizedText,
+} from "./semantic.js";
 export {
   parseBuiltInPackageFileSet,
   parseExtensionPackageSource,

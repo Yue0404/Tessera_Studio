@@ -32,6 +32,7 @@ export interface EditorViewProps {
   onNew(): void;
   onOpenFile(file: File): Promise<void>;
   onOpenFragmentFile(file: File): Promise<void>;
+  onOpenPackageSettings?(): void;
   externalErrorKey?: string | null;
   onDismissExternalError?(): void;
 }
@@ -46,6 +47,7 @@ export function EditorView({
   onNew,
   onOpenFile,
   onOpenFragmentFile,
+  onOpenPackageSettings = () => undefined,
   externalErrorKey = null,
   onDismissExternalError,
 }: EditorViewProps) {
@@ -310,6 +312,7 @@ export function EditorView({
           onImportFragment={() => fragmentInput.current?.click()}
           onSave={() => void save()}
           onExport={() => void openExportDialog()}
+          onPackageSettings={onOpenPackageSettings}
           onUndo={() => store.undo()}
           onRedo={() => store.redo()}
         />

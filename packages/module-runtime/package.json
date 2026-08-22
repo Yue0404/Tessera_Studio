@@ -5,7 +5,8 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./user-file": "./src/user-file.ts"
   },
   "scripts": {
     "build": "tsc -b",
@@ -13,6 +14,7 @@
   },
   "dependencies": {
     "@tessera/core": "workspace:*",
+    "@zip.js/zip.js": "^2.8.54",
     "semver": "^7.8.5"
   },
   "devDependencies": {

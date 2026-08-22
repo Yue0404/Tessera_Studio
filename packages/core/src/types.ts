@@ -173,7 +173,10 @@ export interface FixedLayerState {
   visible: boolean;
   locked: boolean;
   opacity: number;
-  allowedKinds: readonly ("cell" | "edge" | "overlay" | "connection")[];
+  runtimeStatus?: "available" | "missing";
+  allowedKinds: readonly (
+    "cell" | "edge" | "overlay" | "connection" | "domain-group"
+  )[];
 }
 
 export interface SparseChunkBucket {

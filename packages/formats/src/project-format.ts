@@ -3,6 +3,7 @@ import {
   EdgeManager,
   OverlayManager,
   SparseChunkStore,
+  TESSERA_APP_VERSION,
   createFixedLayerMap,
   type CellOverride,
   type ConnectionData,
@@ -23,6 +24,7 @@ import {
 } from "./deterministic-order.js";
 import { validateEmbeddedAssets } from "./embedded-asset-validation.js";
 import type { ProjectV1Document } from "./format-types.js";
+import type { FragmentModuleResolver } from "./fragment-merge.js";
 import { parseJsonWithSafetyLimits } from "./json-input.js";
 import {
   ProjectReconcileError,
@@ -922,7 +924,7 @@ export function toProjectV1(
   const project: Record<string, any> = {
     kind: "tessera-project",
     formatVersion: "1",
-    createdWithAppVersion: "0.1.0",
+    createdWithAppVersion: TESSERA_APP_VERSION,
     projectId: state.projectId,
     name: state.name,
     createdAt: state.createdAt,
@@ -1090,8 +1092,151 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+export interface ProjectModuleResolutionOptions {
+  readonly moduleResolver?: FragmentModuleResolver;
+  readonly currentAppVersion?: string;
+  readonly moduleResolutionMode?: "strict" | "tolerant";
+}
+
+function runtimeAllowedKinds(
+  primitives: readonly string[],
+): readonly ("cell" | "edge" | "overlay" | "connection" | "domain-group")[] {
+  const result = new Set<
+    "cell" | "edge" | "overlay" | "connection" | "domain-group"
+  >();
+  for (const primitive of primitives) {
+    if (primitive === "cell") result.add("cell");
+    else if (primitive === "edge") result.add("edge");
+    else if (primitive === "marker-overlay" || primitive === "text-overlay")
+      result.add("overlay");
+    else if (primitive === "line" || primitive === "arrow")
+      result.add("connection");
+    else if (primitive === "domain-group") result.add("domain-group");
+  }
+  return [...result];
+}
+
+function resolvedProjectLayers(
+  project: ProjectV1Document,
+  options: ProjectModuleResolutionOptions,
+): Map<string, any> {
+  const layers = createFixedLayerMap() as Map<string, any>;
+  const resolver = options.moduleResolver;
+  const hasExternalModule = project.modules.some(
+    (module) => module.moduleId !== "tessera.basic",
+  );
+  if (resolver !== undefined || hasExternalModule) {
+    if (resolver !== undefined && options.currentAppVersion === undefined) {
+      throw new ProjectFormatError("project-module-resolver-invalid", {
+        reason: "current-app-version-required",
+      });
+    }
+    const resolvedLayers = new Map<string, any>();
+    const placeholderLayers = new Map<string, any>();
+    for (const module of project.modules) {
+      if (module.moduleId === "tessera.basic") continue;
+      const contract = resolver?.resolve({
+        moduleId: module.moduleId,
+        version: module.version,
+        appVersion: options.currentAppVersion ?? "",
+        gridType: project.grid.type,
+      });
+      if (
+        contract === undefined ||
+        !contract.appVersionSupported ||
+        contract.version !== module.version ||
+        !contract.supportedGrids.includes(project.grid.type)
+      ) {
+        if ((options.moduleResolutionMode ?? "tolerant") === "strict") {
+          throw new ProjectFormatError("project-module-unavailable", {
+            moduleId: module.moduleId,
+            version: module.version,
+          });
+        }
+        for (const layer of project.layerStates) {
+          if (
+            layer.moduleVersion === module.version &&
+            layer.layerId.startsWith(module.moduleId + ".")
+          ) {
+            placeholderLayers.set(layer.layerId, {
+              layerId: layer.layerId,
+              moduleVersion: layer.moduleVersion,
+              zIndex: layer.zIndex,
+              visible: layer.visible,
+              locked: true,
+              opacity: layer.opacity,
+              allowedKinds: [],
+              runtimeStatus: "missing",
+            });
+          }
+        }
+        continue;
+      }
+      for (const layer of contract.layers) {
+        if (resolvedLayers.has(layer.layerId) || layers.has(layer.layerId)) {
+          throw new ProjectFormatError("project-module-layer-conflict", {
+            layerId: layer.layerId,
+          });
+        }
+        resolvedLayers.set(layer.layerId, {
+          layerId: layer.layerId,
+          moduleVersion: contract.version,
+          zIndex: layer.zIndex,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          allowedKinds: runtimeAllowedKinds(layer.allowedPrimitives),
+        });
+      }
+    }
+    const actualExternalLayerIds = new Set(
+      project.layerStates
+        .filter((layer) => !layers.has(layer.layerId))
+        .map((layer) => layer.layerId),
+    );
+    for (const layerId of resolvedLayers.keys()) {
+      if (!actualExternalLayerIds.has(layerId)) {
+        throw new ProjectFormatError("project-module-layer-missing", {
+          layerId,
+        });
+      }
+    }
+    for (const layerId of actualExternalLayerIds) {
+      if (!resolvedLayers.has(layerId) && !placeholderLayers.has(layerId)) {
+        throw new ProjectFormatError("project-module-layer-unknown", {
+          layerId,
+        });
+      }
+    }
+    for (const [layerId, layer] of resolvedLayers) layers.set(layerId, layer);
+    for (const [layerId, layer] of placeholderLayers)
+      layers.set(layerId, layer);
+  }
+  for (const layer of project.layerStates as any[]) {
+    const current = layers.get(layer.layerId);
+    if (current !== undefined) {
+      if (
+        current.moduleVersion !== layer.moduleVersion ||
+        current.zIndex !== layer.zIndex
+      ) {
+        throw new ProjectFormatError("project-module-layer-mismatch", {
+          layerId: layer.layerId,
+        });
+      }
+      layers.set(layer.layerId, {
+        ...current,
+        visible: layer.visible,
+        locked: current.runtimeStatus === "missing" ? true : layer.locked,
+        opacity: layer.opacity,
+      });
+    }
+  }
+  return layers;
+}
+
 function stateFromProjectDocument(
   projectInput: ProjectV1Document,
+  options: ProjectModuleResolutionOptions = {},
 ): ProjectState {
   const project = projectInput as Record<string, any>;
   const cells = new Map<string, CellOverride>();
@@ -1169,18 +1314,7 @@ function stateFromProjectDocument(
       }
     }
   }
-  const layers = createFixedLayerMap() as Map<string, any>;
-  for (const layer of project.layerStates as any[]) {
-    const current = layers.get(layer.layerId);
-    if (current !== undefined) {
-      layers.set(layer.layerId, {
-        ...current,
-        visible: layer.visible,
-        locked: layer.locked,
-        opacity: layer.opacity,
-      });
-    }
-  }
+  const layers = resolvedProjectLayers(projectInput, options);
   const state: ProjectState = {
     projectId: project.projectId,
     name: project.name,
@@ -1245,14 +1379,19 @@ function stateFromProjectDocument(
 }
 
 /** 内部修订恢复专用：严格保留 projectId 与 Project 范围身份。 */
-export function restoreProjectV1(text: string): ProjectState {
-  return stateFromProjectDocument(parseProjectDocumentV1(text));
+export function restoreProjectV1(
+  text: string,
+  options: ProjectModuleResolutionOptions = {},
+): ProjectState {
+  return stateFromProjectDocument(parseProjectDocumentV1(text), options);
 }
 
 export interface ExternalProjectImportOptions {
   readonly currentProjectId: string | null;
   readonly sameProjectIdPolicy: "copy" | "replace";
   readonly uuidGenerator?: () => string;
+  readonly moduleResolver?: FragmentModuleResolver;
+  readonly currentAppVersion?: string;
 }
 
 export interface PreparedExternalProjectV1 {
@@ -1277,7 +1416,7 @@ function stateFromExternalProjectDocument(
     parsed.exportScope === "partial" ||
     (options.currentProjectId === parsed.projectId &&
       options.sameProjectIdPolicy === "copy");
-  if (!mustCopy) return stateFromProjectDocument(parsed);
+  if (!mustCopy) return stateFromProjectDocument(parsed, options);
   const nextProjectId = (
     options.uuidGenerator ?? (() => crypto.randomUUID())
   )();
@@ -1291,7 +1430,7 @@ function stateFromExternalProjectDocument(
   parsed.projectId = nextProjectId;
   try {
     validateProjectDocumentV1(parsed);
-    return stateFromProjectDocument(parsed);
+    return stateFromProjectDocument(parsed, options);
   } catch (error) {
     parsed.projectId = previousProjectId;
     throw error;

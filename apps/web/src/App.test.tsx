@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { StrictMode } from "react";
 import { createProject, EditorStore, type ProjectState } from "@tessera/core";
@@ -543,5 +549,135 @@ describe("App recovery", () => {
     await screen.findByText("片段无法合并，当前工程未改变。");
     expect(screen.getByRole("dialog")).toBeDefined();
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it("先恢复本地包并设置 resolver provider，再恢复最近工程", async () => {
+    let provider:
+      | (() => {
+          readonly moduleResolver?: unknown;
+          readonly currentAppVersion?: string;
+        })
+      | undefined;
+    const events: string[] = [];
+    const repository = {
+      setModuleResolutionProvider(next: typeof provider) {
+        provider = next;
+        events.push("provider");
+      },
+      async loadLatest() {
+        events.push("project");
+        expect(provider?.().currentAppVersion).toBe("0.1.0");
+        return null;
+      },
+      async save() {
+        return undefined;
+      },
+    };
+    const packageRepository = {
+      async recover() {
+        events.push("packages");
+        return {
+          completedCommitIds: [],
+          rolledBackCommitIds: [],
+          deletedOrphanCommitIds: [],
+          issues: [],
+        };
+      },
+      async listRegistrations() {
+        return [];
+      },
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={repository}
+          packageRepository={packageRepository as never}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByRole("heading", { name: "新建地图" });
+    expect(events).toEqual(["provider", "packages", "project"]);
+    expect(provider?.().moduleResolver).toBeDefined();
+  });
+
+  it("App 将当前包 resolver 放入 Project 导入 options", async () => {
+    const current = project("导入目标");
+    const importProjectFile = vi.fn(async (options: unknown) => {
+      void options;
+      return {
+        status: "loaded" as const,
+        store: new EditorStore(current),
+        identity: "preserved" as const,
+      };
+    });
+    const packageRepository = {
+      async recover() {
+        return {
+          completedCommitIds: [],
+          rolledBackCommitIds: [],
+          deletedOrphanCommitIds: [],
+          issues: [],
+        };
+      },
+      async listRegistrations() {
+        return [];
+      },
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{
+            loadLatest: async () => current,
+            save: vi.fn(async () => undefined),
+          }}
+          packageRepository={packageRepository as never}
+          projectWorkflowLoader={async () => ({
+            importProjectFile: importProjectFile as never,
+            projectFileErrorTranslationKey: () => "error.invalidProject",
+          })}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByTestId("editor-project");
+    fireEvent.change(screen.getByLabelText("编辑器打开工程"), {
+      target: { files: [new File(["{}"], "external.tessera-project.json")] },
+    });
+    await waitFor(() => expect(importProjectFile).toHaveBeenCalledTimes(1));
+    expect(
+      (importProjectFile.mock.calls[0]?.[0] as { moduleResolver?: unknown })
+        .moduleResolver,
+    ).toBeDefined();
+  });
+
+  it("新建表单双提交只启动一次保存", async () => {
+    let release!: () => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App repository={{ loadLatest: async () => null, save }} />
+      </I18nextProvider>,
+    );
+    const name = await screen.findByLabelText("工程名称");
+    fireEvent.change(name, { target: { value: "单飞工程" } });
+    const form = name.closest("form");
+    if (form === null) throw new Error("缺少新建表单");
+    act(() => {
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    release();
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-project")).toBeDefined(),
+    );
   });
 });

@@ -877,6 +877,9 @@ export class EditorStore {
     if (layerId === "tessera.system.grid" && patch.locked === false) {
       throw new Error("system-layer-must-stay-locked");
     }
+    if (current.runtimeStatus === "missing" && patch.locked === false) {
+      throw new Error("missing-module-layer-must-stay-locked");
+    }
     const next = { ...current, ...patch };
     if (next.opacity < 0 || next.opacity > 1)
       throw new RangeError("layer-opacity-invalid");

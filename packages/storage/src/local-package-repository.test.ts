@@ -133,6 +133,41 @@ describe("LocalPackageRepository", () => {
     reopened.close();
   });
 
+  it("staging validator 从临时命名空间重开文件，失败不切换旧指针", async () => {
+    const databaseName = `staging-validator-${crypto.randomUUID()}`;
+    const opfs = new MemoryOpfsGateway();
+    const lock = new MemoryRepositoryLockGateway();
+    const current = repository(databaseName, opfs, lock);
+    await current.install(packageInput(1));
+    const observed: (readonly number[])[] = [];
+    await current.replace(packageInput(2), {
+      async stagingValidator(access) {
+        expect(access.identity).toEqual(IDENTITY);
+        expect(access.files).toEqual([{ path: "module.json", bytes: 1 }]);
+        observed.push(await readBytes(await access.openFile("module.json")));
+      },
+    });
+    expect(observed).toEqual([[2]]);
+    const commitCountBeforeFailure = (await opfs.listCommitIds()).length;
+
+    await expect(
+      current.replace(packageInput(3), {
+        async stagingValidator(access) {
+          expect(await readBytes(await access.openFile("module.json"))).toEqual(
+            [3],
+          );
+          throw new Error("validation rejected");
+        },
+      }),
+    ).rejects.toMatchObject({ code: "local-package-install-failed" });
+    expect(
+      await readBytes(await current.openFile(IDENTITY, "module.json")),
+    ).toEqual([2]);
+    expect(await current.pendingCountForTest()).toBe(0);
+    expect(await opfs.listCommitIds()).toHaveLength(commitCountBeforeFailure);
+    current.close();
+  });
+
   it.each([
     ["after-staging-validation", "local-package-install-failed", false],
     ["during-database-transaction", "local-package-database-failed", false],

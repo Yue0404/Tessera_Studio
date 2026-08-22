@@ -1,7 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
-import { createProject, EditorStore } from "@tessera/core";
+import {
+  createProject,
+  EditorStore,
+  type FixedLayerState,
+} from "@tessera/core";
 import { describe, expect, it, vi } from "vitest";
 import i18n from "../i18n.js";
 import { ContextPanel } from "./ContextPanel.js";
@@ -109,5 +113,46 @@ describe("ContextPanel", () => {
     expect((rotation as HTMLInputElement).value).toBe("90");
     fireEvent.change(rotation, { target: { value: "450" } });
     expect(onOverlay.mock.calls[0]?.[1].style.rotation).toBe(90);
+  });
+
+  it("缺失模块占位层显示状态且不能解锁", () => {
+    const state = project();
+    (state.layers as Map<string, FixedLayerState>).set(
+      "example.missing.layer",
+      {
+        layerId: "example.missing.layer",
+        moduleVersion: "1.0.0",
+        zIndex: 1200,
+        visible: true,
+        locked: true,
+        opacity: 1,
+        allowedKinds: [],
+        runtimeStatus: "missing",
+      },
+    );
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          panel="layers"
+          state={state}
+          selection={[]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={vi.fn()}
+          onConnection={vi.fn()}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+
+    const item = screen.getByText("example.missing.layer · 1200").closest("li");
+    expect(item?.textContent).toContain(
+      "所需模块缺失；图层数据已保留并强制只读",
+    );
+    if (item === null) throw new Error("缺少占位层列表项");
+    const unlock = within(item).getByRole("checkbox", { name: "锁定" });
+    expect((unlock as HTMLInputElement).disabled).toBe(true);
   });
 });

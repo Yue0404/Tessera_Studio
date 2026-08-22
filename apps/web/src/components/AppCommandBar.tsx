@@ -5,6 +5,7 @@ import {
   FolderOpen,
   Redo2,
   Save,
+  Settings,
   Undo2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -21,6 +22,7 @@ interface Props {
   onImportFragment(): void;
   onSave(): void;
   onExport(): void;
+  onPackageSettings(): void;
   onUndo(): void;
   onRedo(): void;
 }
@@ -51,6 +53,12 @@ export function AppCommandBar(props: Props) {
         </ToolButton>
         <ToolButton label={t("action.export")} onClick={props.onExport}>
           <Download size={18} />
+        </ToolButton>
+        <ToolButton
+          label={t("package.settings.open")}
+          onClick={props.onPackageSettings}
+        >
+          <Settings size={18} />
         </ToolButton>
       </div>
       <div className={styles.group}>

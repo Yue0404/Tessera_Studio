@@ -396,6 +396,7 @@ export interface ExtensionPackageSource {
   readonly origin: "built-in" | "user-file";
   listFiles(signal?: AbortSignal): AsyncIterable<PackageFileDescriptor>;
   openFile(path: string, signal?: AbortSignal): PackageByteStream;
+  dispose?(): void | Promise<void>;
 }
 
 /** 已完成路径与长度预检、且可重复打开文件的只读包访问器。 */
@@ -403,6 +404,7 @@ export interface PackageResourceAccess {
   readonly origin: ExtensionPackageSource["origin"];
   readonly files: readonly PackageFileDescriptor[];
   openFile(path: string, signal?: AbortSignal): PackageByteStream;
+  dispose?(): void | Promise<void>;
 }
 
 export interface ResourceDecodeRequest {

@@ -192,6 +192,9 @@ export async function readPackageSource(
         runtimeError("package-file-missing", normalized);
       return validatedFileStream(source, descriptor, openSignal);
     },
+    ...(source.dispose === undefined
+      ? {}
+      : { dispose: () => source.dispose?.() }),
   });
 }
 

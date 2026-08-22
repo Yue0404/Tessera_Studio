@@ -3,6 +3,7 @@ import {
   restoreProjectV1,
   stringifyProjectDocumentV1,
   stringifyProjectV1,
+  type ProjectModuleResolutionOptions,
   type ProjectV1Document,
 } from "@tessera/formats";
 import {
@@ -15,9 +16,16 @@ export class ProjectRepository {
   readonly #database: TesseraDatabase;
   #failNextSave = false;
   #failNextPointerRepair = false;
+  #moduleResolutionProvider: () => ProjectModuleResolutionOptions = () => ({});
 
   constructor(databaseName = "tessera-studio") {
     this.#database = new TesseraDatabase(databaseName);
+  }
+
+  setModuleResolutionProvider(
+    provider: () => ProjectModuleResolutionOptions,
+  ): void {
+    this.#moduleResolutionProvider = provider;
   }
 
   async save(
@@ -177,7 +185,10 @@ export class ProjectRepository {
     for (const revision of ordered) {
       let project: ProjectState;
       try {
-        project = restoreProjectV1(revision.document);
+        project = restoreProjectV1(
+          revision.document,
+          this.#moduleResolutionProvider(),
+        );
       } catch {
         // 损坏修订保持不可变，继续寻找最近一个可读取修订。
         continue;

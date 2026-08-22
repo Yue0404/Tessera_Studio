@@ -76,6 +76,20 @@ export type LocalPackageInstallFailureStep =
 
 export interface LocalPackageInstallOptions {
   readonly failureHook?: (step: LocalPackageInstallFailureStep) => void;
+  /**
+   * 在临时命名空间全部写入并核对长度后、指针切换前重开验证。
+   * 回调失败会删除临时提交，既有版本继续保持激活。
+   */
+  readonly stagingValidator?: (
+    access: LocalPackageStagingAccess,
+  ) => Promise<void>;
+}
+
+export interface LocalPackageStagingAccess {
+  readonly identity: LocalPackageIdentity;
+  readonly sourceKind: LocalPackageSourceKind;
+  readonly files: readonly Readonly<{ path: string; bytes: number }>[];
+  openFile(path: string): Promise<ReadableStream<Uint8Array>>;
 }
 
 export interface LocalPackageInstallResult {
@@ -536,6 +550,44 @@ export class LocalPackageRepository {
         );
         this.#assertActualBytes(file.path, file.bytes, actualBytes);
         storedFiles.push({ path: file.path, bytes: file.bytes, storageKey });
+      }
+      if (options.stagingValidator !== undefined) {
+        const storedByPath = new Map(
+          storedFiles.map((file) => [file.path, file] as const),
+        );
+        await options.stagingValidator(
+          Object.freeze({
+            identity: Object.freeze({ ...prepared.identity }),
+            sourceKind: prepared.sourceKind,
+            files: Object.freeze(
+              storedFiles.map((file) =>
+                Object.freeze({ path: file.path, bytes: file.bytes }),
+              ),
+            ),
+            openFile: async (path: string) => {
+              const file = storedByPath.get(path);
+              if (file === undefined) {
+                throw new StorageRepositoryError(
+                  "local-package-not-found",
+                  { identityKey: prepared.identityKey, path },
+                  "reimport-package",
+                );
+              }
+              const actualBytes = await this.#opfs.fileSize(
+                allocatedCommitId,
+                file.storageKey,
+              );
+              if (actualBytes !== file.bytes) {
+                throw new StorageRepositoryError(
+                  "local-package-storage-corrupted",
+                  { identityKey: prepared.identityKey, path },
+                  "reimport-package",
+                );
+              }
+              return this.#opfs.openFile(allocatedCommitId, file.storageKey);
+            },
+          }),
+        );
       }
       options.failureHook?.("after-staging-validation");
       manifest = {
