@@ -146,7 +146,8 @@ internal static class Civ6StaticPreviewExtractor
                     group.Key,
                     group.Count(),
                     extracted,
-                    group.Count() - extracted);
+                    group.Count() - extracted,
+                    StrategicCount: extracted);
             })
             .ToArray();
     }

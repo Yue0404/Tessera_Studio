@@ -45,7 +45,9 @@ public sealed record Civ6ArtCategoryInspection(
     int ReferencedAssetCount,
     int ResolvedContainerCount,
     int ExtractedContentCount = 0,
-    int PlaceholderContentCount = 0);
+    int PlaceholderContentCount = 0,
+    int StrategicViewExtractedCount = 0,
+    int UiIconExtractedCount = 0);
 
 public sealed record Civ6ArtAssetReference(
     string EntryName,

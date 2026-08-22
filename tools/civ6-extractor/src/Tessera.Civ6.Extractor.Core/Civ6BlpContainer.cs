@@ -97,17 +97,18 @@ internal sealed class Civ6BlpContainer
         }
 
         var descriptor = matches[0];
-        var layout = BcTextureDecoder.ResolveLayout(descriptor.DxgiFormat, relativePath);
-        var expectedBytes = BcTextureDecoder.ExpectedBytes(
-            descriptor.Width,
-            descriptor.Height,
-            descriptor.ArraySize,
-            descriptor.MipCount,
-            layout.BlockBytes,
-            relativePath);
+        var expectedBytes = descriptor.DxgiFormat == 28
+            ? ExpectedRgba8Bytes(descriptor, relativePath)
+            : BcTextureDecoder.ExpectedBytes(
+                descriptor.Width,
+                descriptor.Height,
+                descriptor.ArraySize,
+                descriptor.MipCount,
+                BcTextureDecoder.ResolveLayout(descriptor.DxgiFormat, relativePath).BlockBytes,
+                relativePath);
         if (descriptor.PayloadBytes != expectedBytes || expectedBytes > MaxTexturePayloadBytes)
         {
-            throw Invalid("CIVBLP 声明载荷与受支持 BCn 块尺寸不一致或超过 64 MiB。", $"{relativePath}/{descriptorName}");
+            throw Invalid("CIVBLP 声明载荷与受支持 RGBA8/BCn 尺寸不一致或超过 64 MiB。", $"{relativePath}/{descriptorName}");
         }
 
         var nextOffset = descriptors
@@ -116,18 +117,23 @@ internal sealed class Civ6BlpContainer
             .DefaultIfEmpty(checked(fileBytes - dataStart))
             .Min();
         var slotBytes = CheckedSubtract(nextOffset, descriptor.SlotOffset, relativePath);
-        var prefixBytes = CheckedSubtract(slotBytes, descriptor.PayloadBytes, relativePath);
-        if (prefixBytes is < 16 or > 4096 || prefixBytes % 16 != 0)
+        var alignmentBytes = CheckedSubtract(slotBytes, descriptor.PayloadBytes, relativePath);
+        var rgba8Page = descriptor.DxgiFormat == 28;
+        var alignmentValid = rgba8Page
+            ? alignmentBytes is >= 0 and < 1024
+            : alignmentBytes is >= 16 and <= 4096 && alignmentBytes % 16 == 0;
+        if (!alignmentValid)
         {
-            throw Invalid("CIVBLP 纹理槽前缀长度不在已验证范围。", $"{relativePath}/{descriptorName}");
+            throw Invalid("CIVBLP 纹理槽对齐字节数不在已验证范围。", $"{relativePath}/{descriptorName}");
         }
 
         var payloadPosition = CheckedAdd(
             dataStart,
-            CheckedAdd(descriptor.SlotOffset, prefixBytes, relativePath),
+            CheckedAdd(descriptor.SlotOffset, rgba8Page ? 0 : alignmentBytes, relativePath),
             relativePath);
-        if (CheckedAdd(payloadPosition, descriptor.PayloadBytes, relativePath) !=
-            CheckedAdd(dataStart, nextOffset, relativePath))
+        var payloadEnd = CheckedAdd(payloadPosition, descriptor.PayloadBytes, relativePath);
+        var slotEnd = CheckedAdd(dataStart, nextOffset, relativePath);
+        if (rgba8Page ? payloadEnd > slotEnd : payloadEnd != slotEnd)
         {
             throw Invalid("CIVBLP 纹理载荷边界不闭合。", $"{relativePath}/{descriptorName}");
         }
@@ -152,7 +158,7 @@ internal sealed class Civ6BlpContainer
             descriptor.MipCount,
             descriptor.PayloadBytes,
             descriptor.SlotOffset,
-            prefixBytes,
+            rgba8Page ? 0 : alignmentBytes,
             payload);
     }
 
@@ -165,6 +171,7 @@ internal sealed class Civ6BlpContainer
         RequireAsciiName(packageEntryName);
         var entryHash = Fnv1a(packageEntryName);
         var descriptorIndexes = new List<uint>();
+        var packedUiIndexes = new HashSet<uint>();
         for (var offset = 0; offset <= metadata.Length - 48; offset++)
         {
             if ((offset & 0x0fff) == 0)
@@ -173,15 +180,31 @@ internal sealed class Civ6BlpContainer
             }
 
             if (ReadUInt32(metadata, offset) != entryHash ||
-                ReadUInt32(metadata, offset + 4) != 0 ||
-                ReadUInt32(metadata, offset + 12) != 0 ||
+                ReadUInt32(metadata, offset + 4) != 0)
+            {
+                continue;
+            }
+
+            if (xlpClass == "UITexture" &&
+                ReadUInt32(metadata, offset + 8) == 2 &&
+                ReadUInt32(metadata, offset + 16) == 0 &&
+                ReadUInt32(metadata, offset + 28) == 0)
+            {
+                // 正式 UITexture 包条目在名称哈希后直接保存一个 (type=2,index) 指针。
+                var descriptorIndex = ReadUInt32(metadata, offset + 12);
+                descriptorIndexes.Add(descriptorIndex);
+                if (IsPackedUiEntry(offset, descriptorIndex))
+                {
+                    packedUiIndexes.Add(descriptorIndex);
+                }
+            }
+            else if (ReadUInt32(metadata, offset + 12) != 0 ||
                 ReadUInt32(metadata, offset + 24) != 0 ||
                 ReadUInt32(metadata, offset + 28) != 0)
             {
                 continue;
             }
-
-            if (xlpClass == "StrategicView_Sprite" && ReadUInt32(metadata, offset + 16) == 2)
+            else if (xlpClass == "StrategicView_Sprite" && ReadUInt32(metadata, offset + 16) == 2)
             {
                 descriptorIndexes.Add(ReadUInt32(metadata, offset + 20));
             }
@@ -195,16 +218,57 @@ internal sealed class Civ6BlpContainer
         }
 
         var uniqueIndexes = descriptorIndexes.Distinct().ToArray();
-        if (uniqueIndexes.Length != 1 || uniqueIndexes[0] >= descriptors.Count)
+        if (uniqueIndexes.Length != 1)
         {
             throw Invalid(
                 "CIVBLP 逻辑包条目的纹理指针缺失、歧义或越界。",
                 $"{relativePath}/{packageEntryName}");
         }
 
+        if (uniqueIndexes[0] >= descriptors.Count)
+        {
+            if (xlpClass == "UITexture" && packedUiIndexes.SetEquals(uniqueIndexes))
+            {
+                throw new ExtractionException(
+                    "asset-ui-packed-layout-unsupported",
+                    "UITexture 使用尚未解码的 ForgeUI::BCTexturePackageEntry，未把其块索引猜作像素。",
+                    $"{relativePath}/{packageEntryName}");
+            }
+
+            throw Invalid(
+                "CIVBLP 逻辑包条目的纹理指针越界。",
+                $"{relativePath}/{packageEntryName}");
+        }
+
         var descriptor = descriptors[checked((int)uniqueIndexes[0])];
         var descriptorName = ResolveDescriptorName(descriptor.NameHash, cancellationToken);
         return ReadTextureAsync(descriptorName, cancellationToken);
+    }
+
+    private bool IsPackedUiEntry(int hashOffset, uint descriptorIndex)
+    {
+        const int packedRecordBytesAfterHash = 108;
+        // 正式 Base 与 Expansion2 样本的块索引宽度分别为 8、4；其余字段仍须完整匹配。
+        if (hashOffset > metadata.Length - packedRecordBytesAfterHash ||
+            descriptorIndex > uint.MaxValue - 6 ||
+            ReadUInt32(metadata, hashOffset + 32) != 0 ||
+            ReadUInt32(metadata, hashOffset + 36) == 0 ||
+            ReadUInt16(metadata, hashOffset + 40) is not (4 or 8) ||
+            ReadUInt16(metadata, hashOffset + 42) != 2 ||
+            ReadUInt32(metadata, hashOffset + 104) != descriptorIndex + 6)
+        {
+            return false;
+        }
+
+        for (var offset = hashOffset + 44; offset <= hashOffset + 100; offset += 4)
+        {
+            if (ReadUInt32(metadata, offset) != 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private string ResolveDescriptorName(uint nameHash, CancellationToken cancellationToken)
@@ -272,12 +336,14 @@ internal sealed class Civ6BlpContainer
             var slotOffset = ReadUInt64(metadata, offset - 16);
             var payloadBytes = ReadUInt64(metadata, offset - 8);
             var format = ReadUInt16(metadata, offset + 40);
-            var height = ReadUInt16(metadata, offset + 42);
-            var width = ReadUInt16(metadata, offset + 44);
+            // TypeInfoStripe 顺序为 m_nHeight、m_nWidth，但正式 TextureEntry 的字段地址
+            // 证明 +42 是宽、+44 是高；非方形 Expansion atlas 用此不变量闭合。
+            var width = ReadUInt16(metadata, offset + 42);
+            var height = ReadUInt16(metadata, offset + 44);
             var depth = ReadUInt16(metadata, offset + 46);
             var arraySize = ReadUInt16(metadata, offset + 48);
             var mipCount = ReadUInt16(metadata, offset + 50);
-            if (format is < 70 or > 99 || width == 0 || height == 0 || depth != 1 ||
+            if ((format != 28 && format is < 70 or > 99) || width == 0 || height == 0 || depth != 1 ||
                 arraySize == 0 || mipCount == 0 || mipCount > 16 ||
                 payloadBytes == 0 || payloadBytes > MaxTexturePayloadBytes ||
                 slotOffset > (ulong)dataBytes || payloadBytes > (ulong)dataBytes - slotOffset)
@@ -303,6 +369,28 @@ internal sealed class Civ6BlpContainer
         }
 
         return unique;
+    }
+
+    private static long ExpectedRgba8Bytes(Civ6BlpDescriptor descriptor, string path)
+    {
+        try
+        {
+            long bytes = 0;
+            var width = descriptor.Width;
+            var height = descriptor.Height;
+            for (var mip = 0; mip < descriptor.MipCount; mip++)
+            {
+                bytes = checked(bytes + checked((long)width * height * 4));
+                width = Math.Max(1, width / 2);
+                height = Math.Max(1, height / 2);
+            }
+
+            return checked(bytes * descriptor.ArraySize);
+        }
+        catch (OverflowException error)
+        {
+            throw Invalid("RGBA8 派生字节数发生整数溢出。", path, error);
+        }
     }
 
     private void RequireAsciiName(string name)

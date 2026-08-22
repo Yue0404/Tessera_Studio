@@ -37,9 +37,14 @@ public sealed class Civ6ExtractionService
             ["Expansion1", "Expansion2"],
             scan.Definitions,
             scan.ChineseText);
-        var artExtraction = await Civ6StaticPreviewExtractor.ExtractAsync(
+        var strategicExtraction = await Civ6StaticPreviewExtractor.ExtractAsync(
             input,
             scan.Definitions,
+            cancellationToken);
+        var artExtraction = await Civ6UiIconExtractor.FillPlaceholdersAsync(
+            input,
+            scan.Definitions,
+            strategicExtraction,
             cancellationToken);
         var sourceFiles = MergeSourceFiles(inspection, scan, artExtraction.SourceFiles);
         var package = PackageJsonBuilder.Build(
@@ -105,9 +110,14 @@ public sealed class Civ6ExtractionService
             installation.GameVersion,
             content.Definitions,
             cancellationToken);
-        var extracted = await Civ6StaticPreviewExtractor.ExtractAsync(
+        var strategic = await Civ6StaticPreviewExtractor.ExtractAsync(
             input,
             content.Definitions,
+            cancellationToken);
+        var extracted = await Civ6UiIconExtractor.FillPlaceholdersAsync(
+            input,
+            content.Definitions,
+            strategic,
             cancellationToken);
         var generatedByCategory = extracted.Categories.ToDictionary(value => value.Category, StringComparer.Ordinal);
         var categories = art.Categories.Select(value =>
@@ -117,6 +127,8 @@ public sealed class Civ6ExtractionService
             {
                 ExtractedContentCount = generated?.ExtractedCount ?? 0,
                 PlaceholderContentCount = generated?.PlaceholderCount ?? value.ContentCount,
+                StrategicViewExtractedCount = generated?.StrategicCount ?? 0,
+                UiIconExtractedCount = generated?.UiIconCount ?? 0,
             };
         }).ToArray();
         var diagnostics = installation.Diagnostics.Concat(content.Diagnostics).Concat(art.Diagnostics)
@@ -125,18 +137,21 @@ public sealed class Civ6ExtractionService
             .Append(new Civ6InstallationDiagnostic(
                 "art-static-image-extraction-partial",
                 "warning",
-                "仅完整闭合的 StrategicView 2D CIVBLP 链会生成预览；3D Landmark 和歧义条目保持占位。",
+                "优先使用完整闭合的 StrategicView 2D 链，其余内容仅由正式 IconDefinitions 与 UI atlas 精确补齐。",
                 null))
             .OrderBy(value => value.Code, StringComparer.Ordinal)
             .ThenBy(value => value.RelativePath, StringComparer.Ordinal)
             .ToArray();
+        var uiIconCount = extracted.Categories.Sum(value => value.UiIconCount);
         return art with
         {
             Categories = categories,
             StaticImageExtractionAvailable = extracted.Assets.Count > 0,
             StaticImageBlockerCode = extracted.Assets.Count == 0
                 ? "strategicview-static-chain-unavailable"
-                : "partial-strategicview-only",
+                : uiIconCount > 0
+                    ? "partial-strategicview-and-plain-ui"
+                    : "partial-strategicview-only",
             Diagnostics = diagnostics,
             MaxReferenceDepth = extracted.MaxReferenceDepth,
         };

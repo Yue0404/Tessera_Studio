@@ -40,7 +40,9 @@ internal sealed record Civ6GeneratedArtCategoryCount(
     string Category,
     int ContentCount,
     int ExtractedCount,
-    int PlaceholderCount);
+    int PlaceholderCount,
+    int StrategicCount = 0,
+    int UiIconCount = 0);
 
 internal sealed record Civ6ContentScanResult(
     IReadOnlyList<Civ6ContentDefinition> Definitions,
@@ -120,6 +122,25 @@ internal static class ExtractionLayout
         new("route", "Route", ["Base/ArtDefs/Routes.artdef", "DLC/Expansion2/ArtDefs/Routes.artdef"]),
         new("wonder", "Building", ["Base/ArtDefs/Buildings.artdef", "DLC/Expansion1/ArtDefs/Buildings.artdef", "DLC/Expansion2/ArtDefs/Buildings.artdef"]),
         new("city", "District", ["Base/ArtDefs/Districts.artdef", "DLC/Expansion1/ArtDefs/Districts.artdef", "DLC/Expansion2/ArtDefs/Districts.artdef"]),
+    ];
+
+    public static readonly string[] IconTablePaths =
+    [
+        "Base/Assets/UI/Icons/Icons_Terrain.xml",
+        "Base/Assets/UI/Icons/Icons_Features.xml",
+        "Base/Assets/UI/Icons/Icons_Resources.xml",
+        "Base/Assets/UI/Icons/Icons_UnitActions.xml",
+        "Base/Assets/UI/Icons/Icons_Districts.xml",
+        "Base/Assets/UI/Icons/Icons_Routes.xml",
+        "Base/Assets/UI/Icons/Icons_Wonders.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Features.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Resources.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Improvements.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Districts.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Wonders.xml",
+        "DLC/Expansion2/Data/Expansion2_Icons_Features.xml",
+        "DLC/Expansion2/Data/Expansion2_Icons_Districts.xml",
+        "DLC/Expansion2/Data/Expansion2_Icons_Wonders.xml",
     ];
 
     public static readonly HashSet<string> ReferencedArtDefFileNames = new(StringComparer.Ordinal)

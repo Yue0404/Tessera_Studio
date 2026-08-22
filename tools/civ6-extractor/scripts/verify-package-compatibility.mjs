@@ -223,6 +223,29 @@ async function main() {
       ];
       for (const [path, table] of emptyExpansionFiles)
         writeFixture(input, path, `<GameInfo><${table}/></GameInfo>`);
+      const emptyIconTables = [
+        "Base/Assets/UI/Icons/Icons_Terrain.xml",
+        "Base/Assets/UI/Icons/Icons_Features.xml",
+        "Base/Assets/UI/Icons/Icons_Resources.xml",
+        "Base/Assets/UI/Icons/Icons_UnitActions.xml",
+        "Base/Assets/UI/Icons/Icons_Districts.xml",
+        "Base/Assets/UI/Icons/Icons_Routes.xml",
+        "Base/Assets/UI/Icons/Icons_Wonders.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Features.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Resources.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Improvements.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Districts.xml",
+        "DLC/Expansion1/Data/Expansion1_Icons_Wonders.xml",
+        "DLC/Expansion2/Data/Expansion2_Icons_Features.xml",
+        "DLC/Expansion2/Data/Expansion2_Icons_Districts.xml",
+        "DLC/Expansion2/Data/Expansion2_Icons_Wonders.xml",
+      ];
+      for (const path of emptyIconTables)
+        writeFixture(
+          input,
+          path,
+          "<GameInfo><IconTextureAtlases/><IconDefinitions/></GameInfo>",
+        );
       const localizedKeys = [
         "LOC_TERRAIN_GRASS_NAME",
         "LOC_FEATURE_FOREST_NAME",
@@ -367,7 +390,8 @@ async function main() {
     assert(parsed.version === "1.0.0", "模块版本不匹配。");
     const expectedElements = realMode ? 197 : 8;
     assert(parsed.elements.length === expectedElements, "目录元素数量不匹配。");
-    const expectedResources = realMode ? 59 : 0;
+    // 正式 1.0.12.68：59 个 StrategicView + 52 个资源 UI 图标 + 3 个改良 UI 图标。
+    const expectedResources = realMode ? 114 : 0;
     assert(
       parsed.manifest.resources.length === expectedResources,
       "资源声明数量不匹配。",

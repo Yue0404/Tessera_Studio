@@ -26,6 +26,20 @@ internal sealed class SyntheticGameFixture : IDisposable
 
     public void ReplaceBinary(string relativePath, byte[] content) => WriteBytes(relativePath, content);
 
+    public static byte[] CreateUiAtlasBlp() => CreateSyntheticUiAtlasBlp();
+
+    public static byte[] CreatePackedUiAtlasBlp(
+        uint descriptorIndex = 99,
+        ushort blockIndexBytes = 8)
+    {
+        var bytes = CreateSyntheticUiAtlasBlp();
+        WriteUInt32(bytes, 312, descriptorIndex);
+        WriteUInt32(bytes, 336, 64);
+        WriteUInt32(bytes, 340, blockIndexBytes | (2u << 16));
+        WriteUInt32(bytes, 404, unchecked(descriptorIndex + 6));
+        return bytes;
+    }
+
     public void CreateSparseFile(string relativePath, long length)
     {
         var path = Path.Combine(Input, relativePath.Replace('/', Path.DirectorySeparatorChar));
@@ -96,6 +110,11 @@ internal sealed class SyntheticGameFixture : IDisposable
 
     private void WriteContentBaseline()
     {
+        foreach (var iconPath in ExtractionLayout.IconTablePaths)
+        {
+            WriteText(iconPath, "<GameInfo><IconTextureAtlases/><IconDefinitions/></GameInfo>");
+        }
+
         WriteEntityFile("Base/Assets/Gameplay/Data/Terrains.xml", "Terrains", "TerrainType",
             ["TERRAIN_GRASS|LOC_TERRAIN_GRASS_NAME||"]);
         WriteEntityFile("Base/Assets/Gameplay/Data/Features.xml", "Features", "FeatureType",
@@ -276,6 +295,7 @@ internal sealed class SyntheticGameFixture : IDisposable
         WriteAscii(bytes, 280, "Railroad_Visible");
         WriteAscii(bytes, 312, "Railroad_Revealed");
         WriteAscii(bytes, 120, "RailroadSprite");
+        WriteAscii(bytes, 160, "SyntheticAtlas");
         // 正式 StrategicView_Sprite 包条目直接保存一个 (type=2,index) 纹理指针。
         WriteUInt32(bytes, 352, Fnv1a("RailroadSprite"));
         WriteUInt32(bytes, 368, 2);
@@ -288,10 +308,61 @@ internal sealed class SyntheticGameFixture : IDisposable
         WriteUInt32(bytes, 436, 0);
         WriteUInt32(bytes, 440, 2);
         WriteUInt32(bytes, 444, 1);
+        // 正式 UITexture 逻辑条目直接保存一个 (type=2,index) 纹理指针。
+        WriteUInt32(bytes, 672, Fnv1a("SyntheticAtlas"));
+        WriteUInt32(bytes, 680, 2);
+        WriteUInt32(bytes, 684, 0);
         WriteDescriptor(bytes, descriptorOffset, "Railroad_Visible", 0);
         WriteDescriptor(bytes, descriptorOffset + 104, "Railroad_Revealed", slotBytes);
         WriteSolidBc2Block(bytes.AsSpan(dataStart + 16, 16), 0xf800);
         WriteSolidBc2Block(bytes.AsSpan(dataStart + slotBytes + 16, 16), 0x07e0);
+        return bytes;
+    }
+
+    private static byte[] CreateSyntheticUiAtlasBlp()
+    {
+        const int dataStart = 2048;
+        const int descriptorOffset = 512;
+        const int width = 8;
+        const int height = 8;
+        const int payloadBytes = width * height * 4;
+        var bytes = new byte[dataStart + payloadBytes];
+        "CIVBLP\u0002\u0000"u8.CopyTo(bytes);
+        WriteUInt32(bytes, 8, 1024);
+        WriteUInt32(bytes, 12, 1024);
+        WriteUInt32(bytes, 16, dataStart);
+        WriteUInt32(bytes, 20, 1);
+        WriteUInt32(bytes, 24, bytes.Length);
+        WriteAscii(bytes, 120, "SyntheticAtlas");
+        WriteAscii(bytes, 160, "Page_0");
+        WriteUInt32(bytes, 300, Fnv1a("SyntheticAtlas"));
+        WriteUInt32(bytes, 308, 2);
+        WriteUInt32(bytes, 312, 0);
+        WriteUInt64(bytes, descriptorOffset - 16, 0);
+        WriteUInt64(bytes, descriptorOffset - 8, payloadBytes);
+        WriteUInt32(bytes, descriptorOffset, Fnv1a("Page_0"));
+        WriteUInt16(bytes, descriptorOffset + 40, 28);
+        WriteUInt16(bytes, descriptorOffset + 42, width);
+        WriteUInt16(bytes, descriptorOffset + 44, height);
+        WriteUInt16(bytes, descriptorOffset + 46, 1);
+        WriteUInt16(bytes, descriptorOffset + 48, 1);
+        WriteUInt16(bytes, descriptorOffset + 50, 1);
+        var payload = bytes.AsSpan(dataStart, payloadBytes);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var color = (x < 4, y < 4) switch
+                {
+                    (true, true) => new byte[] { 255, 0, 0, 255 },
+                    (false, true) => new byte[] { 0, 255, 0, 255 },
+                    (true, false) => new byte[] { 0, 0, 255, 255 },
+                    _ => new byte[] { 255, 255, 255, 0 },
+                };
+                color.CopyTo(payload.Slice((y * width + x) * 4, 4));
+            }
+        }
+
         return bytes;
     }
 

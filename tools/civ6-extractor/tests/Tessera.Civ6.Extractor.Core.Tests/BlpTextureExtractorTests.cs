@@ -48,6 +48,23 @@ public sealed class BlpTextureExtractorTests
     }
 
     [Fact]
+    public async Task UITexture逻辑条目按正式偏移中的显式索引解析纹理描述符()
+    {
+        using var fixture = new SyntheticGameFixture();
+        var container = await Civ6BlpContainer.OpenAsync(
+            SafeInputRoot.Open(fixture.Input),
+            ContainerPath,
+            CancellationToken.None);
+
+        var texture = await container.ReadPackageTextureAsync(
+            "SyntheticAtlas",
+            "UITexture",
+            CancellationToken.None);
+
+        Assert.Equal("Railroad_Visible", texture.EntryName);
+    }
+
+    [Fact]
     public async Task Route逻辑纹理索引越界时稳定拒绝()
     {
         using var fixture = new SyntheticGameFixture();

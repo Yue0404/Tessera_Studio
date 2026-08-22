@@ -158,7 +158,7 @@ public sealed class ExtractionServiceTests
         Assert.DoesNotContain(fixture.Root, provenanceText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("hash", provenanceText, StringComparison.OrdinalIgnoreCase);
         using var provenance = JsonDocument.Parse(provenanceText);
-        Assert.Equal(34, provenance.RootElement.GetProperty("files").GetArrayLength());
+        Assert.Equal(49, provenance.RootElement.GetProperty("files").GetArrayLength());
         Assert.Contains(provenance.RootElement.GetProperty("files").EnumerateArray(), value =>
             value.GetProperty("relativePath").GetString() == "DLC/Expansion2/Text/Expansion2_Translations_Text.xml");
         Assert.Contains(provenance.RootElement.GetProperty("files").EnumerateArray(), value =>
