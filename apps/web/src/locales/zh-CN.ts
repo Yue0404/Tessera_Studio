@@ -44,6 +44,28 @@ export const zhCN = {
     "package.basic.name": "基础",
     "package.basic.description": "通用地格、共享边、标记、文字与连线工具",
     "package.civ6.name": "文明 6 规划",
+    "package.civ6.optional": "可选本地扩展包，不影响基础地图编辑器",
+    "package.civ6.description":
+      "导入你已在本机生成的 tessera.civ6 模块包；需要时也可下载 Windows 提取器自行生成。网站不会扫描游戏目录或自动运行程序。",
+    "package.civ6.status.notInstalled": "未安装",
+    "package.civ6.status.installed": "已安装精确版本：{{versions}}",
+    "package.civ6.status.corrupted": "本地包损坏，需要重新导入",
+    "package.civ6.status.incompatible": "已安装版本与当前应用或网格不兼容",
+    "package.civ6.importExisting": "导入已有文明 6 模块包",
+    "package.civ6.catalogLoading": "正在检查可用的提取器版本…",
+    "package.civ6.catalogFailed":
+      "无法读取提取器版本目录；基础网站和本地包导入仍可正常使用。",
+    "package.civ6.releaseUnavailable":
+      "当前没有与应用或已安装模块版本匹配的提取器发布。",
+    "package.civ6.releaseAvailable": "匹配的可选提取器",
+    "package.civ6.extractorVersion": "提取器版本：{{version}}",
+    "package.civ6.platform.windowsX64": "平台：Windows x64",
+    "package.civ6.minOsBuild": "最低系统：Windows 10 build {{build}}",
+    "package.civ6.releaseBytes": "下载大小：{{bytes}} 字节",
+    "package.civ6.releaseSha256": "Release ZIP SHA-256：{{sha256}}",
+    "package.civ6.unsignedWarning":
+      "当前预览版未进行代码签名，Windows SmartScreen 可能显示未知发布者提示；请先核对 SHA-256。",
+    "package.civ6.downloadExtractor": "下载匹配版本提取器",
     "package.status.alwaysEnabled": "始终启用",
     "package.status.notInstalled": "未安装",
     "package.status.available": "可选",

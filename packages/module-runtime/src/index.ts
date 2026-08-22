@@ -18,6 +18,7 @@ export { ModuleRuntimeError, type ModuleRuntimeErrorCode } from "./errors.js";
 export { createMigrationPlan } from "./migration.js";
 export {
   appVersionCompatible,
+  compareSemanticVersions,
   moduleVersionSatisfies,
   resolveLocalizedText,
 } from "./semantic.js";

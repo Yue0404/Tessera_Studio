@@ -20,12 +20,18 @@
     "test:watch": "vitest",
     "benchmark:runtime": "node scripts/run-runtime-benchmark.mjs",
     "e2e": "playwright test",
+    "e2e:production": "playwright test --config=playwright.production.config.ts",
     "e2e:edge": "playwright test --config=playwright.cross-browser.config.ts --project=edge-system",
     "e2e:chrome": "playwright test --config=playwright.cross-browser.config.ts --project=chrome-system",
     "e2e:chromium": "playwright test --config=playwright.cross-browser.config.ts --project=chromium-playwright",
     "e2e:firefox": "playwright test --config=playwright.cross-browser.config.ts --project=firefox-playwright",
     "support:matrix": "node scripts/run-browser-support-matrix.mjs",
-    "support:matrix:test": "node --test scripts/browser-support-matrix-result.test.mjs"
+    "support:matrix:test": "node --test scripts/browser-support-matrix-result.test.mjs",
+    "verify:civ6-extractor-contract": "node tools/civ6-extractor/scripts/verify-package-compatibility.mjs",
+    "verify:civ6-extractor-real": "node tools/civ6-extractor/scripts/verify-package-compatibility.mjs --real",
+    "inspect:civ6-installation": "node tools/civ6-extractor/scripts/inspect-installation.mjs",
+    "inspect:civ6-catalog": "node tools/civ6-extractor/scripts/inspect-installation.mjs --catalog",
+    "inspect:civ6-art": "node tools/civ6-extractor/scripts/inspect-installation.mjs --art"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

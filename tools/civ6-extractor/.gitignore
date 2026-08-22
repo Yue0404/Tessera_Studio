@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+**/TestResults/
+publish/
+packages/
+output/
+*.tessera-module.zip

@@ -623,7 +623,8 @@ export const civ6SourceManifestSchema = {
             maxLength: 512,
           },
           resourceId: { type: "string", pattern: qualifiedId, maxLength: 192 },
-          bytes: { type: "integer", minimum: 0, maximum: 67108864 },
+          // 来源清单描述的是只读正式游戏输入，并非打入模块包的单资源；允许记录受限探针可读的 512 MiB 容器。
+          bytes: { type: "integer", minimum: 0, maximum: 536870912 },
           extensions: extensionsSchema,
         },
       },

@@ -1003,6 +1003,25 @@ describe("generated-local 与 Civ6 profile", () => {
     });
   });
 
+  it("来源清单可记录未打包进模块的正式大型只读容器", () => {
+    const values = generatedCiv6Values();
+    const source = values["provenance/source.json"] as {
+      files: Record<string, unknown>[];
+    };
+    source.files = [
+      {
+        relativePath: "Base/Platforms/Windows/BLPs/UI/Icons.blp",
+        resourceId: "tessera.civ6:source.ui-icons",
+        bytes: 229 * 1024 * 1024,
+        extensions: {},
+      },
+    ];
+
+    expect(parsePackageFileSetForTests(jsonFiles(values))).toMatchObject({
+      artifactId: "tessera.civ6",
+    });
+  });
+
   it("未知 profile、路径泄漏与任何哈希字段均稳定拒绝", () => {
     const unknown = generatedCiv6Values();
     const unknownSource = (unknown["module.json"] as ModuleManifest)

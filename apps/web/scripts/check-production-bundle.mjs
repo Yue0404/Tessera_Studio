@@ -19,6 +19,9 @@ const forbiddenHarnessNames = [
 
 const files = await readdir(assetsDirectory);
 const indexHtml = await readFile(indexPath, "utf8");
+const initialScriptNames = [
+  ...indexHtml.matchAll(/<script[^>]+src="\.\/assets\/([^"]+\.js)"/gu),
+].map((match) => match[1]);
 const actualCsp = indexHtml.match(
   /http-equiv="Content-Security-Policy"\s+content="([^"]+)"/,
 )?.[1];
@@ -43,6 +46,12 @@ for (const filename of files.filter((value) => value.endsWith(".js"))) {
   const forbidden = forbiddenHarnessNames.find((name) => source.includes(name));
   if (forbidden !== undefined) {
     throw new Error(`生产 chunk 意外包含测试 harness：${forbidden}`);
+  }
+}
+for (const filename of initialScriptNames) {
+  const source = await readFile(new URL(filename, assetsDirectory), "utf8");
+  if (source.includes("extractor-releases.json")) {
+    throw new Error("提取器 release catalog 意外进入生产初始入口");
   }
 }
 

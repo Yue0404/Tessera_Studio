@@ -1,0 +1,902 @@
+// @ts-nocheck
+// 本文件由 scripts/generate-project-validator.mjs 从 extractor-release-schema.ts 生成，禁止手改。
+import ucs2lengthModule from "ajv/dist/runtime/ucs2length.js";
+const ucs2length =
+  typeof ucs2lengthModule === "function"
+    ? ucs2lengthModule
+    : ucs2lengthModule.default;
+const func1 = ucs2length;
+
+("use strict");
+export const validate = validate39;
+export default validate39;
+const schema46 = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  type: "object",
+  additionalProperties: false,
+  required: ["schemaVersion", "releases"],
+  properties: {
+    schemaVersion: { const: "1" },
+    releases: {
+      type: "array",
+      maxItems: 256,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "extractorId",
+          "version",
+          "os",
+          "arch",
+          "minOsBuild",
+          "artifactType",
+          "entrypoint",
+          "bytes",
+          "sha256",
+          "outputModuleId",
+          "outputModuleVersion",
+          "minAppVersion",
+          "assetUrl",
+        ],
+        properties: {
+          extractorId: { const: "tessera.civ6-extractor" },
+          version: {
+            type: "string",
+            pattern:
+              "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          },
+          os: { const: "windows" },
+          arch: { const: "x64" },
+          minOsBuild: { type: "integer", minimum: 19045 },
+          artifactType: { const: "portable-zip" },
+          entrypoint: { const: "TesseraCiv6Extractor.exe" },
+          bytes: { type: "integer", minimum: 1, maximum: 9007199254740991 },
+          sha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+          outputModuleId: { const: "tessera.civ6" },
+          outputModuleVersion: {
+            type: "string",
+            pattern:
+              "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          },
+          minAppVersion: {
+            type: "string",
+            pattern:
+              "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          },
+          assetUrl: {
+            type: "string",
+            maxLength: 2048,
+            pattern:
+              "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[^/?#]+/[^/?#]+\\.zip$",
+          },
+        },
+      },
+    },
+  },
+};
+const func5 = Object.prototype.hasOwnProperty;
+const pattern6 = new RegExp(
+  "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+  "u",
+);
+const pattern166 = new RegExp("^[0-9a-f]{64}$", "u");
+const pattern169 = new RegExp(
+  "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[^/?#]+/[^/?#]+\\.zip$",
+  "u",
+);
+function validate39(
+  data,
+  {
+    instancePath = "",
+    parentData,
+    parentDataProperty,
+    rootData = data,
+    dynamicAnchors = {},
+  } = {},
+) {
+  let vErrors = null;
+  let errors = 0;
+  const evaluated0 = validate39.evaluated;
+  if (evaluated0.dynamicProps) {
+    evaluated0.props = undefined;
+  }
+  if (evaluated0.dynamicItems) {
+    evaluated0.items = undefined;
+  }
+  if (data && typeof data == "object" && !Array.isArray(data)) {
+    if (data.schemaVersion === undefined) {
+      const err0 = {
+        instancePath,
+        schemaPath: "#/required",
+        keyword: "required",
+        params: { missingProperty: "schemaVersion" },
+        message: "must have required property '" + "schemaVersion" + "'",
+      };
+      if (vErrors === null) {
+        vErrors = [err0];
+      } else {
+        vErrors.push(err0);
+      }
+      errors++;
+    }
+    if (data.releases === undefined) {
+      const err1 = {
+        instancePath,
+        schemaPath: "#/required",
+        keyword: "required",
+        params: { missingProperty: "releases" },
+        message: "must have required property '" + "releases" + "'",
+      };
+      if (vErrors === null) {
+        vErrors = [err1];
+      } else {
+        vErrors.push(err1);
+      }
+      errors++;
+    }
+    for (const key0 in data) {
+      if (!(key0 === "schemaVersion" || key0 === "releases")) {
+        const err2 = {
+          instancePath,
+          schemaPath: "#/additionalProperties",
+          keyword: "additionalProperties",
+          params: { additionalProperty: key0 },
+          message: "must NOT have additional properties",
+        };
+        if (vErrors === null) {
+          vErrors = [err2];
+        } else {
+          vErrors.push(err2);
+        }
+        errors++;
+      }
+    }
+    if (data.schemaVersion !== undefined) {
+      if ("1" !== data.schemaVersion) {
+        const err3 = {
+          instancePath: instancePath + "/schemaVersion",
+          schemaPath: "#/properties/schemaVersion/const",
+          keyword: "const",
+          params: { allowedValue: "1" },
+          message: "must be equal to constant",
+        };
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
+      }
+    }
+    if (data.releases !== undefined) {
+      let data1 = data.releases;
+      if (Array.isArray(data1)) {
+        if (data1.length > 256) {
+          const err4 = {
+            instancePath: instancePath + "/releases",
+            schemaPath: "#/properties/releases/maxItems",
+            keyword: "maxItems",
+            params: { limit: 256 },
+            message: "must NOT have more than 256 items",
+          };
+          if (vErrors === null) {
+            vErrors = [err4];
+          } else {
+            vErrors.push(err4);
+          }
+          errors++;
+        }
+        const len0 = data1.length;
+        for (let i0 = 0; i0 < len0; i0++) {
+          let data2 = data1[i0];
+          if (data2 && typeof data2 == "object" && !Array.isArray(data2)) {
+            if (data2.extractorId === undefined) {
+              const err5 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "extractorId" },
+                message: "must have required property '" + "extractorId" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err5];
+              } else {
+                vErrors.push(err5);
+              }
+              errors++;
+            }
+            if (data2.version === undefined) {
+              const err6 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "version" },
+                message: "must have required property '" + "version" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err6];
+              } else {
+                vErrors.push(err6);
+              }
+              errors++;
+            }
+            if (data2.os === undefined) {
+              const err7 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "os" },
+                message: "must have required property '" + "os" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err7];
+              } else {
+                vErrors.push(err7);
+              }
+              errors++;
+            }
+            if (data2.arch === undefined) {
+              const err8 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "arch" },
+                message: "must have required property '" + "arch" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err8];
+              } else {
+                vErrors.push(err8);
+              }
+              errors++;
+            }
+            if (data2.minOsBuild === undefined) {
+              const err9 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "minOsBuild" },
+                message: "must have required property '" + "minOsBuild" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err9];
+              } else {
+                vErrors.push(err9);
+              }
+              errors++;
+            }
+            if (data2.artifactType === undefined) {
+              const err10 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "artifactType" },
+                message: "must have required property '" + "artifactType" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err10];
+              } else {
+                vErrors.push(err10);
+              }
+              errors++;
+            }
+            if (data2.entrypoint === undefined) {
+              const err11 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "entrypoint" },
+                message: "must have required property '" + "entrypoint" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err11];
+              } else {
+                vErrors.push(err11);
+              }
+              errors++;
+            }
+            if (data2.bytes === undefined) {
+              const err12 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "bytes" },
+                message: "must have required property '" + "bytes" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err12];
+              } else {
+                vErrors.push(err12);
+              }
+              errors++;
+            }
+            if (data2.sha256 === undefined) {
+              const err13 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "sha256" },
+                message: "must have required property '" + "sha256" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err13];
+              } else {
+                vErrors.push(err13);
+              }
+              errors++;
+            }
+            if (data2.outputModuleId === undefined) {
+              const err14 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "outputModuleId" },
+                message:
+                  "must have required property '" + "outputModuleId" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err14];
+              } else {
+                vErrors.push(err14);
+              }
+              errors++;
+            }
+            if (data2.outputModuleVersion === undefined) {
+              const err15 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "outputModuleVersion" },
+                message:
+                  "must have required property '" + "outputModuleVersion" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err15];
+              } else {
+                vErrors.push(err15);
+              }
+              errors++;
+            }
+            if (data2.minAppVersion === undefined) {
+              const err16 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "minAppVersion" },
+                message:
+                  "must have required property '" + "minAppVersion" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err16];
+              } else {
+                vErrors.push(err16);
+              }
+              errors++;
+            }
+            if (data2.assetUrl === undefined) {
+              const err17 = {
+                instancePath: instancePath + "/releases/" + i0,
+                schemaPath: "#/properties/releases/items/required",
+                keyword: "required",
+                params: { missingProperty: "assetUrl" },
+                message: "must have required property '" + "assetUrl" + "'",
+              };
+              if (vErrors === null) {
+                vErrors = [err17];
+              } else {
+                vErrors.push(err17);
+              }
+              errors++;
+            }
+            for (const key1 in data2) {
+              if (
+                !func5.call(schema46.properties.releases.items.properties, key1)
+              ) {
+                const err18 = {
+                  instancePath: instancePath + "/releases/" + i0,
+                  schemaPath:
+                    "#/properties/releases/items/additionalProperties",
+                  keyword: "additionalProperties",
+                  params: { additionalProperty: key1 },
+                  message: "must NOT have additional properties",
+                };
+                if (vErrors === null) {
+                  vErrors = [err18];
+                } else {
+                  vErrors.push(err18);
+                }
+                errors++;
+              }
+            }
+            if (data2.extractorId !== undefined) {
+              if ("tessera.civ6-extractor" !== data2.extractorId) {
+                const err19 = {
+                  instancePath:
+                    instancePath + "/releases/" + i0 + "/extractorId",
+                  schemaPath:
+                    "#/properties/releases/items/properties/extractorId/const",
+                  keyword: "const",
+                  params: { allowedValue: "tessera.civ6-extractor" },
+                  message: "must be equal to constant",
+                };
+                if (vErrors === null) {
+                  vErrors = [err19];
+                } else {
+                  vErrors.push(err19);
+                }
+                errors++;
+              }
+            }
+            if (data2.version !== undefined) {
+              let data4 = data2.version;
+              if (typeof data4 === "string") {
+                if (!pattern6.test(data4)) {
+                  const err20 = {
+                    instancePath: instancePath + "/releases/" + i0 + "/version",
+                    schemaPath:
+                      "#/properties/releases/items/properties/version/pattern",
+                    keyword: "pattern",
+                    params: {
+                      pattern:
+                        "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+                    },
+                    message:
+                      'must match pattern "' +
+                      "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" +
+                      '"',
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err20];
+                  } else {
+                    vErrors.push(err20);
+                  }
+                  errors++;
+                }
+              } else {
+                const err21 = {
+                  instancePath: instancePath + "/releases/" + i0 + "/version",
+                  schemaPath:
+                    "#/properties/releases/items/properties/version/type",
+                  keyword: "type",
+                  params: { type: "string" },
+                  message: "must be string",
+                };
+                if (vErrors === null) {
+                  vErrors = [err21];
+                } else {
+                  vErrors.push(err21);
+                }
+                errors++;
+              }
+            }
+            if (data2.os !== undefined) {
+              if ("windows" !== data2.os) {
+                const err22 = {
+                  instancePath: instancePath + "/releases/" + i0 + "/os",
+                  schemaPath: "#/properties/releases/items/properties/os/const",
+                  keyword: "const",
+                  params: { allowedValue: "windows" },
+                  message: "must be equal to constant",
+                };
+                if (vErrors === null) {
+                  vErrors = [err22];
+                } else {
+                  vErrors.push(err22);
+                }
+                errors++;
+              }
+            }
+            if (data2.arch !== undefined) {
+              if ("x64" !== data2.arch) {
+                const err23 = {
+                  instancePath: instancePath + "/releases/" + i0 + "/arch",
+                  schemaPath:
+                    "#/properties/releases/items/properties/arch/const",
+                  keyword: "const",
+                  params: { allowedValue: "x64" },
+                  message: "must be equal to constant",
+                };
+                if (vErrors === null) {
+                  vErrors = [err23];
+                } else {
+                  vErrors.push(err23);
+                }
+                errors++;
+              }
+            }
+            if (data2.minOsBuild !== undefined) {
+              let data7 = data2.minOsBuild;
+              if (!(
+                typeof data7 == "number" &&
+                !(data7 % 1) &&
+                !isNaN(data7)
+              )) {
+                const err24 = {
+                  instancePath:
+                    instancePath + "/releases/" + i0 + "/minOsBuild",
+                  schemaPath:
+                    "#/properties/releases/items/properties/minOsBuild/type",
+                  keyword: "type",
+                  params: { type: "integer" },
+                  message: "must be integer",
+                };
+                if (vErrors === null) {
+                  vErrors = [err24];
+                } else {
+                  vErrors.push(err24);
+                }
+                errors++;
+              }
+              if (typeof data7 == "number") {
+                if (data7 < 19045 || isNaN(data7)) {
+                  const err25 = {
+                    instancePath:
+                      instancePath + "/releases/" + i0 + "/minOsBuild",
+                    schemaPath:
+                      "#/properties/releases/items/properties/minOsBuild/minimum",
+                    keyword: "minimum",
+                    params: { comparison: ">=", limit: 19045 },
+                    message: "must be >= 19045",
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err25];
+                  } else {
+                    vErrors.push(err25);
+                  }
+                  errors++;
+                }
+              }
+            }
+            if (data2.artifactType !== undefined) {
+              if ("portable-zip" !== data2.artifactType) {
+                const err26 = {
+                  instancePath:
+                    instancePath + "/releases/" + i0 + "/artifactType",
+                  schemaPath:
+                    "#/properties/releases/items/properties/artifactType/const",
+                  keyword: "const",
+                  params: { allowedValue: "portable-zip" },
+                  message: "must be equal to constant",
+                };
+                if (vErrors === null) {
+                  vErrors = [err26];
+                } else {
+                  vErrors.push(err26);
+                }
+                errors++;
+              }
+            }
+            if (data2.entrypoint !== undefined) {
+              if ("TesseraCiv6Extractor.exe" !== data2.entrypoint) {
+                const err27 = {
+                  instancePath:
+                    instancePath + "/releases/" + i0 + "/entrypoint",
+                  schemaPath:
+                    "#/properties/releases/items/properties/entrypoint/const",
+                  keyword: "const",
+                  params: { allowedValue: "TesseraCiv6Extractor.exe" },
+                  message: "must be equal to constant",
+                };
+                if (vErrors === null) {
+                  vErrors = [err27];
+                } else {
+                  vErrors.push(err27);
+                }
+                errors++;
+              }
+            }
+            if (data2.bytes !== undefined) {
+              let data10 = data2.bytes;
+              if (!(
+                typeof data10 == "number" &&
+                !(data10 % 1) &&
+                !isNaN(data10)
+              )) {
+                const err28 = {
+                  instancePath: instancePath + "/releases/" + i0 + "/bytes",
+                  schemaPath:
+                    "#/properties/releases/items/properties/bytes/type",
+                  keyword: "type",
+                  params: { type: "integer" },
+                  message: "must be integer",
+                };
+                if (vErrors === null) {
+                  vErrors = [err28];
+                } else {
+                  vErrors.push(err28);
+                }
+                errors++;
+              }
+              if (typeof data10 == "number") {
+                if (data10 > 9007199254740991 || isNaN(data10)) {
+                  const err29 = {
+                    instancePath: instancePath + "/releases/" + i0 + "/bytes",
+                    schemaPath:
+                      "#/properties/releases/items/properties/bytes/maximum",
+                    keyword: "maximum",
+                    params: { comparison: "<=", limit: 9007199254740991 },
+                    message: "must be <= 9007199254740991",
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err29];
+                  } else {
+                    vErrors.push(err29);
+                  }
+                  errors++;
+                }
+                if (data10 < 1 || isNaN(data10)) {
+                  const err30 = {
+                    instancePath: instancePath + "/releases/" + i0 + "/bytes",
+                    schemaPath:
+                      "#/properties/releases/items/properties/bytes/minimum",
+                    keyword: "minimum",
+                    params: { comparison: ">=", limit: 1 },
+                    message: "must be >= 1",
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err30];
+                  } else {
+                    vErrors.push(err30);
+                  }
+                  errors++;
+                }
+              }
+            }
+            if (data2.sha256 !== undefined) {
+              let data11 = data2.sha256;
+              if (typeof data11 === "string") {
+                if (!pattern166.test(data11)) {
+                  const err31 = {
+                    instancePath: instancePath + "/releases/" + i0 + "/sha256",
+                    schemaPath:
+                      "#/properties/releases/items/properties/sha256/pattern",
+                    keyword: "pattern",
+                    params: { pattern: "^[0-9a-f]{64}$" },
+                    message: 'must match pattern "' + "^[0-9a-f]{64}$" + '"',
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err31];
+                  } else {
+                    vErrors.push(err31);
+                  }
+                  errors++;
+                }
+              } else {
+                const err32 = {
+                  instancePath: instancePath + "/releases/" + i0 + "/sha256",
+                  schemaPath:
+                    "#/properties/releases/items/properties/sha256/type",
+                  keyword: "type",
+                  params: { type: "string" },
+                  message: "must be string",
+                };
+                if (vErrors === null) {
+                  vErrors = [err32];
+                } else {
+                  vErrors.push(err32);
+                }
+                errors++;
+              }
+            }
+            if (data2.outputModuleId !== undefined) {
+              if ("tessera.civ6" !== data2.outputModuleId) {
+                const err33 = {
+                  instancePath:
+                    instancePath + "/releases/" + i0 + "/outputModuleId",
+                  schemaPath:
+                    "#/properties/releases/items/properties/outputModuleId/const",
+                  keyword: "const",
+                  params: { allowedValue: "tessera.civ6" },
+                  message: "must be equal to constant",
+                };
+                if (vErrors === null) {
+                  vErrors = [err33];
+                } else {
+                  vErrors.push(err33);
+                }
+                errors++;
+              }
+            }
+            if (data2.outputModuleVersion !== undefined) {
+              let data13 = data2.outputModuleVersion;
+              if (typeof data13 === "string") {
+                if (!pattern6.test(data13)) {
+                  const err34 = {
+                    instancePath:
+                      instancePath + "/releases/" + i0 + "/outputModuleVersion",
+                    schemaPath:
+                      "#/properties/releases/items/properties/outputModuleVersion/pattern",
+                    keyword: "pattern",
+                    params: {
+                      pattern:
+                        "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+                    },
+                    message:
+                      'must match pattern "' +
+                      "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" +
+                      '"',
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err34];
+                  } else {
+                    vErrors.push(err34);
+                  }
+                  errors++;
+                }
+              } else {
+                const err35 = {
+                  instancePath:
+                    instancePath + "/releases/" + i0 + "/outputModuleVersion",
+                  schemaPath:
+                    "#/properties/releases/items/properties/outputModuleVersion/type",
+                  keyword: "type",
+                  params: { type: "string" },
+                  message: "must be string",
+                };
+                if (vErrors === null) {
+                  vErrors = [err35];
+                } else {
+                  vErrors.push(err35);
+                }
+                errors++;
+              }
+            }
+            if (data2.minAppVersion !== undefined) {
+              let data14 = data2.minAppVersion;
+              if (typeof data14 === "string") {
+                if (!pattern6.test(data14)) {
+                  const err36 = {
+                    instancePath:
+                      instancePath + "/releases/" + i0 + "/minAppVersion",
+                    schemaPath:
+                      "#/properties/releases/items/properties/minAppVersion/pattern",
+                    keyword: "pattern",
+                    params: {
+                      pattern:
+                        "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+                    },
+                    message:
+                      'must match pattern "' +
+                      "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" +
+                      '"',
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err36];
+                  } else {
+                    vErrors.push(err36);
+                  }
+                  errors++;
+                }
+              } else {
+                const err37 = {
+                  instancePath:
+                    instancePath + "/releases/" + i0 + "/minAppVersion",
+                  schemaPath:
+                    "#/properties/releases/items/properties/minAppVersion/type",
+                  keyword: "type",
+                  params: { type: "string" },
+                  message: "must be string",
+                };
+                if (vErrors === null) {
+                  vErrors = [err37];
+                } else {
+                  vErrors.push(err37);
+                }
+                errors++;
+              }
+            }
+            if (data2.assetUrl !== undefined) {
+              let data15 = data2.assetUrl;
+              if (typeof data15 === "string") {
+                if (func1(data15) > 2048) {
+                  const err38 = {
+                    instancePath:
+                      instancePath + "/releases/" + i0 + "/assetUrl",
+                    schemaPath:
+                      "#/properties/releases/items/properties/assetUrl/maxLength",
+                    keyword: "maxLength",
+                    params: { limit: 2048 },
+                    message: "must NOT have more than 2048 characters",
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err38];
+                  } else {
+                    vErrors.push(err38);
+                  }
+                  errors++;
+                }
+                if (!pattern169.test(data15)) {
+                  const err39 = {
+                    instancePath:
+                      instancePath + "/releases/" + i0 + "/assetUrl",
+                    schemaPath:
+                      "#/properties/releases/items/properties/assetUrl/pattern",
+                    keyword: "pattern",
+                    params: {
+                      pattern:
+                        "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[^/?#]+/[^/?#]+\\.zip$",
+                    },
+                    message:
+                      'must match pattern "' +
+                      "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[^/?#]+/[^/?#]+\\.zip$" +
+                      '"',
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err39];
+                  } else {
+                    vErrors.push(err39);
+                  }
+                  errors++;
+                }
+              } else {
+                const err40 = {
+                  instancePath: instancePath + "/releases/" + i0 + "/assetUrl",
+                  schemaPath:
+                    "#/properties/releases/items/properties/assetUrl/type",
+                  keyword: "type",
+                  params: { type: "string" },
+                  message: "must be string",
+                };
+                if (vErrors === null) {
+                  vErrors = [err40];
+                } else {
+                  vErrors.push(err40);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err41 = {
+              instancePath: instancePath + "/releases/" + i0,
+              schemaPath: "#/properties/releases/items/type",
+              keyword: "type",
+              params: { type: "object" },
+              message: "must be object",
+            };
+            if (vErrors === null) {
+              vErrors = [err41];
+            } else {
+              vErrors.push(err41);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err42 = {
+          instancePath: instancePath + "/releases",
+          schemaPath: "#/properties/releases/type",
+          keyword: "type",
+          params: { type: "array" },
+          message: "must be array",
+        };
+        if (vErrors === null) {
+          vErrors = [err42];
+        } else {
+          vErrors.push(err42);
+        }
+        errors++;
+      }
+    }
+  } else {
+    const err43 = {
+      instancePath,
+      schemaPath: "#/type",
+      keyword: "type",
+      params: { type: "object" },
+      message: "must be object",
+    };
+    if (vErrors === null) {
+      vErrors = [err43];
+    } else {
+      vErrors.push(err43);
+    }
+    errors++;
+  }
+  validate39.errors = vErrors;
+  return errors === 0;
+}
+validate39.evaluated = {
+  props: true,
+  dynamicProps: false,
+  dynamicItems: false,
+};
