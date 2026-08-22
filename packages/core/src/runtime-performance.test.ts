@@ -1,13 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   BACKGROUND_OPERATION_LIMIT,
+  BackgroundTaskError,
   MAX_HISTORY_DIFF_BYTES,
   planBatchOperation,
+  serializeBackgroundTaskError,
   startBackgroundTask,
 } from "./background-task.js";
 import { createProject, EditorStore } from "./editor-store.js";
 import { SparseChunkStore } from "./sparse-chunk-store.js";
 import { SparseSpatialIndex } from "./sparse-spatial-index.js";
+import {
+  executeFillRegionWorkerPayload,
+  startFillRegionTask,
+} from "./fill-region.js";
+import type {
+  FillRegionWorkerRequest,
+  FillRegionWorkerResponse,
+} from "./fill-region-worker-protocol.js";
 import type { ConnectionData, OverlayData } from "./types.js";
 
 const style = {
@@ -63,6 +73,27 @@ function marker(id: string, x: number): OverlayData {
     },
     text: null,
   };
+}
+
+class FakeFillWorker {
+  onmessage:
+    ((event: { readonly data: FillRegionWorkerResponse }) => void) | null =
+    null;
+  onerror: ((event: { readonly message?: string }) => void) | null = null;
+  request: FillRegionWorkerRequest | null = null;
+  terminateCount = 0;
+
+  postMessage(message: FillRegionWorkerRequest): void {
+    this.request = message;
+  }
+
+  terminate(): void {
+    this.terminateCount += 1;
+  }
+
+  emit(message: FillRegionWorkerResponse): void {
+    this.onmessage?.({ data: message });
+  }
 }
 
 describe("运行时视口分块缓存", () => {
@@ -275,6 +306,112 @@ describe("统一后台任务协议", () => {
     });
     expect(progress.length).toBeGreaterThan(0);
     expect(progress).toEqual([...progress].sort((left, right) => left - right));
+  });
+
+  it("10001 以上通过 Worker 协议规划，过滤其他 taskId 并转发进度", async () => {
+    const state = project(101, 101);
+    const worker = new FakeFillWorker();
+    let clock = 0;
+    const task = startFillRegionTask(state, 0, 0, "#FF0000FF", {
+      workerFactory: () => worker,
+      dependencies: {
+        createTaskId: () => "fill-worker-1",
+        now: () => clock,
+      },
+    });
+    const progress: number[] = [];
+    task.subscribeProgress((event) => progress.push(event.progress));
+    await Promise.resolve();
+    const request = worker.request;
+    if (request === null) throw new Error("worker-request-missing");
+    worker.emit({
+      type: "result",
+      taskId: "other-task",
+      cells: [],
+    });
+    clock = 120;
+    worker.emit({
+      type: "progress",
+      taskId: "fill-worker-1",
+      completed: 5_000,
+    });
+    const cells = await executeFillRegionWorkerPayload(request.payload, {
+      isCancelled: () => false,
+      checkpoint: () => undefined,
+    });
+    worker.emit({
+      type: "result",
+      taskId: "fill-worker-1",
+      cells,
+    });
+    await expect(task.result).resolves.toHaveLength(10_201);
+    expect(progress[0]).toBeGreaterThan(0);
+    expect(progress.at(-1)).toBe(1);
+    expect(worker.terminateCount).toBe(1);
+    expect(request.payload.sparseColors).toEqual([]);
+  });
+
+  it("Worker 结构化错误保持稳定 code，取消会立即 terminate", async () => {
+    const errorWorker = new FakeFillWorker();
+    const failed = startFillRegionTask(project(101, 101), 0, 0, "#FF0000FF", {
+      workerFactory: () => errorWorker,
+      dependencies: { createTaskId: () => "fill-worker-error" },
+    });
+    await Promise.resolve();
+    errorWorker.emit({
+      type: "error",
+      taskId: "fill-worker-error",
+      error: serializeBackgroundTaskError(
+        new BackgroundTaskError(
+          "batch-work-too-large",
+          { itemCount: 20_001, maximum: 20_000 },
+          "reduce-range",
+        ),
+      ),
+    });
+    await expect(failed.result).rejects.toMatchObject({
+      code: "batch-work-too-large",
+    });
+    expect(errorWorker.terminateCount).toBe(1);
+
+    const cancelWorker = new FakeFillWorker();
+    const cancelled = startFillRegionTask(
+      project(101, 101),
+      0,
+      0,
+      "#FF0000FF",
+      {
+        workerFactory: () => cancelWorker,
+        dependencies: { createTaskId: () => "fill-worker-cancel" },
+      },
+    );
+    await Promise.resolve();
+    cancelled.cancel();
+    await expect(cancelled.result).rejects.toMatchObject({
+      code: "batch-task-cancelled",
+    });
+    expect(cancelWorker.terminateCount).toBe(1);
+  });
+
+  it("direct 不创建 Worker，Worker factory 失败时从头 fallback", async () => {
+    const directFactory = vi.fn(() => new FakeFillWorker());
+    await expect(
+      startFillRegionTask(project(100, 100), 0, 0, "#FF0000FF", {
+        workerFactory: directFactory,
+      }).result,
+    ).resolves.toHaveLength(10_000);
+    expect(directFactory).not.toHaveBeenCalled();
+
+    const fallbackFactory = vi.fn(() => {
+      throw new Error("worker-unavailable");
+    });
+    await expect(
+      startFillRegionTask(project(101, 101), 0, 0, "#FF0000FF", {
+        workerFactory: fallbackFactory,
+        dependencies: { yieldToEventLoop: () => Promise.resolve() },
+      }).result,
+    ).resolves.toHaveLength(10_201);
+    expect(fallbackFactory).toHaveBeenCalledOnce();
   });
 
   it("真实填充后台路径取消后不写入半成品", async () => {

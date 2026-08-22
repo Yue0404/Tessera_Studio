@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { waitForImportedProject } from "./editor-ready.js";
 
 async function createProject(
@@ -276,19 +276,77 @@ test("连通填充、擦除与 Shift 多选", async ({ page }) => {
 });
 
 test("M4 10001 以上填充进入后台且取消不提交半成品", async ({ page }) => {
-  await createProject(page, "正方形", "后台填充取消", "101");
-  await page.getByRole("button", { name: "画刷" }).click();
-  await page.getByLabel("操作模式").selectOption("fill");
-  await page.clock.install();
-  const browserNow = await page.evaluate(() => Date.now());
-  await page.clock.pauseAt(browserNow + 60_000);
-  await page.getByLabel("地图编辑画布").click({ position: { x: 500, y: 300 } });
-  const cancel = page.getByRole("button", { name: "取消填充" });
-  await expect(cancel).toBeVisible();
-  await cancel.evaluate((button: HTMLButtonElement) => button.click());
-  await page.clock.runFor(1);
-  await expect(cancel).toBeHidden();
-  await expect(page.getByTestId("cell-count")).toContainText("0");
+  test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    const workerUrls: string[] = [];
+    Object.defineProperty(window, "__tesseraWorkerUrls", {
+      configurable: true,
+      value: workerUrls,
+    });
+    window.Worker = new Proxy(NativeWorker, {
+      construct(target, argumentsList, newTarget) {
+        workerUrls.push(String(argumentsList[0]));
+        return Reflect.construct(target, argumentsList, newTarget);
+      },
+    });
+  });
+
+  let releaseWorker: (() => void) | undefined;
+  const workerGate = new Promise<void>((resolve) => {
+    releaseWorker = resolve;
+  });
+  const workerScriptPattern = /\/fill-region-worker\.ts(?:\?|$)/;
+  let workerRequestSeen = false;
+  const workerRoute = async (route: Route) => {
+    workerRequestSeen = true;
+    await workerGate;
+    try {
+      await route.abort("aborted");
+    } catch (error) {
+      // 生产取消会先 terminate Worker；此时浏览器已自行取消脚本请求。
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes("already handled")
+      ) {
+        throw error;
+      }
+    }
+  };
+  await page.route(workerScriptPattern, workerRoute);
+
+  try {
+    await createProject(page, "正方形", "后台填充取消", "101");
+    await page.getByRole("button", { name: "画刷" }).click();
+    await page.getByLabel("操作模式").selectOption("fill");
+    await page
+      .getByLabel("地图编辑画布")
+      .click({ position: { x: 500, y: 300 } });
+
+    await expect.poll(() => workerRequestSeen).toBe(true);
+    const workerUrls = await page.evaluate(
+      () =>
+        (
+          window as Window & {
+            readonly __tesseraWorkerUrls?: readonly string[];
+          }
+        ).__tesseraWorkerUrls ?? [],
+    );
+    expect(workerUrls.some((url) => url.includes("fill-region-worker"))).toBe(
+      true,
+    );
+
+    const cancel = page.getByRole("button", { name: "取消填充" });
+    await expect(cancel).toBeVisible();
+    await cancel.click({ force: true });
+    await expect(cancel).toBeHidden();
+    await expect(page.getByTestId("cell-count")).toContainText("0");
+  } finally {
+    releaseWorker?.();
+    if (!page.isClosed()) {
+      await page.unroute(workerScriptPattern, workerRoute);
+    }
+  }
 });
 
 test("M4 40000 地图连通填充触发总量门禁且保持稀疏", async ({ page }) => {

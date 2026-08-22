@@ -4,6 +4,7 @@ export * from "./coordinates.js";
 export * from "./editor-store.js";
 export * from "./edge-manager.js";
 export * from "./fill-region.js";
+export * from "./fill-region-worker-protocol.js";
 export * from "./geometry.js";
 export * from "./layers.js";
 export * from "./overlay-manager.js";

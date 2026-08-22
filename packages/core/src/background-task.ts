@@ -24,6 +24,30 @@ export class BackgroundTaskError extends Error {
   }
 }
 
+export function serializeBackgroundTaskError(error: BackgroundTaskError): {
+  readonly code: BackgroundTaskErrorCode;
+  readonly details: Readonly<Record<string, number | string | boolean>>;
+  readonly uiAction: BackgroundTaskError["uiAction"];
+} {
+  return {
+    code: error.code,
+    details: { ...error.details },
+    uiAction: error.uiAction,
+  };
+}
+
+export function deserializeBackgroundTaskError(error: {
+  readonly code: BackgroundTaskErrorCode;
+  readonly details: Readonly<Record<string, number | string | boolean>>;
+  readonly uiAction: BackgroundTaskError["uiAction"];
+}): BackgroundTaskError {
+  return new BackgroundTaskError(
+    error.code,
+    { ...error.details },
+    error.uiAction,
+  );
+}
+
 export interface BatchOperationPlan {
   readonly mode: "direct" | "background";
   readonly itemCount: number;

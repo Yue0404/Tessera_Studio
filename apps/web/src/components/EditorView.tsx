@@ -15,6 +15,7 @@ import {
   type OverlayPlacement,
 } from "@tessera/renderer";
 import type { ProjectSaveTarget } from "../project-file-workflow.js";
+import { createFillRegionWorker } from "../fill-region-worker-adapter.js";
 import { AppCommandBar } from "./AppCommandBar.js";
 import { CanvasToolRail } from "./CanvasToolRail.js";
 import { ContextPanel } from "./ContextPanel.js";
@@ -124,7 +125,7 @@ export function EditorView({
           row,
           column,
           alphaColor(placementRef.current.brushColor),
-          { confirmed },
+          { confirmed, workerFactory: createFillRegionWorker },
         );
         fillTaskRef.current = task;
         setFillBusy(true);
