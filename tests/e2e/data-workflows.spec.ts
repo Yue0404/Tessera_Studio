@@ -8,7 +8,7 @@ async function createSquareProject(page: Page, name: string) {
   await page.getByLabel("宽度").fill("20");
   await page.getByLabel("高度").fill("20");
   await page.getByRole("button", { name: "创建工程" }).click();
-  await expect(page.getByLabel("地图编辑画布")).toBeVisible();
+  await waitForEditorReady(page);
 }
 
 async function downloadFromDialog(
