@@ -77,18 +77,44 @@ test("PNG viewport 与 SVG selection 通过生产 UI 下载并可解析", async 
 
 test("已启动的 PNG 可取消，非法 custom 范围给出受控行动", async ({ page }) => {
   test.setTimeout(90_000);
-  await createSquareProject(page, "图片取消", "110");
+  let releaseWorkerRequest: () => void = () => undefined;
+  const workerRequestGate = new Promise<void>((resolve) => {
+    releaseWorkerRequest = resolve;
+  });
+  let workerRequestCount = 0;
+  const pngWorkerUrl = /\/png-worker\.(?:ts|js)(?:\?.*)?$/u;
+  await page.route(pngWorkerUrl, async (route) => {
+    workerRequestCount += 1;
+    await workerRequestGate;
+    try {
+      await route.continue();
+    } catch {
+      // 生产取消会 terminate Worker，请求可能已经随之失效。
+    }
+  });
+
+  await createSquareProject(page, "图片取消", "20");
   const downloads: Download[] = [];
   page.on("download", (download) => downloads.push(download));
-  await openVisualExport(page);
-  await page.getByLabel("PNG").check();
-  await page.getByLabel("图片范围").selectOption("full-map");
-  await page.getByLabel("2×").check();
-  await page.getByRole("button", { name: "开始生成" }).click();
-  // 取消按钮只会在真实任务创建后出现；force 跳过动作稳定性等待，避免大画布编码完成后节点先卸载。
-  await page.getByRole("button", { name: "取消生成" }).click({ force: true });
-  await expect(page.getByText("已取消图片导出，没有生成文件。")).toBeVisible();
-  expect(downloads).toHaveLength(0);
+  try {
+    await openVisualExport(page);
+    await page.getByLabel("PNG").check();
+    await page.getByLabel("图片范围").selectOption("full-map");
+    await page.getByLabel("2×").check();
+    await page.getByRole("button", { name: "开始生成" }).click();
+    await expect
+      .poll(() => workerRequestCount, { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    // Worker 脚本仍由网络门闩暂停；按钮出现证明生产 startVisualExport 已创建真实任务。
+    await page.getByRole("button", { name: "取消生成" }).click({ force: true });
+    await expect(
+      page.getByText("已取消图片导出，没有生成文件。"),
+    ).toBeVisible();
+    expect(downloads).toHaveLength(0);
+  } finally {
+    releaseWorkerRequest();
+    await page.unroute(pngWorkerUrl);
+  }
 
   await page.getByLabel("图片范围").selectOption("custom");
   await page.getByLabel("最小 X").fill("100");

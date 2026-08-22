@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { waitForImportedProject } from "./editor-ready.js";
 
 async function createProject(
   page: Page,
@@ -68,7 +69,7 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     const cleanPage = await cleanContext.newPage();
     await cleanPage.goto("/");
     await cleanPage.getByLabel("打开").setInputFiles(path);
-    await expect(cleanPage.getByText(name, { exact: true })).toBeVisible();
+    await waitForImportedProject(cleanPage, name);
     await expect(cleanPage.getByTestId("edge-count")).toContainText("1");
     await cleanContext.close();
   });

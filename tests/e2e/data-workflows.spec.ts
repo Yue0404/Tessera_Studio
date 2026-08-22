@@ -1,4 +1,5 @@
 import { expect, test, type Download, type Page } from "@playwright/test";
+import { waitForEditorReady } from "./editor-ready.js";
 
 async function createSquareProject(page: Page, name: string) {
   await page.goto("/");
@@ -60,7 +61,10 @@ test("Project full/partial 下载载入、Fragment 合并与同 ID 冲突均走�
   await fullPage
     .locator('input[accept=".tessera-project.json"]')
     .setInputFiles(fullPath);
-  await expect(fullPage.getByTestId("cell-count")).toContainText("1");
+  await waitForEditorReady(fullPage);
+  await expect(fullPage.getByTestId("cell-count")).toContainText("1", {
+    timeout: 30_000,
+  });
   await fullPage
     .locator('input[accept=".tessera-project.json"]')
     .setInputFiles(fullPath);
@@ -80,6 +84,7 @@ test("Project full/partial 下载载入、Fragment 合并与同 ID 冲突均走�
   await partialPage
     .locator('input[accept=".tessera-project.json"]')
     .setInputFiles(partialPath);
+  await waitForEditorReady(partialPage);
   await expect(
     partialPage.getByText("当前为部分工程", { exact: true }),
   ).toBeVisible();
