@@ -37,19 +37,18 @@ public sealed class Civ6ExtractionService
             ["Expansion1", "Expansion2"],
             scan.Definitions,
             scan.ChineseText);
-        var artExtraction = await Civ6BlpTextureExtractor.ExtractRailroadPreviewAsync(
+        var artExtraction = await Civ6StaticPreviewExtractor.ExtractAsync(
             input,
             scan.Definitions,
             cancellationToken);
-        var artAssets = artExtraction is null ? Array.Empty<GeneratedArtAsset>() : [artExtraction.Asset];
-        var sourceFiles = MergeSourceFiles(inspection, scan, artExtraction?.SourceFiles ?? []);
+        var sourceFiles = MergeSourceFiles(inspection, scan, artExtraction.SourceFiles);
         var package = PackageJsonBuilder.Build(
             source,
             request.ModuleVersion,
             request.GeneratorVersion,
             timeProvider.GetUtcNow(),
             sourceFiles,
-            artAssets);
+            artExtraction.Assets);
 
         await AtomicDirectoryPublisher.PublishAsync(output, async staging =>
         {
@@ -106,25 +105,40 @@ public sealed class Civ6ExtractionService
             installation.GameVersion,
             content.Definitions,
             cancellationToken);
-        var extracted = await Civ6BlpTextureExtractor.ExtractRailroadPreviewAsync(
+        var extracted = await Civ6StaticPreviewExtractor.ExtractAsync(
             input,
             content.Definitions,
             cancellationToken);
+        var generatedByCategory = extracted.Categories.ToDictionary(value => value.Category, StringComparer.Ordinal);
+        var categories = art.Categories.Select(value =>
+        {
+            generatedByCategory.TryGetValue(value.Category, out var generated);
+            return value with
+            {
+                ExtractedContentCount = generated?.ExtractedCount ?? 0,
+                PlaceholderContentCount = generated?.PlaceholderCount ?? value.ContentCount,
+            };
+        }).ToArray();
         var diagnostics = installation.Diagnostics.Concat(content.Diagnostics).Concat(art.Diagnostics)
+            .Concat(extracted.Diagnostics)
             .Where(value => value.Code != "art-static-image-extraction-unavailable")
             .Append(new Civ6InstallationDiagnostic(
                 "art-static-image-extraction-partial",
                 "warning",
-                "仅已验证的 CIVBLP v2 BC2 纹理链可提取；其他 CIVBLP/CIVBIG 格式仍保持无图占位。",
-                extracted?.Asset.SourceEntryName))
+                "仅完整闭合的 StrategicView 2D CIVBLP 链会生成预览；3D Landmark 和歧义条目保持占位。",
+                null))
             .OrderBy(value => value.Code, StringComparer.Ordinal)
             .ThenBy(value => value.RelativePath, StringComparer.Ordinal)
             .ToArray();
         return art with
         {
-            StaticImageExtractionAvailable = extracted is not null,
-            StaticImageBlockerCode = extracted is null ? "firaxis-container-decoder-unavailable" : "partial-bc2-only",
+            Categories = categories,
+            StaticImageExtractionAvailable = extracted.Assets.Count > 0,
+            StaticImageBlockerCode = extracted.Assets.Count == 0
+                ? "strategicview-static-chain-unavailable"
+                : "partial-strategicview-only",
             Diagnostics = diagnostics,
+            MaxReferenceDepth = extracted.MaxReferenceDepth,
         };
     }
 

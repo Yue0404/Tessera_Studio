@@ -43,7 +43,9 @@ public sealed record Civ6ArtCategoryInspection(
     int ContentCount,
     int MappedContentCount,
     int ReferencedAssetCount,
-    int ResolvedContainerCount);
+    int ResolvedContainerCount,
+    int ExtractedContentCount = 0,
+    int PlaceholderContentCount = 0);
 
 public sealed record Civ6ArtAssetReference(
     string EntryName,
@@ -71,7 +73,8 @@ public sealed record Civ6ArtAssetInspection(
     bool StaticImageExtractionAvailable,
     string StaticImageBlockerCode,
     IReadOnlyList<Civ6ArtAssetSample> Samples,
-    IReadOnlyList<Civ6InstallationDiagnostic> Diagnostics);
+    IReadOnlyList<Civ6InstallationDiagnostic> Diagnostics,
+    int MaxReferenceDepth = 0);
 
 public sealed record Civ6BlpTextureInspection(
     string RelativePath,

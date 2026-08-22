@@ -275,6 +275,19 @@ internal sealed class SyntheticGameFixture : IDisposable
         WriteAscii(bytes, 256, "Railroad");
         WriteAscii(bytes, 280, "Railroad_Visible");
         WriteAscii(bytes, 312, "Railroad_Revealed");
+        WriteAscii(bytes, 120, "RailroadSprite");
+        // 正式 StrategicView_Sprite 包条目直接保存一个 (type=2,index) 纹理指针。
+        WriteUInt32(bytes, 352, Fnv1a("RailroadSprite"));
+        WriteUInt32(bytes, 368, 2);
+        WriteUInt32(bytes, 372, 0);
+        // 正式 StrategicView_Route 包条目以两个显式 (type=2,index) 指针关联
+        // Visible 与 Revealed 纹理；夹具不再依赖名称后缀推断。
+        WriteUInt32(bytes, 400, Fnv1a("Railroad"));
+        WriteUInt32(bytes, 416, 23);
+        WriteUInt32(bytes, 432, 2);
+        WriteUInt32(bytes, 436, 0);
+        WriteUInt32(bytes, 440, 2);
+        WriteUInt32(bytes, 444, 1);
         WriteDescriptor(bytes, descriptorOffset, "Railroad_Visible", 0);
         WriteDescriptor(bytes, descriptorOffset + 104, "Railroad_Revealed", slotBytes);
         WriteSolidBc2Block(bytes.AsSpan(dataStart + 16, 16), 0xf800);

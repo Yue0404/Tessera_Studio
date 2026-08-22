@@ -3,7 +3,7 @@ namespace Tessera.Civ6.Extractor.Core.Tests;
 public sealed class ArtAssetProbeTests
 {
     [Fact]
-    public async Task 正式ID经ArtDef引用落到可证容器且只声明已验证BC2切片可提取()
+    public async Task 正式ID经ArtDef引用落到可证容器且只声明完整StrategicView链可提取()
     {
         using var fixture = new SyntheticGameFixture();
 
@@ -12,7 +12,7 @@ public sealed class ArtAssetProbeTests
         Assert.Equal(18, result.TotalContentCount);
         Assert.Equal(18, result.MappedContentCount);
         Assert.True(result.StaticImageExtractionAvailable);
-        Assert.Equal("partial-bc2-only", result.StaticImageBlockerCode);
+        Assert.Equal("partial-strategicview-only", result.StaticImageBlockerCode);
         Assert.Equal(8, result.Categories.Count);
         var wheat = Assert.Single(result.Samples, value => value.ContentId == "RESOURCE_WHEAT");
         var asset = Assert.Single(wheat.Assets);

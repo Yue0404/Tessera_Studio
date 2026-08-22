@@ -30,8 +30,17 @@ internal sealed record GeneratedArtAsset(
     byte[] Bytes);
 
 internal sealed record GeneratedArtExtraction(
-    GeneratedArtAsset Asset,
-    IReadOnlyList<SourceFileFact> SourceFiles);
+    IReadOnlyList<GeneratedArtAsset> Assets,
+    IReadOnlyList<SourceFileFact> SourceFiles,
+    IReadOnlyList<Civ6InstallationDiagnostic> Diagnostics,
+    IReadOnlyList<Civ6GeneratedArtCategoryCount> Categories,
+    int MaxReferenceDepth = 0);
+
+internal sealed record Civ6GeneratedArtCategoryCount(
+    string Category,
+    int ContentCount,
+    int ExtractedCount,
+    int PlaceholderCount);
 
 internal sealed record Civ6ContentScanResult(
     IReadOnlyList<Civ6ContentDefinition> Definitions,

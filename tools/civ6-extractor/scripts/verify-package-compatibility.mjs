@@ -59,6 +59,10 @@ function entityFile(table, primaryKey, rows) {
   return `<GameInfo><Types>${types}</Types><${table}>${entities}</${table}></GameInfo>`;
 }
 
+function emptyArtDef(collection) {
+  return `<AssetObjects..ArtDefSet><m_Version><major>4</major><minor>0</minor></m_Version><m_TemplateName text="${collection}"/><m_RootCollections><Element><m_CollectionName text="${collection}"/><m_ReplaceMergedCollectionElements>false</m_ReplaceMergedCollectionElements></Element></m_RootCollections></AssetObjects..ArtDefSet>`;
+}
+
 function listFiles(root, directory = root) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
@@ -240,11 +244,28 @@ async function main() {
         "DLC/Expansion2/Text/Expansion2_Translations_Text.xml",
       ])
         writeFixture(input, path, `<GameData><LocalizedText/></GameData>`);
-      writeFixture(
-        input,
-        "Base/ArtDefs/Districts.artdef",
-        `<AssetObjects..ArtDefSet />`,
-      );
+      for (const [path, collection] of [
+        ["Base/ArtDefs/Terrains.artdef", "Terrain"],
+        ["DLC/Expansion2/ArtDefs/Terrains.artdef", "Terrain"],
+        ["Base/ArtDefs/Features.artdef", "Feature"],
+        ["DLC/Expansion1/ArtDefs/Features.artdef", "Feature"],
+        ["DLC/Expansion2/ArtDefs/Features.artdef", "Feature"],
+        ["Base/ArtDefs/Resources.artdef", "Resource"],
+        ["DLC/Expansion1/ArtDefs/Resources.artdef", "Resource"],
+        ["DLC/Expansion2/ArtDefs/Resources.artdef", "Resource"],
+        ["Base/ArtDefs/Improvements.artdef", "Improvement"],
+        ["DLC/Expansion1/ArtDefs/Improvements.artdef", "Improvement"],
+        ["DLC/Expansion2/ArtDefs/Improvements.artdef", "Improvement"],
+        ["Base/ArtDefs/Districts.artdef", "District"],
+        ["DLC/Expansion1/ArtDefs/Districts.artdef", "District"],
+        ["DLC/Expansion2/ArtDefs/Districts.artdef", "District"],
+        ["Base/ArtDefs/Routes.artdef", "Route"],
+        ["DLC/Expansion2/ArtDefs/Routes.artdef", "Route"],
+        ["Base/ArtDefs/Buildings.artdef", "Building"],
+        ["DLC/Expansion1/ArtDefs/Buildings.artdef", "Building"],
+        ["DLC/Expansion2/ArtDefs/Buildings.artdef", "Building"],
+      ])
+        writeFixture(input, path, emptyArtDef(collection));
       const cliExecutable = resolve(
         repositoryRoot,
         "tools/civ6-extractor/src/Tessera.Civ6.Extractor.Cli/bin/Release/net10.0/TesseraCiv6Extractor.exe",
@@ -346,7 +367,7 @@ async function main() {
     assert(parsed.version === "1.0.0", "模块版本不匹配。");
     const expectedElements = realMode ? 197 : 8;
     assert(parsed.elements.length === expectedElements, "目录元素数量不匹配。");
-    const expectedResources = realMode ? 1 : 0;
+    const expectedResources = realMode ? 59 : 0;
     assert(
       parsed.manifest.resources.length === expectedResources,
       "资源声明数量不匹配。",
@@ -362,7 +383,7 @@ async function main() {
       );
       assert(
         railroad?.resourceIds?.[0] ===
-          "tessera.civ6:asset.route.railroad-preview",
+          "tessera.civ6:asset.route.route-railroad",
         "铁路元素没有闭合到提取资源。",
       );
     }

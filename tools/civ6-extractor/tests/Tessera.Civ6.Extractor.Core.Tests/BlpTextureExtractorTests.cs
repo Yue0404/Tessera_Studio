@@ -14,9 +14,97 @@ public sealed class BlpTextureExtractorTests
         using var fixture = new SyntheticGameFixture();
         await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
 
-        var png = await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "assets", "route", "railroad-preview.png"));
+        var png = await File.ReadAllBytesAsync(Path.Combine(
+            fixture.Output,
+            "assets",
+            "previews",
+            "route",
+            "route-railroad.png"));
         var pixel = ReadFirstPixel(png);
         Assert.Equal(new byte[] { 255, 0, 0, 255 }, pixel);
+    }
+
+    [Fact]
+    public async Task Sprite与Route逻辑条目均按显式索引解析纹理描述符()
+    {
+        using var fixture = new SyntheticGameFixture();
+        var container = await Civ6BlpContainer.OpenAsync(
+            SafeInputRoot.Open(fixture.Input),
+            ContainerPath,
+            CancellationToken.None);
+
+        var sprite = await container.ReadPackageTextureAsync(
+            "RailroadSprite",
+            "StrategicView_Sprite",
+            CancellationToken.None);
+        var route = await container.ReadPackageTextureAsync(
+            "Railroad",
+            "StrategicView_Route",
+            CancellationToken.None);
+
+        Assert.Equal("Railroad_Visible", sprite.EntryName);
+        Assert.Equal("Railroad_Visible", route.EntryName);
+        Assert.Equal(sprite.Payload, route.Payload);
+    }
+
+    [Fact]
+    public async Task Route逻辑纹理索引越界时稳定拒绝()
+    {
+        using var fixture = new SyntheticGameFixture();
+        var bytes = ReadContainer(fixture);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(436), 99);
+        fixture.ReplaceBinary(ContainerPath, bytes);
+        var container = await Civ6BlpContainer.OpenAsync(
+            SafeInputRoot.Open(fixture.Input),
+            ContainerPath,
+            CancellationToken.None);
+
+        var error = await Assert.ThrowsAsync<ExtractionException>(() =>
+            container.ReadPackageTextureAsync("Railroad", "StrategicView_Route", CancellationToken.None));
+
+        Assert.Equal("asset-blp-structure-invalid", error.Code);
+        Assert.Contains("越界", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 逻辑包条目Hash冲突到不同纹理时稳定拒绝而不选择其一()
+    {
+        using var fixture = new SyntheticGameFixture();
+        var bytes = ReadContainer(fixture);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(448), Fnv1a("Railroad"));
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(480), 2);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(484), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(488), 2);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(492), 0);
+        fixture.ReplaceBinary(ContainerPath, bytes);
+        var container = await Civ6BlpContainer.OpenAsync(
+            SafeInputRoot.Open(fixture.Input),
+            ContainerPath,
+            CancellationToken.None);
+
+        var error = await Assert.ThrowsAsync<ExtractionException>(() =>
+            container.ReadPackageTextureAsync("Railroad", "StrategicView_Route", CancellationToken.None));
+
+        Assert.Equal("asset-blp-structure-invalid", error.Code);
+        Assert.Contains("歧义", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 已取消目录解析在元数据扫描边界可观察()
+    {
+        using var fixture = new SyntheticGameFixture();
+        var container = await Civ6BlpContainer.OpenAsync(
+            SafeInputRoot.Open(fixture.Input),
+            ContainerPath,
+            CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            container.ReadPackageTextureAsync(
+                "Railroad",
+                "StrategicView_Route",
+                cancellation.Token));
     }
 
     [Fact]
@@ -67,13 +155,13 @@ public sealed class BlpTextureExtractorTests
     {
         using var fixture = new SyntheticGameFixture();
         var bytes = ReadContainer(fixture);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(552), 78);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(552), 84);
         fixture.ReplaceBinary(ContainerPath, bytes);
 
         var error = await Assert.ThrowsAsync<ExtractionException>(() =>
             Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output)));
 
-        Assert.Equal("asset-blp-structure-invalid", error.Code);
+        Assert.Equal("asset-texture-decode-invalid", error.Code);
     }
 
     [Fact]
@@ -87,7 +175,7 @@ public sealed class BlpTextureExtractorTests
         var error = await Assert.ThrowsAsync<ExtractionException>(() =>
             Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output)));
 
-        Assert.Equal("asset-artdef-chain-unsupported", error.Code);
+        Assert.Equal("input-artdef-schema-unsupported", error.Code);
     }
 
     [Fact]
@@ -113,7 +201,7 @@ public sealed class BlpTextureExtractorTests
         var error = await Assert.ThrowsAsync<ExtractionException>(() =>
             Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output)));
 
-        Assert.Equal("asset-artdef-chain-unsupported", error.Code);
+        Assert.Equal("input-artdef-schema-unsupported", error.Code);
     }
 
     [Fact]
@@ -129,7 +217,7 @@ public sealed class BlpTextureExtractorTests
         var error = await Assert.ThrowsAsync<ExtractionException>(() =>
             Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output)));
 
-        Assert.Equal("asset-blp-structure-invalid", error.Code);
+        Assert.Equal("asset-texture-decode-invalid", error.Code);
         Assert.False(Directory.Exists(fixture.Output));
     }
 

@@ -24,8 +24,8 @@ public sealed class ExtractionServiceTests
 
         using var module = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "module.json")));
         var resource = Assert.Single(module.RootElement.GetProperty("resources").EnumerateArray());
-        Assert.Equal("tessera.civ6:asset.route.railroad-preview", resource.GetProperty("resourceId").GetString());
-        Assert.Equal("assets/route/railroad-preview.png", resource.GetProperty("path").GetString());
+        Assert.Equal("tessera.civ6:asset.route.route-railroad", resource.GetProperty("resourceId").GetString());
+        Assert.Equal("assets/previews/route/route-railroad.png", resource.GetProperty("path").GetString());
         Assert.Equal("image/png", resource.GetProperty("mimeType").GetString());
         Assert.Equal("local-only", resource.GetProperty("license").GetProperty("status").GetString());
         Assert.Equal(9, module.RootElement.GetProperty("layers").GetArrayLength());
@@ -44,7 +44,7 @@ public sealed class ExtractionServiceTests
         var railroad = elements.RootElement.EnumerateArray().Single(element =>
             element.GetProperty("elementId").GetString() == "tessera.civ6:object.route.route-railroad");
         Assert.Equal(
-            "tessera.civ6:asset.route.railroad-preview",
+            "tessera.civ6:asset.route.route-railroad",
             Assert.Single(railroad.GetProperty("resourceIds").EnumerateArray()).GetString());
         Assert.True(railroad.GetProperty("extensions").GetProperty("hasExtractedArt").GetBoolean());
         Assert.Equal(4, railroad.GetProperty("extensions").GetProperty("assetWidth").GetInt32());
@@ -58,7 +58,12 @@ public sealed class ExtractionServiceTests
         });
         Assert.DoesNotContain(elements.RootElement.EnumerateArray(), element =>
             element.GetProperty("elementId").GetString()!.Contains("monument", StringComparison.Ordinal));
-        var png = await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "assets", "route", "railroad-preview.png"));
+        var png = await File.ReadAllBytesAsync(Path.Combine(
+            fixture.Output,
+            "assets",
+            "previews",
+            "route",
+            "route-railroad.png"));
         Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, png[..8]);
         Assert.Equal(4u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png.AsSpan(16, 4)));
         Assert.Equal(4u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png.AsSpan(20, 4)));

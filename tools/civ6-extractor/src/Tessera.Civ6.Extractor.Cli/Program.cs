@@ -75,6 +75,7 @@ static async Task<int> RunAsync(string[] arguments)
                 art.ResolvedContainerCount,
                 art.StaticImageExtractionAvailable,
                 art.StaticImageBlockerCode,
+                art.MaxReferenceDepth,
                 art.Categories,
                 art.Samples,
                 art.Diagnostics,

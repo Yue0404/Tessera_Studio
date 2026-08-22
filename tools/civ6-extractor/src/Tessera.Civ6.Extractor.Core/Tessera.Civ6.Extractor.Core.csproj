@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tessera.Civ6.Extractor.Core.Tests" />
+  </ItemGroup>
+
 </Project>
