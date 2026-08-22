@@ -5,7 +5,7 @@ interface OpfsSmokeModule {
   reopenAndRead(
     commitId: string,
   ): Promise<Readonly<{ committed: boolean; bytes: readonly number[] }>>;
-  deleteAndList(commitId: string): Promise<readonly string[]>;
+  deleteAndCheck(commitId: string): Promise<boolean>;
 }
 
 test("Chromium OPFS 流式写入、刷新读取与递归清理 smoke", async ({ page }) => {
@@ -26,10 +26,10 @@ test("Chromium OPFS 流式写入、刷新读取与递归清理 smoke", async ({ 
   }, commitId);
   expect(reopened).toEqual({ committed: true, bytes: [1, 2, 3, 4] });
 
-  const remaining = await page.evaluate(async (id) => {
+  const stillRegistered = await page.evaluate(async (id) => {
     const module =
       (await import("/src/opfs-browser-smoke-harness.ts")) as OpfsSmokeModule;
-    return module.deleteAndList(id);
+    return module.deleteAndCheck(id);
   }, commitId);
-  expect(remaining).not.toContain(commitId);
+  expect(stillRegistered).toBe(false);
 });
