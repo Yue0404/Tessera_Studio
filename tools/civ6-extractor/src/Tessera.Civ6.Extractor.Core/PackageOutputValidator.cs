@@ -29,9 +29,8 @@ public sealed class PackageOutputValidator : IPackageOutputValidator
             "module.json",
             "catalog/content-catalog.json",
             "provenance/source-manifest.json",
-            "elements/occupation.json",
+            "elements/content.json",
             "locales/zh-CN.json",
-            "assets/mappings/artdef-map.json",
         })
         {
             if (!File.Exists(Path.Combine(packageDirectory, required.Replace('/', Path.DirectorySeparatorChar))))

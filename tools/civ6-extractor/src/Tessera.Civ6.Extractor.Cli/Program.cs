@@ -8,14 +8,19 @@ static async Task<int> RunAsync(string[] arguments)
     if (arguments is ["--help"] or ["-h"] || arguments.Length == 0)
     {
         Console.WriteLine("用法: TesseraCiv6Extractor inspect --input <正式游戏目录>");
+        Console.WriteLine("      TesseraCiv6Extractor catalog inspect --input <正式游戏目录>");
         Console.WriteLine("      TesseraCiv6Extractor extract --input <正式游戏目录> --output <输出目录> [--module-version <SemVer>]");
         return arguments.Length == 0 ? 2 : 0;
     }
 
     try
     {
-        var command = arguments[0] is "inspect" or "extract" ? arguments[0] : "extract";
-        var optionArguments = command == arguments[0] ? arguments[1..] : arguments;
+        var command = arguments is ["catalog", "inspect", ..] ? "catalog-inspect"
+            : arguments[0] is "inspect" or "extract" ? arguments[0]
+            : "extract";
+        var optionArguments = command == "catalog-inspect" ? arguments[2..]
+            : command == arguments[0] ? arguments[1..]
+            : arguments;
         var options = ParseOptions(optionArguments, command);
         using var cancellation = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>
@@ -34,6 +39,22 @@ static async Task<int> RunAsync(string[] arguments)
                 inspection.VersionStatus,
                 inspection.Files,
                 inspection.Diagnostics,
+            }));
+            return 0;
+        }
+
+        if (command == "catalog-inspect")
+        {
+            var catalog = await new Civ6ExtractionService().InspectCatalogAsync(Require(options, "input"), cancellation.Token);
+            Console.WriteLine(Serialize(new
+            {
+                ok = true,
+                catalog.GameVersion,
+                catalog.TotalCount,
+                catalog.ChineseNameCount,
+                catalog.FallbackNameCount,
+                catalog.Categories,
+                catalog.Diagnostics,
             }));
             return 0;
         }
@@ -100,7 +121,7 @@ static Dictionary<string, string> ParseOptions(string[] arguments, string comman
         }
     }
 
-    var supported = command == "inspect"
+    var supported = command is "inspect" or "catalog-inspect"
         ? new HashSet<string>(["input"], StringComparer.Ordinal)
         : new HashSet<string>(["input", "output", "module-version"], StringComparer.Ordinal);
     var unknown = options.Keys.FirstOrDefault(key => !supported.Contains(key));

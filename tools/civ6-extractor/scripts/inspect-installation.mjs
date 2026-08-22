@@ -5,8 +5,12 @@ import process from "node:process";
 
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const dotnetPath = process.env.TESSERA_DOTNET_PATH?.trim() || "dotnet";
+const catalogMode = process.argv.includes("--catalog");
 const input =
-  process.argv[2]?.trim() || process.env.TESSERA_CIV6_GAME_PATH?.trim();
+  process.argv
+    .slice(2)
+    .find((value) => !value.startsWith("--"))
+    ?.trim() || process.env.TESSERA_CIV6_GAME_PATH?.trim();
 if (!input) {
   console.error(
     "必须通过第一个参数或 TESSERA_CIV6_GAME_PATH 明确提供正式游戏安装根目录。",
@@ -17,7 +21,10 @@ if (!input) {
     repositoryRoot,
     "tools/civ6-extractor/src/Tessera.Civ6.Extractor.Cli/bin/Release/net10.0/TesseraCiv6Extractor.dll",
   );
-  const result = spawnSync(dotnetPath, [cliPath, "inspect", "--input", input], {
+  const command = catalogMode
+    ? [cliPath, "catalog", "inspect", "--input", input]
+    : [cliPath, "inspect", "--input", input];
+  const result = spawnSync(dotnetPath, command, {
     cwd: repositoryRoot,
     encoding: "utf8",
     windowsHide: true,

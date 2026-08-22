@@ -27,7 +27,9 @@
     "support:matrix": "node scripts/run-browser-support-matrix.mjs",
     "support:matrix:test": "node --test scripts/browser-support-matrix-result.test.mjs",
     "verify:civ6-extractor-contract": "node tools/civ6-extractor/scripts/verify-package-compatibility.mjs",
-    "inspect:civ6-installation": "node tools/civ6-extractor/scripts/inspect-installation.mjs"
+    "verify:civ6-extractor-real": "node tools/civ6-extractor/scripts/verify-package-compatibility.mjs --real",
+    "inspect:civ6-installation": "node tools/civ6-extractor/scripts/inspect-installation.mjs",
+    "inspect:civ6-catalog": "node tools/civ6-extractor/scripts/inspect-installation.mjs --catalog"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

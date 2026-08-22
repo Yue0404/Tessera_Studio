@@ -5,7 +5,7 @@ namespace Tessera.Civ6.Extractor.Core;
 
 internal static class SecureXml
 {
-    public static XDocument Parse(byte[] bytes, string fieldPath)
+    public static XDocument Parse(byte[] bytes, string fieldPath, long maxCharacters = 16 * 1024 * 1024)
     {
         try
         {
@@ -14,7 +14,7 @@ internal static class SecureXml
             {
                 DtdProcessing = DtdProcessing.Prohibit,
                 XmlResolver = null,
-                MaxCharactersInDocument = 16 * 1024 * 1024,
+                MaxCharactersInDocument = maxCharacters,
                 MaxCharactersFromEntities = 0,
             });
             return XDocument.Load(reader, LoadOptions.None);

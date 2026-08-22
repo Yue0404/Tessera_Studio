@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -12,7 +11,7 @@ internal static partial class PackageJsonBuilder
     private const string ModuleId = "tessera.civ6";
     private static readonly string[] Authors = ["Tessera Studio"];
     private static readonly string[] SupportedGrids = ["hex-pointy"];
-    private static readonly string[] ElementFiles = ["elements/occupation.json"];
+    private static readonly string[] ElementFiles = ["elements/content.json"];
     private static readonly string[] Capabilities =
     [
         "cell-style", "edge-style", "anchored-overlay", "domain-object", "declarative-constraints", "content-catalog",
@@ -26,8 +25,6 @@ internal static partial class PackageJsonBuilder
 
     public static GeneratedPackage Build(
         Civ6SourceInfo source,
-        IReadOnlyDictionary<string, ArtDefAsset> artAssets,
-        IReadOnlyDictionary<string, PngImage> images,
         string moduleVersion,
         string generatorVersion,
         DateTimeOffset generatedAt,
@@ -36,61 +33,15 @@ internal static partial class PackageJsonBuilder
         EnsureSemVer(moduleVersion, "moduleVersion");
         EnsureSemVer(generatorVersion, "generatorVersion");
         var timestamp = generatedAt.ToUniversalTime().ToString("O");
-        var elements = source.Objects.Select(value => BuildElement(value, source, artAssets, timestamp)).ToArray();
-        var locale = new SortedDictionary<string, string>(StringComparer.Ordinal)
+        var elements = source.Objects.Select(value => BuildElement(value, source, timestamp))
+            .OrderBy(value => value.ElementId, StringComparer.Ordinal)
+            .ToArray();
+        var locale = BuildLocale(source);
+        var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal)
         {
-            ["module.name"] = "文明 6",
-            ["module.description"] = "由本机文明 6 正式游戏文件生成的地图规划模块。",
-            ["layer.occupation"] = "占用物",
-            ["category.city"] = "城市与区域",
+            ["locales/zh-CN.json"] = JsonBytes(locale),
+            ["elements/content.json"] = JsonBytes(elements),
         };
-        foreach (var (key, text) in new[]
-        {
-            ("layer.terrain", "地形"), ("layer.feature", "地貌"), ("layer.resource", "资源"),
-            ("layer.river", "河流"), ("layer.cliff", "悬崖"), ("layer.route", "道路"),
-            ("layer.validation", "规划校验"), ("layer.yield", "产出"),
-        })
-        {
-            locale[key] = text;
-        }
-        foreach (var value in source.Objects)
-        {
-            var slug = Slug(value.Id);
-            locale[$"element.{slug}.name"] = value.Name;
-            locale[$"element.{slug}.description"] = value.Description;
-        }
-        foreach (var category in source.Objects.Select(value => value.Category).Distinct(StringComparer.Ordinal))
-        {
-            locale[$"category.{Slug(category)}"] = category;
-        }
-
-        var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
-        foreach (var (relativePath, image) in images.OrderBy(item => item.Key, StringComparer.Ordinal))
-        {
-            if (!files.TryAdd(OutputImagePath(relativePath), image.Bytes))
-            {
-                throw new ExtractionException("output-path-collision", "两个来源图片会映射到同一输出路径。", relativePath);
-            }
-        }
-
-        var mapping = source.Objects.Select(value =>
-        {
-            var asset = artAssets[value.ArtDefId];
-            var image = images[asset.ImagePath];
-            return new
-            {
-                elementId = ElementId(value.Id),
-                sourceObjectId = value.Id,
-                artDefId = value.ArtDefId,
-                resourceId = ResourceId(value.Id),
-                width = image.Width,
-                height = image.Height,
-                extensions = EmptyObject(),
-            };
-        }).ToArray();
-        files["assets/mappings/artdef-map.json"] = JsonBytes(mapping);
-        files["locales/zh-CN.json"] = JsonBytes(locale);
-        files["elements/occupation.json"] = JsonBytes(elements);
 
         var categories = source.Objects
             .GroupBy(value => value.Category, StringComparer.Ordinal)
@@ -98,7 +49,7 @@ internal static partial class PackageJsonBuilder
             .Select(group => new
             {
                 categoryId = CategoryId(group.Key),
-                nameKey = Key($"category.{Slug(group.Key)}"),
+                nameKey = Key($"category.{group.Key}"),
                 count = group.Count(),
                 extensions = EmptyObject(),
             })
@@ -145,19 +96,6 @@ internal static partial class PackageJsonBuilder
             extensions = EmptyObject(),
         });
 
-        var resources = source.Objects.Select(value =>
-        {
-            var asset = artAssets[value.ArtDefId];
-            var image = images[asset.ImagePath];
-            return Resource(ResourceId(value.Id), OutputImagePath(asset.ImagePath), "image/png", image.Bytes.LongLength);
-        }).Append(Resource(
-            "tessera.civ6:map.artdef",
-            "assets/mappings/artdef-map.json",
-            "application/json",
-            files["assets/mappings/artdef-map.json"].LongLength))
-        .OrderBy(value => value.ResourceId, StringComparer.Ordinal)
-        .ToArray();
-
         files["module.json"] = JsonBytes(new
         {
             formatVersion = "1",
@@ -180,7 +118,7 @@ internal static partial class PackageJsonBuilder
             catalogManifestPath = "catalog/content-catalog.json",
             defaultLanguage = "zh-CN",
             locales = new Dictionary<string, string> { ["zh-CN"] = "locales/zh-CN.json" },
-            resources,
+            resources = Array.Empty<object>(),
             capabilities = Capabilities,
             packageSource = new
             {
@@ -203,39 +141,113 @@ internal static partial class PackageJsonBuilder
             extensions = EmptyObject(),
         });
 
-        return new GeneratedPackage(files, elements.Length, resources.Length);
+        return new GeneratedPackage(files, elements.Length, 0);
     }
 
-    private static ElementJson BuildElement(
-        Civ6ObjectDefinition value,
-        Civ6SourceInfo source,
-        IReadOnlyDictionary<string, ArtDefAsset> artAssets,
-        string timestamp)
+    private static SortedDictionary<string, string> BuildLocale(Civ6SourceInfo source)
     {
-        if (!artAssets.TryGetValue(value.ArtDefId, out _))
+        var locale = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
-            throw new ExtractionException("input-artdef-reference-missing", "规则对象引用了不存在的 ArtDef 资产。", value.ArtDefId);
+            ["module.name"] = "文明 6",
+            ["module.description"] = "由本机文明 6 正式游戏文件生成的地图规划模块。",
+            ["layer.terrain"] = "地形",
+            ["layer.feature"] = "地貌",
+            ["layer.resource"] = "资源",
+            ["layer.river"] = "河流",
+            ["layer.cliff"] = "悬崖",
+            ["layer.route"] = "道路",
+            ["layer.occupation"] = "占用物",
+            ["layer.validation"] = "规划校验",
+            ["layer.yield"] = "产出",
+            ["category.terrain"] = "地形",
+            ["category.feature"] = "地貌",
+            ["category.resource"] = "资源",
+            ["category.improvement"] = "改良",
+            ["category.district"] = "区域",
+            ["category.route"] = "路线",
+            ["category.wonder"] = "奇观",
+            ["category.city"] = "城市核心",
+        };
+        foreach (var value in source.Objects)
+        {
+            var slug = ElementSlug(value);
+            locale[$"element.{slug}.name"] = ResolveText(source.ChineseText, value.NameKey);
+            locale[$"element.{slug}.description"] = ResolveText(
+                source.ChineseText,
+                value.DescriptionKey ?? value.NameKey);
         }
 
-        var slug = Slug(value.Id);
-        return new ElementJson(
-            ElementId(value.Id),
+        return locale;
+    }
+
+    private static ElementJson BuildElement(Civ6ContentDefinition value, Civ6SourceInfo source, string timestamp)
+    {
+        var slug = ElementSlug(value);
+        var (primitive, layerId, style) = VisualSemantics(value.Category);
+        return new(
+            ElementId(value),
             CategoryId(value.Category),
             Key($"element.{slug}.name"),
             Key($"element.{slug}.description"),
-            "marker",
-            "tessera.civ6.cell.occupation",
+            primitive,
+            layerId,
             ["cell"],
-            ["hex-pointy"],
-            new { shape = "circle", resourceId = ResourceId(value.Id), color = "#FFFFFFFF", opacity = 1, displaySize = 32, rotation = 0 },
-            new { type = "object", properties = EmptyObject(), required = Array.Empty<string>(), additionalProperties = false },
+            SupportedGrids,
+            style,
+            EmptyAttributeSchema(),
             Array.Empty<object>(),
             Array.Empty<string>(),
-            [ResourceId(value.Id)],
-            new SourceJson($"tessera.civ6:source.{slug}", source.RulesetId, source.SourceBuild, timestamp),
+            Array.Empty<string>(),
+            new SourceJson(
+                $"tessera.civ6:source.{slug}",
+                source.RulesetId,
+                source.SourceBuild,
+                timestamp,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["gameNameKey"] = value.NameKey,
+                    ["gameDescriptionKey"] = value.DescriptionKey,
+                    ["sourceRelativePath"] = value.SourceRelativePath,
+                }),
             null,
-            EmptyObject());
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["generatedPlaceholder"] = true,
+                ["hasExtractedArt"] = false,
+            });
     }
+
+    private static (string Primitive, string LayerId, object Style) VisualSemantics(string category) => category switch
+    {
+        "terrain" => ("cell-style", "tessera.civ6.cell.terrain", CellStyle("#748F58FF", 1)),
+        "feature" => ("cell-style", "tessera.civ6.cell.feature", CellStyle("#3F7650FF", 0.82)),
+        "route" => ("cell-style", "tessera.civ6.cell.route", CellStyle("#A97B50FF", 0.72)),
+        "resource" => ("marker", "tessera.civ6.cell.resource", MarkerStyle("diamond", "#D6AF4BFF")),
+        "improvement" => ("marker", "tessera.civ6.cell.occupation", MarkerStyle("circle", "#69A9C4FF")),
+        "district" => ("marker", "tessera.civ6.cell.occupation", MarkerStyle("circle", "#A984D2FF")),
+        "wonder" => ("marker", "tessera.civ6.cell.occupation", MarkerStyle("diamond", "#E1C66FFF")),
+        "city" => ("marker", "tessera.civ6.cell.occupation", MarkerStyle("pin", "#E26B5BFF")),
+        _ => throw new ExtractionException("input-content-category-invalid", "内容类别没有对应的渲染语义。", category),
+    };
+
+    private static object CellStyle(string fillColor, double fillOpacity) => new { fillColor, fillOpacity };
+
+    private static object MarkerStyle(string shape, string color) => new
+    {
+        shape,
+        color,
+        opacity = 1,
+        displaySize = 18,
+        rotation = 0,
+    };
+
+    private static object EmptyAttributeSchema() => new
+    {
+        type = "object",
+        properties = EmptyObject(),
+        required = Array.Empty<string>(),
+        additionalProperties = false,
+    };
 
     private static object[] ModuleLayers() =>
     [
@@ -263,35 +275,20 @@ internal static partial class PackageJsonBuilder
         extensions = EmptyObject(),
     };
 
-    private static ResourceJson Resource(string id, string path, string mimeType, long bytes) =>
-        new(id, path, mimeType, bytes, new { status = "local-only", sourceName = "Sid Meier's Civilization VI" }, EmptyObject());
-
     private static Dictionary<string, object?> EmptyObject() => new(StringComparer.Ordinal);
 
     private static object Key(string key) => new { kind = "key", key };
 
-    private static string CategoryId(string category) => $"tessera.civ6:category.{Slug(category)}";
+    private static string ResolveText(IReadOnlyDictionary<string, string> text, string key) =>
+        text.TryGetValue(key, out var value) ? value : key;
 
-    private static string ElementId(string sourceId) => $"tessera.civ6:object.{Slug(sourceId)}";
+    private static string CategoryId(string category) => $"tessera.civ6:category.{category}";
 
-    private static string ResourceId(string sourceId) => $"tessera.civ6:asset.{Slug(sourceId)}";
+    private static string ElementId(Civ6ContentDefinition value) => $"tessera.civ6:object.{ElementSlug(value)}";
+
+    private static string ElementSlug(Civ6ContentDefinition value) => $"{value.Category}.{Slug(value.Id)}";
 
     private static string Slug(string value) => value.ToLowerInvariant().Replace('_', '-');
-
-    private static string OutputImagePath(string sourceRelativePath)
-    {
-        var withoutExtension = sourceRelativePath.Replace('\\', '/');
-        withoutExtension = withoutExtension[..^Path.GetExtension(withoutExtension).Length];
-        var segments = withoutExtension.Split('/', StringSplitOptions.RemoveEmptyEntries)
-            .Select(segment => OutputPathSegmentPattern().Replace(segment.ToLowerInvariant(), "-").Trim('-'))
-            .ToArray();
-        if (segments.Length == 0 || segments.Any(string.IsNullOrEmpty))
-        {
-            throw new ExtractionException("input-artdef-path-invalid", "ArtDef 图片路径无法安全映射到输出。", sourceRelativePath);
-        }
-
-        return $"assets/{string.Join('/', segments)}.png";
-    }
 
     private static byte[] JsonBytes<T>(T value) => JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
 
@@ -305,9 +302,6 @@ internal static partial class PackageJsonBuilder
 
     [GeneratedRegex("^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$", RegexOptions.CultureInvariant)]
     private static partial Regex SemVerPattern();
-
-    [GeneratedRegex("[^a-z0-9-]+", RegexOptions.CultureInvariant)]
-    private static partial Regex OutputPathSegmentPattern();
 
     private sealed record ElementJson(
         string ElementId,
@@ -327,13 +321,10 @@ internal static partial class PackageJsonBuilder
         object? Group,
         Dictionary<string, object?> Extensions);
 
-    private sealed record SourceJson(string SourceId, string RulesetId, string ContentVersion, string RetrievedAt);
-
-    private sealed record ResourceJson(
-        string ResourceId,
-        string Path,
-        string MimeType,
-        long Bytes,
-        object License,
+    private sealed record SourceJson(
+        string SourceId,
+        string RulesetId,
+        string ContentVersion,
+        string RetrievedAt,
         Dictionary<string, object?> Extensions);
 }

@@ -29,39 +29,17 @@ public sealed class Civ6ExtractionService
         EnsureDirectoriesDoNotOverlap(input.Root, output);
         var inspection = await installationProbe.InspectAsync(input.Root, cancellationToken);
 
-        var rulesBytes = await input.ReadAllBytesAsync(ExtractionLayout.RulesPath, cancellationToken);
-        var artDefBytes = await input.ReadAllBytesAsync(ExtractionLayout.ArtDefPath, cancellationToken);
-        var source = Civ6RulesParser.Parse(rulesBytes, ExtractionLayout.RulesPath);
-        var artAssets = ArtDefParser.Parse(artDefBytes, ExtractionLayout.ArtDefPath);
-        var images = new Dictionary<string, PngImage>(StringComparer.Ordinal);
-        foreach (var imagePath in source.Objects.Select(value =>
-            artAssets.TryGetValue(value.ArtDefId, out var asset)
-                ? asset.ImagePath
-                : throw new ExtractionException("input-artdef-reference-missing", "规则对象引用了不存在的 ArtDef 资产。", value.ArtDefId))
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal))
-        {
-            Civ6InstallationProbe.EnsureWhitelistedContentPath(imagePath);
-            var bytes = await input.ReadAllBytesAsync(imagePath, cancellationToken);
-            images[imagePath] = PngFixtureParser.Parse(bytes, imagePath);
-        }
-
-        source = source with
-        {
-            SourceBuild = inspection.GameVersion,
-            DlcIds = ["Expansion1", "Expansion2"],
-        };
-        var sourceFiles = inspection.Files.Select((value, index) =>
-            new SourceFileFact(value.RelativePath, $"tessera.civ6:source.installation-{index + 1:D4}", value.Bytes))
-            .ToList();
-        sourceFiles.AddRange(images
-            .Where(pair => sourceFiles.All(value => !string.Equals(value.RelativePath, pair.Key, StringComparison.OrdinalIgnoreCase)))
-            .Select((pair, index) =>
-                new SourceFileFact(pair.Key, $"tessera.civ6:source.image-{index + 1:D4}", pair.Value.Bytes.LongLength)));
+        var scan = await Civ6ContentScanner.ScanAsync(input, cancellationToken);
+        var source = new Civ6SourceInfo(
+            inspection.GameVersion,
+            "civ6-standard-gs-v1",
+            "not-extracted",
+            ["Expansion1", "Expansion2"],
+            scan.Definitions,
+            scan.ChineseText);
+        var sourceFiles = MergeSourceFiles(inspection, scan);
         var package = PackageJsonBuilder.Build(
             source,
-            artAssets,
-            images,
             request.ModuleVersion,
             request.GeneratorVersion,
             timeProvider.GetUtcNow(),
@@ -81,6 +59,52 @@ public sealed class Civ6ExtractionService
         }, cancellationToken);
 
         return new ExtractionResult(output, "tessera.civ6", request.ModuleVersion, package.ElementCount, package.ResourceCount);
+    }
+
+    public async Task<Civ6CatalogInspection> InspectCatalogAsync(
+        string inputDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var input = SafeInputRoot.Open(inputDirectory);
+        var inspection = await installationProbe.InspectAsync(input.Root, cancellationToken);
+        var scan = await Civ6ContentScanner.ScanAsync(input, cancellationToken);
+        var categories = scan.Definitions.GroupBy(value => value.Category, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => new Civ6CatalogCategoryCount(
+                group.Key,
+                group.Count(),
+                group.Select(value => value.Id).Order(StringComparer.Ordinal).Take(3).ToArray()))
+            .ToArray();
+        var chineseNameCount = scan.Definitions.Count(value => scan.ChineseText.ContainsKey(value.NameKey));
+        return new(
+            inspection.GameVersion,
+            categories,
+            scan.Definitions.Count,
+            chineseNameCount,
+            scan.Definitions.Count - chineseNameCount,
+            inspection.Diagnostics.Concat(scan.Diagnostics)
+                .OrderBy(value => value.Code, StringComparer.Ordinal)
+                .ThenBy(value => value.RelativePath, StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    private static SourceFileFact[] MergeSourceFiles(
+        Civ6InstallationInspection inspection,
+        Civ6ContentScanResult scan)
+    {
+        var files = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        foreach (var value in inspection.Files)
+        {
+            files[value.RelativePath] = value.Bytes;
+        }
+
+        foreach (var value in scan.SourceFiles)
+        {
+            files[value.RelativePath] = value.Bytes;
+        }
+
+        return files.Select((value, index) =>
+            new SourceFileFact(value.Key, $"tessera.civ6:source.input-{index + 1:D4}", value.Value)).ToArray();
     }
 
     private static void EnsureDirectoriesDoNotOverlap(string input, string output)

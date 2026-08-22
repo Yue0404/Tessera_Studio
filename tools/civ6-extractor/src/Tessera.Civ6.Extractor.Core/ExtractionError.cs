@@ -27,3 +27,13 @@ public sealed record ExtractionResult(
     string ModuleVersion,
     int ElementCount,
     int ResourceCount);
+
+public sealed record Civ6CatalogCategoryCount(string Category, int Count, IReadOnlyList<string> SampleIds);
+
+public sealed record Civ6CatalogInspection(
+    string GameVersion,
+    IReadOnlyList<Civ6CatalogCategoryCount> Categories,
+    int TotalCount,
+    int ChineseNameCount,
+    int FallbackNameCount,
+    IReadOnlyList<Civ6InstallationDiagnostic> Diagnostics);
