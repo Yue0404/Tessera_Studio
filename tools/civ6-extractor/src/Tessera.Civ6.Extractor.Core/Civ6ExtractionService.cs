@@ -1,6 +1,6 @@
 namespace Tessera.Civ6.Extractor.Core;
 
-public sealed class Civ6ExtractionService
+public sealed class Civ6ExtractionService : ICiv6ExtractionApplicationService
 {
     private readonly TimeProvider timeProvider;
     private readonly IPackageOutputValidator outputValidator;
@@ -16,9 +16,18 @@ public sealed class Civ6ExtractionService
         this.installationProbe = installationProbe ?? new Civ6InstallationProbe();
     }
 
-    public async Task<ExtractionResult> ExtractAsync(ExtractionRequest request, CancellationToken cancellationToken = default)
+    public Task<ExtractionResult> ExtractAsync(
+        ExtractionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ExtractAsync(request, progress: null, cancellationToken);
+
+    public async Task<ExtractionResult> ExtractAsync(
+        ExtractionRequest request,
+        IProgress<ExtractionProgress>? progress,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        progress?.Report(new("checking-installation", 0.02));
         var input = SafeInputRoot.Open(request.InputDirectory);
         if (string.IsNullOrWhiteSpace(request.OutputDirectory))
         {
@@ -29,6 +38,7 @@ public sealed class Civ6ExtractionService
         EnsureDirectoriesDoNotOverlap(input.Root, output);
         var inspection = await installationProbe.InspectAsync(input.Root, cancellationToken);
 
+        progress?.Report(new("scanning-content", 0.12));
         var scan = await Civ6ContentScanner.ScanAsync(input, cancellationToken);
         var source = new Civ6SourceInfo(
             inspection.GameVersion,
@@ -37,10 +47,12 @@ public sealed class Civ6ExtractionService
             ["Expansion1", "Expansion2"],
             scan.Definitions,
             scan.ChineseText);
+        progress?.Report(new("extracting-strategic-art", 0.3));
         var strategicExtraction = await Civ6StaticPreviewExtractor.ExtractAsync(
             input,
             scan.Definitions,
             cancellationToken);
+        progress?.Report(new("extracting-ui-icons", 0.55));
         var artExtraction = await Civ6UiIconExtractor.FillPlaceholdersAsync(
             input,
             scan.Definitions,
@@ -55,29 +67,57 @@ public sealed class Civ6ExtractionService
             sourceFiles,
             artExtraction.Assets);
 
+        progress?.Report(new("writing-package", 0.78));
         await AtomicDirectoryPublisher.PublishAsync(output, async staging =>
         {
+            var written = 0;
             foreach (var (relativePath, bytes) in package.Files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var destination = Path.Combine(staging, relativePath.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 await File.WriteAllBytesAsync(destination, bytes, cancellationToken);
+                written++;
+                progress?.Report(new(
+                    "writing-package",
+                    0.78 + (0.17 * written / package.Files.Count)));
             }
 
+            progress?.Report(new("validating-package", 0.97));
             await outputValidator.ValidateAsync(staging, cancellationToken);
         }, cancellationToken);
 
+        progress?.Report(new("completed", 1));
         return new ExtractionResult(output, "tessera.civ6", request.ModuleVersion, package.ElementCount, package.ResourceCount);
+    }
+
+    public async Task<Civ6ExtractionOverview> InspectOverviewAsync(
+        string inputDirectory,
+        IProgress<ExtractionProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        progress?.Report(new("checking-installation", 0.05));
+        var input = SafeInputRoot.Open(inputDirectory);
+        var inspection = await installationProbe.InspectAsync(input.Root, cancellationToken);
+        progress?.Report(new("scanning-content", 0.45));
+        var scan = await Civ6ContentScanner.ScanAsync(input, cancellationToken);
+        var catalog = BuildCatalogInspection(inspection, scan);
+        progress?.Report(new("inspection-complete", 1));
+        return new(inspection, catalog);
     }
 
     public async Task<Civ6CatalogInspection> InspectCatalogAsync(
         string inputDirectory,
         CancellationToken cancellationToken = default)
     {
-        var input = SafeInputRoot.Open(inputDirectory);
-        var inspection = await installationProbe.InspectAsync(input.Root, cancellationToken);
-        var scan = await Civ6ContentScanner.ScanAsync(input, cancellationToken);
+        var overview = await InspectOverviewAsync(inputDirectory, progress: null, cancellationToken);
+        return overview.Catalog;
+    }
+
+    private static Civ6CatalogInspection BuildCatalogInspection(
+        Civ6InstallationInspection inspection,
+        Civ6ContentScanResult scan)
+    {
         var categories = scan.Definitions.GroupBy(value => value.Category, StringComparer.Ordinal)
             .OrderBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new Civ6CatalogCategoryCount(

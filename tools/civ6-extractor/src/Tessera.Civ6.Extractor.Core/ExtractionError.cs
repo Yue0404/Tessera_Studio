@@ -28,6 +28,12 @@ public sealed record ExtractionResult(
     int ElementCount,
     int ResourceCount);
 
+public sealed record ExtractionProgress(string Stage, double Fraction);
+
+public sealed record Civ6ExtractionOverview(
+    Civ6InstallationInspection Installation,
+    Civ6CatalogInspection Catalog);
+
 public sealed record Civ6CatalogCategoryCount(string Category, int Count, IReadOnlyList<string> SampleIds);
 
 public sealed record Civ6CatalogInspection(
