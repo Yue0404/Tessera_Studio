@@ -1,0 +1,83 @@
+name: Civilization VI Extractor Windows Verification
+
+on:
+  push:
+    paths:
+      - ".github/workflows/civ6-extractor-windows.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "apps/web/src/package-media-decoder.ts"
+      - "packages/core/**"
+      - "packages/module-runtime/**"
+      - "tools/civ6-extractor/**"
+  pull_request:
+    paths:
+      - ".github/workflows/civ6-extractor-windows.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "apps/web/src/package-media-decoder.ts"
+      - "packages/core/**"
+      - "packages/module-runtime/**"
+      - "tools/civ6-extractor/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-windows-release:
+    name: 验证 Windows 发布制品
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 锁定还原提取器依赖
+        run: dotnet restore tools/civ6-extractor/TesseraCiv6Extractor.slnx --locked-mode
+
+      - name: 运行 Core 与 GUI 测试
+        run: dotnet test tools/civ6-extractor/TesseraCiv6Extractor.slnx --configuration Release --no-restore
+
+      - name: 验证 .NET 格式与分析器
+        run: dotnet format tools/civ6-extractor/TesseraCiv6Extractor.slnx --verify-no-changes --no-restore
+
+      - name: 安装跨语言验证所需浏览器
+        run: pnpm exec playwright install chromium
+
+      - name: 验证合成模块包跨语言契约
+        run: pnpm verify:civ6-extractor-contract
+
+      - name: 构建并完整审计 self-contained 发布候选
+        shell: pwsh
+        run: >-
+          ./tools/civ6-extractor/scripts/build-release.ps1
+          -OutputRoot "${{ github.workspace }}/local-modules/ci-release-candidates"
+
+      - name: 验证发布流程未修改受跟踪文件
+        shell: pwsh
+        run: |
+          $changes = @(git status --porcelain --untracked-files=all)
+          if ($LASTEXITCODE -ne 0) {
+            throw "无法检查 Git 工作树状态。"
+          }
+          if ($changes.Count -ne 0) {
+            throw "Windows 发布验证留下受跟踪差异：`n$($changes -join "`n")"
+          }
