@@ -13,10 +13,14 @@ public sealed class ExtractionServiceTests
         var before = fixture.SnapshotInput();
 
         var result = await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        fixture.ExtractArchive(result);
 
         Assert.Equal("tessera.civ6", result.ModuleId);
         Assert.Equal(18, result.ElementCount);
         Assert.Equal(1, result.ResourceCount);
+        Assert.Equal(fixture.ArchivePath, result.ArchivePath);
+        Assert.True(Path.IsPathFullyQualified(result.ArchivePath));
+        Assert.True(File.Exists(result.ArchivePath));
         Assert.Equal(before, fixture.SnapshotInput());
         Assert.DoesNotContain(
             Directory.EnumerateFiles(fixture.Output, "*", SearchOption.AllDirectories),
@@ -74,7 +78,8 @@ public sealed class ExtractionServiceTests
     public async Task 扩展Update覆盖基础字段且中文按扩展顺序覆盖()
     {
         using var fixture = new SyntheticGameFixture();
-        await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        var result = await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        fixture.ExtractArchive(result);
 
         using var elements = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "elements", "content.json")));
         var forest = elements.RootElement.EnumerateArray().Single(value =>
@@ -125,7 +130,8 @@ public sealed class ExtractionServiceTests
             </GameInfo>
             """);
 
-        await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        var result = await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        fixture.ExtractArchive(result);
 
         using var elements = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "elements", "content.json")));
         Assert.DoesNotContain(elements.RootElement.EnumerateArray(), value =>
@@ -140,7 +146,8 @@ public sealed class ExtractionServiceTests
             "DLC/Expansion2/Text/Expansion2_Translations_Text.xml",
             "<GameData><LocalizedText /></GameData>");
 
-        await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        var result = await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        fixture.ExtractArchive(result);
 
         using var locale = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "locales", "zh-CN.json")));
         Assert.Equal(
@@ -152,7 +159,8 @@ public sealed class ExtractionServiceTests
     public async Task SourceManifest覆盖实际读取文件且无路径和哈希泄漏()
     {
         using var fixture = new SyntheticGameFixture();
-        await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        var result = await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        fixture.ExtractArchive(result);
 
         var provenanceText = await File.ReadAllTextAsync(Path.Combine(fixture.Output, "provenance", "source-manifest.json"));
         Assert.DoesNotContain(fixture.Root, provenanceText, StringComparison.OrdinalIgnoreCase);
@@ -235,6 +243,7 @@ public sealed class ExtractionServiceTests
         Directory.CreateDirectory(fixture.Output);
         var marker = Path.Combine(fixture.Output, "keep.txt");
         await File.WriteAllTextAsync(marker, "旧输出");
+        await File.WriteAllTextAsync(fixture.ArchivePath, "旧归档");
         var service = new Civ6ExtractionService(
             new FixedTimeProvider(FixedNow),
             new RejectingOutputValidator(),
@@ -245,7 +254,59 @@ public sealed class ExtractionServiceTests
 
         Assert.Equal("test-validation-failed", error.Code);
         Assert.Equal("旧输出", await File.ReadAllTextAsync(marker));
+        Assert.Equal("旧归档", await File.ReadAllTextAsync(fixture.ArchivePath));
         Assert.Empty(Directory.EnumerateDirectories(Path.GetDirectoryName(fixture.Output)!, ".tessera.civ6.staging-*"));
+    }
+
+    [Fact]
+    public async Task 成功只替换归档且不触碰既有同名目录()
+    {
+        using var fixture = new SyntheticGameFixture();
+        Directory.CreateDirectory(fixture.Output);
+        var marker = Path.Combine(fixture.Output, "user-owned.txt");
+        await File.WriteAllTextAsync(marker, "用户既有目录");
+        await File.WriteAllTextAsync(fixture.ArchivePath, "旧归档");
+
+        var result = await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+
+        Assert.Equal("用户既有目录", await File.ReadAllTextAsync(marker));
+        Assert.Equal(fixture.ArchivePath, result.ArchivePath);
+        Assert.NotEqual("旧归档", await File.ReadAllTextAsync(result.ArchivePath));
+        using var archive = System.IO.Compression.ZipFile.OpenRead(result.ArchivePath);
+        Assert.Equal(
+            archive.Entries.Select(value => value.FullName).Order(StringComparer.Ordinal),
+            archive.Entries.Select(value => value.FullName));
+        Assert.All(archive.Entries, value =>
+        {
+            Assert.NotEmpty(value.Name);
+            Assert.DoesNotContain('\\', value.FullName);
+            Assert.False(Path.IsPathFullyQualified(value.FullName));
+            Assert.DoesNotContain(value.FullName.Split('/'), segment => segment is "" or "." or "..");
+        });
+    }
+
+    [Fact]
+    public async Task 目录校验后取消仍保留旧目录和旧归档()
+    {
+        using var fixture = new SyntheticGameFixture();
+        Directory.CreateDirectory(fixture.Output);
+        var marker = Path.Combine(fixture.Output, "user-owned.txt");
+        await File.WriteAllTextAsync(marker, "用户既有目录");
+        await File.WriteAllTextAsync(fixture.ArchivePath, "旧归档");
+        using var cancellation = new CancellationTokenSource();
+        var service = new Civ6ExtractionService(
+            new FixedTimeProvider(FixedNow),
+            new CallbackOutputValidator(() => cancellation.Cancel()),
+            new Civ6InstallationProbe(new FixedVersionReader("1.0.12.68")));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output), cancellation.Token));
+
+        Assert.Equal("用户既有目录", await File.ReadAllTextAsync(marker));
+        Assert.Equal("旧归档", await File.ReadAllTextAsync(fixture.ArchivePath));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(
+            Path.GetDirectoryName(fixture.Output)!,
+            ".*.staging-*"));
     }
 
     [Fact]
@@ -255,13 +316,12 @@ public sealed class ExtractionServiceTests
         var secondOutput = Path.Combine(fixture.Root, "generated-second", "tessera.civ6");
         var service = Service();
 
-        await service.ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
-        await service.ExtractAsync(new ExtractionRequest(fixture.Input, secondOutput));
+        var first = await service.ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        var second = await service.ExtractAsync(new ExtractionRequest(fixture.Input, secondOutput));
 
-        var first = SnapshotOutput(fixture.Output);
-        var second = SnapshotOutput(secondOutput);
-        Assert.Equal(first.Keys, second.Keys);
-        Assert.All(first, pair => Assert.Equal(pair.Value, second[pair.Key]));
+        Assert.Equal(
+            await File.ReadAllBytesAsync(first.ArchivePath),
+            await File.ReadAllBytesAsync(second.ArchivePath));
     }
 
     [Fact]
@@ -271,6 +331,18 @@ public sealed class ExtractionServiceTests
         var error = await Assert.ThrowsAsync<ExtractionException>(() =>
             Service().ExtractAsync(new ExtractionRequest(fixture.Input, Path.Combine(fixture.Input, "generated"))));
         Assert.Equal("input-output-overlap", error.Code);
+    }
+
+    [Fact]
+    public async Task 文件系统根目录不能作为输出位置()
+    {
+        using var fixture = new SyntheticGameFixture();
+        var root = Path.GetPathRoot(fixture.Output)!;
+
+        var error = await Assert.ThrowsAsync<ExtractionException>(() =>
+            Service().ExtractAsync(new ExtractionRequest(fixture.Input, root)));
+
+        Assert.Equal("output-directory-invalid", error.Code);
     }
 
     [Fact]
@@ -298,9 +370,13 @@ public sealed class ExtractionServiceTests
         new FixedTimeProvider(FixedNow),
         installationProbe: new Civ6InstallationProbe(new FixedVersionReader("1.0.12.68")));
 
-    private static SortedDictionary<string, byte[]> SnapshotOutput(string root) =>
-        new(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).ToDictionary(
-            path => Path.GetRelativePath(root, path).Replace('\\', '/'),
-            File.ReadAllBytes,
-            StringComparer.Ordinal), StringComparer.Ordinal);
+    private sealed class CallbackOutputValidator(Action callback) : IPackageOutputValidator
+    {
+        public Task ValidateAsync(string packageDirectory, CancellationToken cancellationToken)
+        {
+            callback();
+            return Task.CompletedTask;
+        }
+    }
+
 }

@@ -93,6 +93,7 @@ public sealed class StaticPreviewExtractorTests
 
         var inspection = await Service().InspectArtAssetsAsync(fixture.Input);
         var result = await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        fixture.ExtractArchive(result);
 
         Assert.Contains(inspection.Diagnostics, value =>
             value.Code == "art-preview-selection-ambiguous" && value.RelativePath == "FEATURE_FOREST");

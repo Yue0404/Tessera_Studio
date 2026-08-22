@@ -4,16 +4,15 @@ import {
   mkdtempSync,
   mkdirSync,
   copyFileSync,
-  readFileSync,
-  readdirSync,
+  existsSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import { chromium } from "@playwright/test";
 import { createServer } from "vite";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -63,21 +62,88 @@ function emptyArtDef(collection) {
   return `<AssetObjects..ArtDefSet><m_Version><major>4</major><minor>0</minor></m_Version><m_TemplateName text="${collection}"/><m_RootCollections><Element><m_CollectionName text="${collection}"/><m_ReplaceMergedCollectionElements>false</m_ReplaceMergedCollectionElements></Element></m_RootCollections></AssetObjects..ArtDefSet>`;
 }
 
-function listFiles(root, directory = root) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    return entry.isDirectory() ? listFiles(root, path) : [path];
-  });
-}
-
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function abortError() {
-  const error = new Error("操作已取消。");
-  error.name = "AbortError";
-  return error;
+async function validateArchiveInBrowser(vite, archivePath) {
+  await vite.listen();
+  const address = vite.httpServer?.address();
+  assert(
+    address !== null && typeof address === "object",
+    "Vite 未返回监听地址。",
+  );
+  const origin = `http://127.0.0.1:${String(address.port)}`;
+  const browser = await chromium.launch({
+    ...(process.platform === "win32" ? { channel: "msedge" } : {}),
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    await page.route(`${origin}/__civ6_contract__`, (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><meta charset=utf-8><title>contract</title>",
+      }),
+    );
+    await page.route(`${origin}/__civ6_archive__`, (route) =>
+      route.fulfill({
+        path: archivePath,
+        contentType: "application/zip",
+      }),
+    );
+    await page.goto(`${origin}/__civ6_contract__`);
+    return await page.evaluate(async () => {
+      const [{ UserFilePackageSource }, runtime, media] = await Promise.all([
+        import("/packages/module-runtime/src/user-file.ts"),
+        import("/packages/module-runtime/src/index.ts"),
+        import("/apps/web/src/package-media-decoder.ts"),
+      ]);
+      const response = await globalThis.fetch("/__civ6_archive__");
+      if (!response.ok)
+        throw new Error(`归档下载失败：${String(response.status)}`);
+      const file = new globalThis.File(
+        [await response.blob()],
+        "tessera.civ6.tessera-module.zip",
+        { type: "application/zip" },
+      );
+      const source = new UserFilePackageSource(file);
+      const archivePaths = [];
+      for await (const descriptor of source.listFiles())
+        archivePaths.push(descriptor.path);
+      let decodedResourceCount = 0;
+      const decoder = new media.BrowserResourceDecodeGateway();
+      try {
+        const parsed = await runtime.parseExtensionPackageSource(source, {
+          resourceDecoder: {
+            async validate(request) {
+              await decoder.validate(request);
+              decodedResourceCount += 1;
+            },
+          },
+        });
+        return {
+          kind: parsed.kind,
+          artifactId: parsed.artifactId,
+          version: parsed.version,
+          elements: parsed.elements.length,
+          resources: parsed.manifest.resources.length,
+          catalogEntries: parsed.catalog?.entries.length ?? 0,
+          decodedResourceCount,
+          archiveBytes: file.size,
+          archiveFileCount: archivePaths.length,
+          railroadResourceId: parsed.elements.find(
+            (value) =>
+              value.elementId === "tessera.civ6:object.route.route-railroad",
+          )?.resourceIds?.[0],
+        };
+      } finally {
+        source.dispose();
+      }
+    });
+  } finally {
+    await browser.close();
+  }
 }
 
 async function main() {
@@ -316,103 +382,50 @@ async function main() {
       ),
     );
     assert(extraction.ok === true, "合成包生成未成功。");
+    assert(isAbsolute(extraction.archivePath), "CLI 未返回绝对归档路径。");
     assert(
-      !JSON.stringify(extraction).includes(temporaryRoot),
-      "生成结果泄露了绝对路径。",
+      extraction.archivePath ===
+        join(dirname(output), "tessera.civ6.tessera-module.zip"),
+      "CLI 返回的归档位置不符合单一 ZIP 制品契约。",
+    );
+    assert(existsSync(extraction.archivePath), "CLI 返回的归档不存在。");
+    assert(!existsSync(output), "内部 staging 目录被误留为正式制品。");
+    const safeExtraction = { ...extraction };
+    delete safeExtraction.archivePath;
+    assert(
+      !JSON.stringify(safeExtraction).includes(temporaryRoot),
+      "除 archivePath 外的生成结果泄露了绝对路径。",
     );
 
-    const files = listFiles(output);
-    const source = {
-      origin: "user-file",
-      async *listFiles(signal) {
-        for (const path of files) {
-          if (signal?.aborted === true) throw abortError();
-          yield {
-            path: relative(output, path).replaceAll("\\", "/"),
-            bytes: statSync(path).size,
-          };
-        }
-      },
-      async *openFile(path, signal) {
-        if (signal?.aborted === true) throw abortError();
-        yield new Uint8Array(readFileSync(join(output, ...path.split("/"))));
-      },
-    };
-
-    // 通过 Vite 使用仓库真实的 TS 解析链，避免复制一套验证规则。
+    // 在真实浏览器中走网站生产 Worker、统一解析器和媒体解码器，避免复制验证规则。
     vite = await createServer({
       root: repositoryRoot,
       appType: "custom",
       logLevel: "error",
-      server: { middlewareMode: true },
+      server: { host: "127.0.0.1", port: 0, strictPort: false },
     });
-    const { parseExtensionPackageSource } = await vite.ssrLoadModule(
-      "/packages/module-runtime/src/index.ts",
-    );
-    let decodedResourceCount = 0;
-    const parsed = await parseExtensionPackageSource(source, {
-      resourceDecoder: {
-        async validate(request) {
-          let consumed = 0;
-          const prefix = [];
-          for await (const chunk of request.stream) {
-            consumed += chunk.byteLength;
-            for (const value of chunk) {
-              if (prefix.length < 26) prefix.push(value);
-            }
-          }
-          assert(consumed === request.bytes, `资源未完整消费：${request.path}`);
-          assert(
-            request.mimeType === "image/png",
-            `资源类型不匹配：${request.path}`,
-          );
-          assert(
-            prefix.slice(0, 8).join(",") === "137,80,78,71,13,10,26,10",
-            `PNG 签名不匹配：${request.path}`,
-          );
-          const width = new DataView(Uint8Array.from(prefix).buffer).getUint32(
-            16,
-          );
-          const height = new DataView(Uint8Array.from(prefix).buffer).getUint32(
-            20,
-          );
-          assert(
-            width > 0 && height > 0 && prefix[25] === 6,
-            `PNG 尺寸或 RGBA 类型无效：${request.path}`,
-          );
-          decodedResourceCount += 1;
-        },
-      },
-    });
+    const parsed = await validateArchiveInBrowser(vite, extraction.archivePath);
 
     assert(parsed.kind === "module", "统一加载器未返回 module 包。");
     assert(parsed.artifactId === "tessera.civ6", "模块 ID 不匹配。");
     assert(parsed.version === "1.0.0", "模块版本不匹配。");
     const expectedElements = realMode ? 197 : 8;
-    assert(parsed.elements.length === expectedElements, "目录元素数量不匹配。");
+    assert(parsed.elements === expectedElements, "目录元素数量不匹配。");
     // 正式 1.0.12.68：59 个 StrategicView + 52 个资源 UI 图标 + 3 个改良 UI 图标。
     const expectedResources = realMode ? 114 : 0;
+    assert(parsed.resources === expectedResources, "资源声明数量不匹配。");
     assert(
-      parsed.manifest.resources.length === expectedResources,
-      "资源声明数量不匹配。",
-    );
-    assert(
-      decodedResourceCount === expectedResources,
+      parsed.decodedResourceCount === expectedResources,
       "资源没有逐项经过统一解码网关。",
     );
     if (realMode) {
-      const railroad = parsed.elements.find(
-        (value) =>
-          value.elementId === "tessera.civ6:object.route.route-railroad",
-      );
       assert(
-        railroad?.resourceIds?.[0] ===
-          "tessera.civ6:asset.route.route-railroad",
+        parsed.railroadResourceId === "tessera.civ6:asset.route.route-railroad",
         "铁路元素没有闭合到提取资源。",
       );
     }
     assert(
-      parsed.catalog?.entries.length === expectedElements,
+      parsed.catalogEntries === expectedElements,
       "内容目录未闭合到元素集合。",
     );
     console.log(
@@ -420,8 +433,10 @@ async function main() {
         ok: true,
         moduleId: parsed.artifactId,
         version: parsed.version,
-        elements: parsed.elements.length,
-        resources: parsed.manifest.resources.length,
+        elements: parsed.elements,
+        resources: parsed.resources,
+        archiveFiles: parsed.archiveFileCount,
+        archiveBytes: parsed.archiveBytes,
         realInstallation: realMode,
       }),
     );

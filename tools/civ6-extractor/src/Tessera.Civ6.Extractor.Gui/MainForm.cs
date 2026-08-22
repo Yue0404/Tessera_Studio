@@ -215,7 +215,7 @@ public sealed class MainForm : Form
 
     private void OpenOutputDirectory()
     {
-        var directory = workflow.State.OutputDirectory;
+        var directory = workflow.State.OutputParentDirectory;
         if (directory is null)
         {
             PresentError("output-directory-required");
@@ -264,7 +264,7 @@ public sealed class MainForm : Form
     private void ApplyState(ExtractionWorkflowState next)
     {
         inputPath.Text = next.InputDirectory ?? inputPath.Text;
-        outputPath.Text = next.OutputDirectory ?? GuiText.Get("NotSelected");
+        outputPath.Text = next.Result?.ArchivePath ?? next.OutputDirectory ?? GuiText.Get("NotSelected");
         versionValue.Text = next.Overview?.Installation.GameVersion ?? GuiText.Get("NotChecked");
         storefrontValue.Text = Storefront(next.Overview?.Installation.Storefront);
         supportValue.Text = VersionStatus(next.Overview?.Installation.VersionStatus);
@@ -285,7 +285,7 @@ public sealed class MainForm : Form
         chooseOutput.Enabled = !next.IsBusy && next.Overview is not null;
         generate.Enabled = !next.IsBusy && next.Overview is not null && next.OutputDirectory is not null;
         cancel.Enabled = next.IsBusy;
-        openOutput.Enabled = !next.IsBusy && next.Stage == "completed" && Directory.Exists(next.OutputDirectory);
+        openOutput.Enabled = !next.IsBusy && next.Stage == "completed" && Directory.Exists(next.OutputParentDirectory);
 
         status.Text = next.Stage switch
         {

@@ -22,7 +22,7 @@ public sealed record ExtractionRequest(
     string GeneratorVersion = "1.0.0");
 
 public sealed record ExtractionResult(
-    string OutputDirectory,
+    string ArchivePath,
     string ModuleId,
     string ModuleVersion,
     int ElementCount,

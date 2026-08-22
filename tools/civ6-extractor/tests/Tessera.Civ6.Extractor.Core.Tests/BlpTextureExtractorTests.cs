@@ -12,7 +12,8 @@ public sealed class BlpTextureExtractorTests
     public async Task 合成BC2第一层解码为带Alpha的确定性红色Png()
     {
         using var fixture = new SyntheticGameFixture();
-        await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        var result = await Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output));
+        fixture.ExtractArchive(result);
 
         var png = await File.ReadAllBytesAsync(Path.Combine(
             fixture.Output,

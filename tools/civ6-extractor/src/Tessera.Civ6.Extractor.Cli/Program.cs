@@ -108,6 +108,7 @@ static async Task<int> RunAsync(string[] arguments)
         {
             ok = true,
             outputWritten = true,
+            archivePath = result.ArchivePath,
             moduleId = result.ModuleId,
             moduleVersion = result.ModuleVersion,
             elementCount = result.ElementCount,

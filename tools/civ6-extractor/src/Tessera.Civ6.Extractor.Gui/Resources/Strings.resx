@@ -69,4 +69,5 @@
   <data name="ProgressIcons" xml:space="preserve"><value>正在提取可验证的界面图标…</value></data>
   <data name="ProgressWriting" xml:space="preserve"><value>正在原子写入模块包…</value></data>
   <data name="ProgressValidating" xml:space="preserve"><value>正在验证生成的模块包…</value></data>
+  <data name="ProgressArchive" xml:space="preserve"><value>正在生成网站可导入的模块归档…</value></data>
 </root>

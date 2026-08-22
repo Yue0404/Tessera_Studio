@@ -36,6 +36,14 @@ public sealed class Civ6ExtractionService : ICiv6ExtractionApplicationService
 
         var output = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.OutputDirectory));
         EnsureDirectoriesDoNotOverlap(input.Root, output);
+        var outputParent = Directory.GetParent(output)?.FullName
+            ?? throw new ExtractionException(
+                "output-directory-invalid",
+                "输出位置不能是文件系统根目录。",
+                "outputDirectory");
+        var archivePath = Path.Combine(
+            outputParent,
+            "tessera.civ6.tessera-module.zip");
         var inspection = await installationProbe.InspectAsync(input.Root, cancellationToken);
 
         progress?.Report(new("scanning-content", 0.12));
@@ -68,7 +76,7 @@ public sealed class Civ6ExtractionService : ICiv6ExtractionApplicationService
             artExtraction.Assets);
 
         progress?.Report(new("writing-package", 0.78));
-        await AtomicDirectoryPublisher.PublishAsync(output, async staging =>
+        await AtomicArchivePublisher.PublishAsync(output, archivePath, async staging =>
         {
             var written = 0;
             foreach (var (relativePath, bytes) in package.Files)
@@ -80,15 +88,21 @@ public sealed class Civ6ExtractionService : ICiv6ExtractionApplicationService
                 written++;
                 progress?.Report(new(
                     "writing-package",
-                    0.78 + (0.17 * written / package.Files.Count)));
+                    0.78 + (0.15 * written / package.Files.Count)));
             }
 
-            progress?.Report(new("validating-package", 0.97));
+            progress?.Report(new("validating-package", 0.94));
             await outputValidator.ValidateAsync(staging, cancellationToken);
+            progress?.Report(new("writing-archive", 0.97));
         }, cancellationToken);
 
         progress?.Report(new("completed", 1));
-        return new ExtractionResult(output, "tessera.civ6", request.ModuleVersion, package.ElementCount, package.ResourceCount);
+        return new ExtractionResult(
+            archivePath,
+            "tessera.civ6",
+            request.ModuleVersion,
+            package.ElementCount,
+            package.ResourceCount);
     }
 
     public async Task<Civ6ExtractionOverview> InspectOverviewAsync(

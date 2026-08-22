@@ -68,6 +68,41 @@ public sealed class GuiSmokeTests
     }
 
     [Fact]
+    public async Task 生成完成显示归档绝对路径且只打开输出父目录()
+    {
+        await RunStaAsync(async () =>
+        {
+            var workflow = new Civ6ExtractionWorkflow(new FakeService(), new WindowsCiv6InstallationLocator(() => []));
+            var launcher = new RecordingLauncher();
+            using var form = new MainForm(workflow, launcher);
+            var parent = Path.Combine(Path.GetTempPath(), $"tessera-civ6-gui-output-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(parent);
+            try
+            {
+                form.Show();
+                Application.DoEvents();
+                await workflow.InspectSelectedAsync("C:/Games/Civ6");
+                Assert.True(workflow.SetOutputParentDirectory(parent));
+                var completed = await workflow.GenerateAsync();
+
+                Assert.Equal(completed.Result?.ArchivePath, Find<TextBox>(form, "outputPath").Text);
+                Assert.Equal(
+                    Path.Combine(parent, "tessera.civ6.tessera-module.zip"),
+                    Find<TextBox>(form, "outputPath").Text);
+                var open = Find<Button>(form, "openOutput");
+                Assert.True(open.Enabled);
+                open.PerformClick();
+                Assert.Equal(parent, launcher.OpenedDirectory);
+            }
+            finally
+            {
+                form.Close();
+                Directory.Delete(parent, recursive: true);
+            }
+        });
+    }
+
+    [Fact]
     public async Task 有界定位器规范化去重且不扫描其他目录()
     {
         var locator = new WindowsCiv6InstallationLocator(() =>
@@ -112,6 +147,7 @@ public sealed class GuiSmokeTests
     [InlineData("extracting-ui-icons")]
     [InlineData("writing-package")]
     [InlineData("validating-package")]
+    [InlineData("writing-archive")]
     public void 进度阶段均解析为集中资源文案(string stage)
     {
         var resolved = GuiText.Progress(stage);
@@ -225,6 +261,13 @@ public sealed class GuiSmokeTests
         public void Open(string directory) => throw new InvalidOperationException(directory);
     }
 
+    private sealed class RecordingLauncher : IOutputDirectoryLauncher
+    {
+        public string? OpenedDirectory { get; private set; }
+
+        public void Open(string directory) => OpenedDirectory = directory;
+    }
+
     private sealed class FakeService : ICiv6ExtractionApplicationService
     {
         public Task<Civ6ExtractionOverview> InspectOverviewAsync(
@@ -249,7 +292,12 @@ public sealed class GuiSmokeTests
             ExtractionRequest request,
             IProgress<ExtractionProgress>? progress,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ExtractionResult(request.OutputDirectory, "tessera.civ6", "1.0.0", 10, 0));
+            Task.FromResult(new ExtractionResult(
+                Path.Combine(Path.GetDirectoryName(request.OutputDirectory)!, "tessera.civ6.tessera-module.zip"),
+                "tessera.civ6",
+                "1.0.0",
+                10,
+                0));
     }
 
     private sealed class BlockingService : ICiv6ExtractionApplicationService

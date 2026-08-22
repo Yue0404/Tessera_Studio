@@ -22,6 +22,18 @@ internal sealed class SyntheticGameFixture : IDisposable
 
     public string Output { get; }
 
+    public string ArchivePath => Path.Combine(
+        Path.GetDirectoryName(Output)!,
+        "tessera.civ6.tessera-module.zip");
+
+    /// <summary>仅供测试读取正式 ZIP；生产提取流程不会留下展开目录。</summary>
+    public void ExtractArchive(ExtractionResult result)
+    {
+        Assert.Equal(ArchivePath, result.ArchivePath);
+        Assert.False(Directory.Exists(Output));
+        System.IO.Compression.ZipFile.ExtractToDirectory(result.ArchivePath, Output);
+    }
+
     public void ReplaceFile(string relativePath, string content) => WriteText(relativePath, content);
 
     public void ReplaceBinary(string relativePath, byte[] content) => WriteBytes(relativePath, content);

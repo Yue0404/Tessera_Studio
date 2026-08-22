@@ -76,7 +76,9 @@ public sealed class ExtractionWorkflowTests
                 progress?.Report(new("writing-package", 0.8));
                 progress?.Report(new("completed", 1));
                 return Task.FromResult(new ExtractionResult(
-                    request.OutputDirectory,
+                    Path.Combine(
+                        Path.GetDirectoryName(request.OutputDirectory)!,
+                        "tessera.civ6.tessera-module.zip"),
                     "tessera.civ6",
                     request.ModuleVersion,
                     197,
@@ -94,6 +96,9 @@ public sealed class ExtractionWorkflowTests
 
         Assert.Equal("completed", result.Stage);
         Assert.Equal(Path.Combine(Path.GetFullPath("C:/Exports"), "tessera.civ6"), result.OutputDirectory);
+        Assert.Equal(
+            Path.Combine(Path.GetFullPath("C:/Exports"), "tessera.civ6.tessera-module.zip"),
+            result.Result?.ArchivePath);
         Assert.Equal(114, result.Result?.ResourceCount);
         Assert.Equal(1, service.ExtractCalls);
         Assert.True(samples.Zip(samples.Skip(1), (left, right) => right >= left).All(value => value));

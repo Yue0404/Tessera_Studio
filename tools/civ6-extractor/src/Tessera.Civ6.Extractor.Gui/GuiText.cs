@@ -52,6 +52,7 @@ public static class GuiText
         "extracting-ui-icons" => Get("ProgressIcons"),
         "writing-package" => Get("ProgressWriting"),
         "validating-package" => Get("ProgressValidating"),
+        "writing-archive" => Get("ProgressArchive"),
         _ => Get("StatusBusy"),
     };
 
