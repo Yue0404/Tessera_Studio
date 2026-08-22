@@ -313,6 +313,7 @@ $staging = Join-Path $OutputRoot ".staging-$nonce"
 $payload = Join-Path $staging 'payload'
 $audit = Join-Path $staging 'audit'
 $stagingArchive = Join-Path $staging $artifactName
+$backupArchive = Join-Path $staging "$artifactName.previous"
 $finalArchive = Join-Path $OutputRoot $artifactName
 $summaryPath = "$finalArchive.summary.json"
 $sidecarPath = "$finalArchive.sha256"
@@ -378,7 +379,9 @@ try {
     Test-GuiStartup -PayloadDirectory $audit
 
     if (Test-Path -LiteralPath $finalArchive) {
-        [IO.File]::Replace($stagingArchive, $finalArchive, $null, $true)
+        # File.Replace 在部分 PowerShell/.NET 绑定中不接受空备份路径；
+        # 备份放在本次 staging 内，既保持替换原子性，也会由 finally 统一清理。
+        [IO.File]::Replace($stagingArchive, $finalArchive, $backupArchive, $true)
     }
     else {
         [IO.File]::Move($stagingArchive, $finalArchive)
