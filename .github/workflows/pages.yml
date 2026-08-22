@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - init
+      - main
     paths:
       - ".github/workflows/pages.yml"
       - "README.md"
