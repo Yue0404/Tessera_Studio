@@ -30,6 +30,11 @@ internal sealed record Civ6ContentTableSpec(
     string PrimaryKey,
     IReadOnlyList<string> RelativePaths);
 
+internal sealed record Civ6ArtDefTableSpec(
+    string Category,
+    string RootCollection,
+    IReadOnlyList<string> RelativePaths);
+
 internal static class ExtractionLayout
 {
     public static readonly Civ6ContentTableSpec[] ContentTables =
@@ -80,4 +85,42 @@ internal static class ExtractionLayout
         "DLC/Expansion1/Text/Expansion1_Translations_Major_Text.xml",
         "DLC/Expansion2/Text/Expansion2_Translations_Text.xml",
     ];
+
+    public static readonly Civ6ArtDefTableSpec[] ArtDefTables =
+    [
+        new("terrain", "Terrain", ["Base/ArtDefs/Terrains.artdef", "DLC/Expansion2/ArtDefs/Terrains.artdef"]),
+        new("feature", "Feature", ["Base/ArtDefs/Features.artdef", "DLC/Expansion1/ArtDefs/Features.artdef", "DLC/Expansion2/ArtDefs/Features.artdef"]),
+        new("resource", "Resource", ["Base/ArtDefs/Resources.artdef", "DLC/Expansion1/ArtDefs/Resources.artdef", "DLC/Expansion2/ArtDefs/Resources.artdef"]),
+        new("improvement", "Improvement", ["Base/ArtDefs/Improvements.artdef", "DLC/Expansion1/ArtDefs/Improvements.artdef", "DLC/Expansion2/ArtDefs/Improvements.artdef"]),
+        new("district", "District", ["Base/ArtDefs/Districts.artdef", "DLC/Expansion1/ArtDefs/Districts.artdef", "DLC/Expansion2/ArtDefs/Districts.artdef"]),
+        new("route", "Route", ["Base/ArtDefs/Routes.artdef", "DLC/Expansion2/ArtDefs/Routes.artdef"]),
+        new("wonder", "Building", ["Base/ArtDefs/Buildings.artdef", "DLC/Expansion1/ArtDefs/Buildings.artdef", "DLC/Expansion2/ArtDefs/Buildings.artdef"]),
+        new("city", "District", ["Base/ArtDefs/Districts.artdef", "DLC/Expansion1/ArtDefs/Districts.artdef", "DLC/Expansion2/ArtDefs/Districts.artdef"]),
+    ];
+
+    public static readonly HashSet<string> ReferencedArtDefFileNames = new(StringComparer.Ordinal)
+    {
+        "Buildings.artdef",
+        "Buildings_Shared.artdef",
+        "Cities.artdef",
+        "CityGenerators.artdef",
+        "Clutter.artdef",
+        "Clutter_Shared.artdef",
+        "Districts.artdef",
+        "Districts_Shared.artdef",
+        "Farms.artdef",
+        "Features.artdef",
+        "Improvements.artdef",
+        "Improvements_Shared.artdef",
+        "Landmarks.artdef",
+        "Landmarks_Shared.artdef",
+        "Resources.artdef",
+        "Resources_Shared.artdef",
+        "Routes.artdef",
+        "StrategicView.artdef",
+        "StrategicView_Shared.artdef",
+        "Terrains.artdef",
+        "TerrainStyle.artdef",
+        "Walls.artdef",
+    };
 }

@@ -37,3 +37,38 @@ public sealed record Civ6CatalogInspection(
     int ChineseNameCount,
     int FallbackNameCount,
     IReadOnlyList<Civ6InstallationDiagnostic> Diagnostics);
+
+public sealed record Civ6ArtCategoryInspection(
+    string Category,
+    int ContentCount,
+    int MappedContentCount,
+    int ReferencedAssetCount,
+    int ResolvedContainerCount);
+
+public sealed record Civ6ArtAssetReference(
+    string EntryName,
+    string XlpClass,
+    string XlpPath,
+    string BlpPackage,
+    string ContainerRelativePath,
+    string ContainerFormat,
+    long ContainerBytes,
+    bool DirectStaticImage);
+
+public sealed record Civ6ArtAssetSample(
+    string ContentId,
+    string Category,
+    string ArtDefRelativePath,
+    string ArtDefName,
+    IReadOnlyList<Civ6ArtAssetReference> Assets);
+
+public sealed record Civ6ArtAssetInspection(
+    string GameVersion,
+    IReadOnlyList<Civ6ArtCategoryInspection> Categories,
+    int TotalContentCount,
+    int MappedContentCount,
+    int ResolvedContainerCount,
+    bool StaticImageExtractionAvailable,
+    string StaticImageBlockerCode,
+    IReadOnlyList<Civ6ArtAssetSample> Samples,
+    IReadOnlyList<Civ6InstallationDiagnostic> Diagnostics);

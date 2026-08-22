@@ -88,6 +88,27 @@ public sealed class Civ6ExtractionService
                 .ToArray());
     }
 
+    public async Task<Civ6ArtAssetInspection> InspectArtAssetsAsync(
+        string inputDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var input = SafeInputRoot.Open(inputDirectory);
+        var installation = await installationProbe.InspectAsync(input.Root, cancellationToken);
+        var content = await Civ6ContentScanner.ScanAsync(input, cancellationToken);
+        var art = await Civ6ArtAssetProbe.InspectAsync(
+            input,
+            installation.GameVersion,
+            content.Definitions,
+            cancellationToken);
+        return art with
+        {
+            Diagnostics = installation.Diagnostics.Concat(content.Diagnostics).Concat(art.Diagnostics)
+                .OrderBy(value => value.Code, StringComparer.Ordinal)
+                .ThenBy(value => value.RelativePath, StringComparer.Ordinal)
+                .ToArray(),
+        };
+    }
+
     private static SourceFileFact[] MergeSourceFiles(
         Civ6InstallationInspection inspection,
         Civ6ContentScanResult scan)

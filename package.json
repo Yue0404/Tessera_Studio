@@ -29,7 +29,8 @@
     "verify:civ6-extractor-contract": "node tools/civ6-extractor/scripts/verify-package-compatibility.mjs",
     "verify:civ6-extractor-real": "node tools/civ6-extractor/scripts/verify-package-compatibility.mjs --real",
     "inspect:civ6-installation": "node tools/civ6-extractor/scripts/inspect-installation.mjs",
-    "inspect:civ6-catalog": "node tools/civ6-extractor/scripts/inspect-installation.mjs --catalog"
+    "inspect:civ6-catalog": "node tools/civ6-extractor/scripts/inspect-installation.mjs --catalog",
+    "inspect:civ6-art": "node tools/civ6-extractor/scripts/inspect-installation.mjs --art"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

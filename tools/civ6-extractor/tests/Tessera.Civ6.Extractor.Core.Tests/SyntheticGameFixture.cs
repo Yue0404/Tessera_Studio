@@ -13,6 +13,7 @@ internal sealed class SyntheticGameFixture : IDisposable
         Output = Path.Combine(Root, "generated", "tessera.civ6");
         WriteInstallationBaseline(storefront);
         WriteContentBaseline();
+        WriteArtDefBaseline();
     }
 
     public string Root { get; }
@@ -22,6 +23,16 @@ internal sealed class SyntheticGameFixture : IDisposable
     public string Output { get; }
 
     public void ReplaceFile(string relativePath, string content) => WriteText(relativePath, content);
+
+    public void ReplaceBinary(string relativePath, byte[] content) => WriteBytes(relativePath, content);
+
+    public void CreateSparseFile(string relativePath, long length)
+    {
+        var path = Path.Combine(Input, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        stream.SetLength(length);
+    }
 
     public void DeleteFile(string relativePath) =>
         File.Delete(Path.Combine(Input, relativePath.Replace('/', Path.DirectorySeparatorChar)));
@@ -185,6 +196,69 @@ internal sealed class SyntheticGameFixture : IDisposable
             ("LOC_BUILDING_GOLDEN_GATE_BRIDGE_DESCRIPTION", "扩展奇观"),
         ]);
     }
+
+    private void WriteArtDefBaseline()
+    {
+        WriteArtDef("Base/ArtDefs/Terrains.artdef", "Terrain", ["TERRAIN_GRASS"]);
+        WriteArtDef("Base/ArtDefs/Features.artdef", "Feature", ["FEATURE_FOREST"]);
+        WriteArtDef("Base/ArtDefs/Improvements.artdef", "Improvement", ["IMPROVEMENT_FARM"]);
+        WriteArtDef("Base/ArtDefs/Districts.artdef", "District", ["DISTRICT_CITY_CENTER", "DISTRICT_CAMPUS"]);
+        WriteArtDef("Base/ArtDefs/Routes.artdef", "Route", ["ROUTE_ANCIENT_ROAD"]);
+        WriteArtDef("Base/ArtDefs/Buildings.artdef", "Building", ["BUILDING_PYRAMIDS"]);
+        WriteText("Base/ArtDefs/Resources.artdef", ArtDefDocument("Resource", """
+            <Element>
+              <m_Fields><m_Values /></m_Fields>
+              <m_ChildCollections><Element><m_CollectionName text="Clutter"/><m_ReplaceMergedCollectionElements>false</m_ReplaceMergedCollectionElements><Element><m_Fields><m_Values>
+                <Element class="AssetObjects..StringValue"><m_Value text="CLUTTER_WHEAT"/><m_ParamName text="XrefName"/></Element>
+                <Element class="AssetObjects..ArtDefReferenceValue"><m_ElementName text=""/><m_RootCollectionName text=""/><m_ArtDefPath text="Clutter.artdef"/><m_ParamName text="Xref"/></Element>
+              </m_Values></m_Fields><m_ChildCollections/><m_Name text="Clutter001"/></Element></Element></m_ChildCollections>
+              <m_Name text="RESOURCE_WHEAT"/>
+            </Element>
+            """));
+        WriteText("Base/ArtDefs/Clutter.artdef", ArtDefDocument("ClutterSets", """
+            <Element><m_Fields><m_Values>
+              <Element class="AssetObjects..BLPEntryValue"><m_EntryName text="RES_Wheat_Tuft04"/><m_XLPClass text="Landmark"/><m_XLPPath text="clutter.xlp"/><m_BLPPackage text="environment/clutter"/><m_LibraryName text="Landmark"/><m_ParamName text="Asset"/></Element>
+            </m_Values></m_Fields><m_ChildCollections/><m_Name text="CLUTTER_WHEAT"/></Element>
+            """));
+
+        WriteArtDef("DLC/Expansion1/ArtDefs/Features.artdef", "Feature", ["FEATURE_GEOTHERMAL_FISSURE"]);
+        WriteArtDef("DLC/Expansion1/ArtDefs/Resources.artdef", "Resource", ["RESOURCE_AMBER"]);
+        WriteArtDef("DLC/Expansion1/ArtDefs/Improvements.artdef", "Improvement", ["IMPROVEMENT_FISHERY"]);
+        WriteArtDef("DLC/Expansion1/ArtDefs/Districts.artdef", "District", ["DISTRICT_GOVERNMENT"]);
+        WriteArtDef("DLC/Expansion1/ArtDefs/Buildings.artdef", "Building", ["BUILDING_KILWA_KISIWANI"]);
+
+        WriteArtDef("DLC/Expansion2/ArtDefs/Terrains.artdef", "Terrain", []);
+        WriteArtDef("DLC/Expansion2/ArtDefs/Features.artdef", "Feature", ["FEATURE_VOLCANO"]);
+        WriteArtDef("DLC/Expansion2/ArtDefs/Resources.artdef", "Resource", []);
+        WriteArtDef("DLC/Expansion2/ArtDefs/Improvements.artdef", "Improvement", ["IMPROVEMENT_SKI_RESORT"]);
+        WriteArtDef("DLC/Expansion2/ArtDefs/Districts.artdef", "District", ["DISTRICT_CANAL"]);
+        WriteArtDef("DLC/Expansion2/ArtDefs/Routes.artdef", "Route", ["ROUTE_RAILROAD"]);
+        WriteArtDef("DLC/Expansion2/ArtDefs/Buildings.artdef", "Building", ["BUILDING_GOLDEN_GATE_BRIDGE"]);
+
+        var civBlpHeader = new byte[] { 0x43, 0x49, 0x56, 0x42, 0x4c, 0x50, 0x02, 0x00 };
+        WriteBytes("Base/Platforms/Windows/BLPs/environment/clutter.blp", civBlpHeader);
+        WriteBytes("Base/Platforms/Windows/BLPs/UI/Icons.blp", civBlpHeader);
+        WriteBytes("DLC/Expansion1/Platforms/Windows/BLPs/UI/Icons.blp", civBlpHeader);
+        WriteBytes("DLC/Expansion2/Platforms/Windows/BLPs/UI/Icons.blp", civBlpHeader);
+    }
+
+    private void WriteArtDef(string relativePath, string collection, IReadOnlyList<string> names)
+    {
+        var elements = string.Join(string.Empty, names.Select(name => $"""
+            <Element><m_Fields><m_Values>
+              <Element class="AssetObjects..BLPEntryValue"><m_EntryName text="{name}_ICON"/><m_XLPClass text="UITexture"/><m_XLPPath text="icons.xlp"/><m_BLPPackage text="UI/Icons"/><m_LibraryName text="UITexture"/><m_ParamName text="Texture"/></Element>
+            </m_Values></m_Fields><m_ChildCollections/><m_Name text="{name}"/></Element>
+            """));
+        WriteText(relativePath, ArtDefDocument(collection, elements));
+    }
+
+    private static string ArtDefDocument(string collection, string elements) => $"""
+        <AssetObjects..ArtDefSet>
+          <m_Version><major>4</major><minor>0</minor></m_Version>
+          <m_TemplateName text="{collection}"/>
+          <m_RootCollections><Element><m_CollectionName text="{collection}"/><m_ReplaceMergedCollectionElements>false</m_ReplaceMergedCollectionElements>{elements}</Element></m_RootCollections>
+        </AssetObjects..ArtDefSet>
+        """;
 
     private void WriteEntityFile(string relativePath, string table, string primaryKey, IReadOnlyList<string> rows)
     {
