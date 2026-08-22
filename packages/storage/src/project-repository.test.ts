@@ -1,10 +1,17 @@
-import { createProject, edgeIdentity, EditorStore } from "@tessera/core";
+import {
+  createProject,
+  edgeIdentity,
+  EditorStore,
+  TESSERA_APP_VERSION,
+} from "@tessera/core";
 import {
   createPartialProjectV1,
   parseProjectV1,
+  restoreProjectV1,
   stringifyProjectV1,
   toProjectV1,
   type ProjectV1Document,
+  type FragmentModuleResolver,
 } from "@tessera/formats";
 import Dexie from "dexie";
 import { describe, expect, it, vi } from "vitest";
@@ -19,6 +26,93 @@ describe("ProjectRepository", () => {
       details: { projectId: "project-1", candidateCount: 3 },
       issues: [],
     });
+  });
+
+  it("新仓库恢复时继续使用精确模块 resolver 启用外部图层", async () => {
+    const databaseName = `resolver-${crypto.randomUUID()}`;
+    const document = structuredClone(
+      toProjectV1(
+        createProject({
+          name: "外部模块恢复",
+          grid: { type: "square", width: 4, height: 4, cellSize: 32 },
+          style: {
+            canvasBackground: "#09141DFF",
+            defaultCellColor: "#14232DFF",
+            gridColor: "#59656AFF",
+            gridOpacity: 0.7,
+            gridWidth: 1,
+            defaultEdgeColor: "#59656AFF",
+          },
+        }),
+      ),
+    ) as ProjectV1Document;
+    document.modules = [
+      {
+        moduleId: "example.weather",
+        version: "1.0.0",
+        packageSourceKind: "user-file",
+        extensions: {},
+      },
+      ...document.modules,
+    ];
+    document.layerStates = [
+      ...document.layerStates,
+      {
+        layerId: "example.weather.surface",
+        moduleVersion: "1.0.0",
+        zIndex: 2500,
+        visible: true,
+        locked: false,
+        opacity: 1,
+        extensions: {},
+      },
+    ].sort(
+      (left, right) =>
+        left.zIndex - right.zIndex || left.layerId.localeCompare(right.layerId),
+    );
+    const resolver: FragmentModuleResolver = {
+      resolve(request) {
+        return request.moduleId === "example.weather" &&
+          request.version === "1.0.0"
+          ? {
+              moduleId: request.moduleId,
+              version: request.version,
+              appVersionSupported: true,
+              supportedGrids: ["square"],
+              layers: [
+                {
+                  layerId: "example.weather.surface",
+                  zIndex: 2500,
+                  allowedPrimitives: ["cell"],
+                  allowedAnchors: ["cell"],
+                },
+              ],
+              elements: [],
+            }
+          : undefined;
+      },
+    };
+    const options = () => ({
+      moduleResolver: resolver,
+      currentAppVersion: TESSERA_APP_VERSION,
+      moduleResolutionMode: "tolerant" as const,
+    });
+    const first = new ProjectRepository(databaseName);
+    first.setModuleResolutionProvider(options);
+    await first.save(
+      restoreProjectV1(JSON.stringify(document), {
+        ...options(),
+        moduleResolutionMode: "strict",
+      }),
+    );
+    first.close();
+
+    const restarted = new ProjectRepository(databaseName);
+    restarted.setModuleResolutionProvider(options);
+    expect(
+      (await restarted.loadLatest())?.layers.get("example.weather.surface"),
+    ).toMatchObject({ allowedKinds: ["cell"] });
+    restarted.close();
   });
   it("保存并恢复最新工程", async () => {
     const repository = new ProjectRepository(`test-${crypto.randomUUID()}`);

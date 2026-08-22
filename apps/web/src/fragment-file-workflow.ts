@@ -1,4 +1,8 @@
-import { EditorStore, type ProjectState } from "@tessera/core";
+import {
+  EditorStore,
+  TESSERA_APP_VERSION,
+  type ProjectState,
+} from "@tessera/core";
 import {
   applyFragmentMerge,
   parseFragmentV1,
@@ -8,13 +12,12 @@ import {
   stringifyProjectDocumentV1,
   toProjectV1,
   type FragmentMergePlan,
+  type FragmentModuleResolver,
   type FragmentTranslation,
   type FragmentV1Document,
   type ProjectV1Document,
 } from "@tessera/formats";
 import type { ProjectSaveTarget } from "./project-file-workflow.js";
-
-const CURRENT_APP_VERSION = "0.0.0";
 
 export interface FragmentFileSource {
   readonly size: number;
@@ -82,10 +85,12 @@ export function prepareFragmentMerge(
   state: Readonly<ProjectState>,
   fragment: FragmentV1Document,
   translation?: FragmentTranslation,
+  resolver?: FragmentModuleResolver,
 ): PreparedFragmentMerge {
   const target = toProjectV1(state, { mode: "preserve" });
   const plan = planFragmentMerge(target, fragment, {
-    currentAppVersion: CURRENT_APP_VERSION,
+    currentAppVersion: TESSERA_APP_VERSION,
+    ...(resolver === undefined ? {} : { resolver }),
     ...(translation === undefined ? {} : { translation }),
   });
   return { target, fragment, plan };
@@ -95,6 +100,7 @@ export function prepareFragmentMerge(
 export async function commitFragmentMerge(
   prepared: PreparedFragmentMerge,
   repository: ProjectSaveTarget,
+  resolver?: FragmentModuleResolver,
 ): Promise<EditorStore> {
   if (prepared.plan.status !== "ready") {
     throw new FragmentFileWorkflowError("fragment-merge-not-ready", {
@@ -107,10 +113,17 @@ export async function commitFragmentMerge(
       prepared.target,
       prepared.fragment,
       prepared.plan,
-      { currentAppVersion: CURRENT_APP_VERSION },
+      {
+        currentAppVersion: TESSERA_APP_VERSION,
+        ...(resolver === undefined ? {} : { resolver }),
+      },
     );
     store = new EditorStore(
-      restoreProjectV1(stringifyProjectDocumentV1(result.project)),
+      restoreProjectV1(stringifyProjectDocumentV1(result.project), {
+        ...(resolver === undefined ? {} : { moduleResolver: resolver }),
+        currentAppVersion: TESSERA_APP_VERSION,
+        moduleResolutionMode: "tolerant",
+      }),
     );
   } catch (error) {
     throw new FragmentFileWorkflowError(

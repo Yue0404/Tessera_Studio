@@ -40,7 +40,7 @@ export function ContextPanel({
   onLayerState,
   onClose,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const titleKey =
     panel === "properties"
       ? "tool.properties"
@@ -72,10 +72,17 @@ export function ContextPanel({
         <ul>
           {sortLayers(state.layers.values()).map((layer) => (
             <li key={layer.layerId}>
-              <span>{t(`layer.${layer.layerId}`)}</span>
+              <span>
+                {i18n.exists(`layer.${layer.layerId}`)
+                  ? t(`layer.${layer.layerId}`)
+                  : layer.layerId}
+              </span>
               <small>
                 {layer.layerId} · {layer.zIndex}
               </small>
+              {layer.runtimeStatus === "missing" ? (
+                <small>{t("layer.moduleMissing")}</small>
+              ) : null}
               <div className={styles.layerControls}>
                 <label>
                   <input
@@ -93,7 +100,10 @@ export function ContextPanel({
                   <input
                     type="checkbox"
                     checked={layer.locked}
-                    disabled={layer.layerId === "tessera.system.grid"}
+                    disabled={
+                      layer.layerId === "tessera.system.grid" ||
+                      layer.runtimeStatus === "missing"
+                    }
                     onChange={(event) =>
                       onLayerState(layer.layerId, {
                         locked: event.target.checked,

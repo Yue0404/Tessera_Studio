@@ -1,8 +1,13 @@
-import { EditorStore, type ProjectState } from "@tessera/core";
+import {
+  EditorStore,
+  TESSERA_APP_VERSION,
+  type ProjectState,
+} from "@tessera/core";
 import {
   prepareExternalProjectV1,
   PROJECT_V1_MAX_FILE_BYTES,
   type PreparedExternalProjectV1,
+  type FragmentModuleResolver,
 } from "@tessera/formats";
 
 export interface ProjectFileSource {
@@ -25,6 +30,7 @@ export interface ProjectFileImportOptions {
   readonly file: ProjectFileSource;
   readonly currentProjectId: string | null;
   readonly repository: ProjectSaveTarget;
+  readonly moduleResolver?: FragmentModuleResolver;
   readonly decideSameProjectId?: (
     context: SameProjectIdContext,
   ) => SameProjectIdDecision | Promise<SameProjectIdDecision>;
@@ -133,6 +139,12 @@ export async function importProjectFile(
     state = prepared.toState({
       currentProjectId: options.currentProjectId,
       sameProjectIdPolicy: sameFullProject ? decision : "copy",
+      ...(options.moduleResolver === undefined
+        ? {}
+        : {
+            moduleResolver: options.moduleResolver,
+            currentAppVersion: TESSERA_APP_VERSION,
+          }),
     });
   } catch (error) {
     throw new ProjectFileWorkflowError(

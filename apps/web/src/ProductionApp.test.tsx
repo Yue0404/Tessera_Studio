@@ -11,6 +11,26 @@ const repositoryCounters = vi.hoisted(() => ({
 }));
 
 vi.mock("@tessera/storage", () => ({
+  BrowserOpfsGateway: class {
+    readonly kind = "opfs";
+  },
+  BrowserStorageEstimateGateway: class {
+    readonly kind = "storage-estimate";
+  },
+  LocalPackageRepository: class {
+    async recover() {
+      return {
+        completedCommitIds: [],
+        rolledBackCommitIds: [],
+        deletedOrphanCommitIds: [],
+        issues: [],
+      };
+    }
+
+    async listRegistrations() {
+      return [];
+    }
+  },
   ProjectRepository: class {
     constructor() {
       repositoryCounters.constructed += 1;

@@ -615,7 +615,9 @@ export function preflightFragmentMerge(
       });
     }
     const element = contract?.elements.find(
-      (candidate) => candidate.elementId === entry.elementId,
+      (candidate) =>
+        candidate.elementId === entry.elementId &&
+        candidate.primitive === entry.primitive,
     );
     if (
       element === undefined ||

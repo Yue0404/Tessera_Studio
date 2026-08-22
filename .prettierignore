@@ -7,3 +7,4 @@ docs
 .pnpm-store
 packages/formats/src/project-validator.generated.ts
 packages/formats/src/fragment-validator.generated.ts
+packages/module-runtime/src/*-validator.generated.ts

@@ -1,4 +1,5 @@
 export * from "./format-types.js";
+export { computeProjectContentBounds } from "./content-bounds.js";
 export * from "./export-closure.js";
 export * from "./fragment-merge.js";
 export * from "./fragment-format.js";

@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const localChromiumChannel =
-  process.platform === "win32" ? { channel: "msedge" as const } : {};
+// Linux CI 显式使用 regular Chromium 新无头模式，避免默认 headless shell 与真实浏览器存储实现漂移。
+const chromiumChannel =
+  process.platform === "win32" ? ("msedge" as const) : ("chromium" as const);
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -21,7 +22,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"], ...localChromiumChannel },
+      use: { ...devices["Desktop Chrome"], channel: chromiumChannel },
     },
   ],
 });

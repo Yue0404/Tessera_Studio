@@ -5,6 +5,7 @@ import {
   createProject,
   edgeIdentity,
   EditorStore,
+  type FixedLayerState,
   mapPointToCell,
 } from "./index.js";
 
@@ -97,5 +98,33 @@ describe("EditorStore", () => {
     const even = cellCenter(grid, 2, 3);
     const odd = cellCenter(grid, 3, 3);
     expect(odd.x - even.x).toBeCloseTo((Math.sqrt(3) * grid.cellSize) / 2);
+  });
+
+  it("缺失模块占位层不可被解锁", () => {
+    const project = createProject(input);
+    (project.layers as Map<string, FixedLayerState>).set(
+      "example.missing.layer",
+      {
+        layerId: "example.missing.layer",
+        moduleVersion: "1.0.0",
+        zIndex: 1200,
+        visible: true,
+        locked: true,
+        opacity: 1,
+        allowedKinds: [],
+        runtimeStatus: "missing",
+      },
+    );
+    const store = new EditorStore(project);
+
+    expect(() =>
+      store.setLayerState("example.missing.layer", { locked: false }),
+    ).toThrow("missing-module-layer-must-stay-locked");
+    store.setLayerState("example.missing.layer", { visible: false });
+    expect(store.state.layers.get("example.missing.layer")).toMatchObject({
+      visible: false,
+      locked: true,
+      runtimeStatus: "missing",
+    });
   });
 });

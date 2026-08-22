@@ -6,6 +6,7 @@ import {
   stringifyProjectDocumentV1,
   stringifyProjectV1,
   toProjectV1,
+  type FragmentModuleResolver,
 } from "@tessera/formats";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -177,5 +178,70 @@ describe("project file workflow", () => {
       }),
     ).rejects.toMatchObject({ code: "project-file-save-failed" });
     expect(current.state).toBe(originalState);
+  });
+
+  it("外部 Project 导入使用调用方 resolver 启用外部层", async () => {
+    const document = toProjectV1(project("外部层工程"));
+    document.modules = [
+      {
+        moduleId: "example.weather",
+        version: "1.0.0",
+        packageSourceKind: "user-file",
+        extensions: {},
+      },
+      ...document.modules,
+    ];
+    document.layerStates = [
+      ...document.layerStates,
+      {
+        layerId: "example.weather.surface",
+        moduleVersion: "1.0.0",
+        zIndex: 2500,
+        visible: true,
+        locked: false,
+        opacity: 1,
+        extensions: {},
+      },
+    ].sort(
+      (left, right) =>
+        left.zIndex - right.zIndex || left.layerId.localeCompare(right.layerId),
+    );
+    const resolver: FragmentModuleResolver = {
+      resolve(request) {
+        return request.moduleId === "example.weather"
+          ? {
+              moduleId: request.moduleId,
+              version: request.version,
+              appVersionSupported: true,
+              supportedGrids: ["square"],
+              layers: [
+                {
+                  layerId: "example.weather.surface",
+                  zIndex: 2500,
+                  allowedPrimitives: ["cell"],
+                  allowedAnchors: ["cell"],
+                },
+              ],
+              elements: [],
+            }
+          : undefined;
+      },
+    };
+    const loaded = await importProjectFile({
+      file: file(stringifyProjectDocumentV1(document)),
+      currentProjectId: null,
+      repository: { save: vi.fn(async () => undefined) },
+      moduleResolver: resolver,
+    });
+    expect(loaded.status).toBe("loaded");
+    if (loaded.status !== "loaded") throw new Error("应载入外部层工程");
+    expect(
+      loaded.store.state.layers.get("example.weather.surface"),
+    ).toMatchObject({
+      allowedKinds: ["cell"],
+    });
+    expect(
+      loaded.store.state.layers.get("example.weather.surface")?.runtimeStatus,
+    ).toBeUndefined();
   });
 });

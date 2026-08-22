@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BASIC_MODULE,
@@ -7,15 +7,43 @@ import {
   type PackageChoice,
 } from "@tessera/module-runtime";
 import { createProject, type GridType, type ProjectState } from "@tessera/core";
+import type { InstalledPresetAvailability } from "../package-project-runtime.js";
 import styles from "./NewProjectDialog.module.css";
 
 interface Props {
-  onCreate(project: ProjectState): void;
+  onCreate(
+    project: ProjectState,
+    packageSelection?: {
+      readonly presetIdentity?: string;
+      readonly moduleIdentities: readonly string[];
+    },
+  ): void;
   onCancel?: (() => void) | undefined;
   onOpenFile?: ((file: File) => Promise<void>) | undefined;
   externalErrorKey?: string | null | undefined;
   onDismissExternalError?: (() => void) | undefined;
   optionalPackages?: readonly PackageChoice[] | undefined;
+  installedPresets?:
+    | readonly {
+        readonly identity: string;
+        readonly label: string;
+        readonly statusKey?: string;
+        readonly supportedGrids: readonly GridType[];
+        readonly availabilityByGrid?: Readonly<
+          Partial<Record<GridType, InstalledPresetAvailability>>
+        >;
+      }[]
+    | undefined;
+  installedModules?:
+    | readonly {
+        readonly identity: string;
+        readonly label: string;
+        readonly statusKey: string;
+        readonly supportedGrids: readonly GridType[];
+      }[]
+    | undefined;
+  onOpenPackageSettings?: (() => void) | undefined;
+  busy?: boolean | undefined;
 }
 
 function withAlpha(color: string): string {
@@ -29,6 +57,10 @@ export function NewProjectDialog({
   externalErrorKey = null,
   onDismissExternalError,
   optionalPackages = OPTIONAL_PACKAGE_PLACEHOLDERS,
+  installedPresets = [],
+  installedModules = [],
+  onOpenPackageSettings,
+  busy = false,
 }: Props) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
@@ -43,12 +75,50 @@ export function NewProjectDialog({
   const [gridWidth, setGridWidth] = useState("1");
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [packageSetup, setPackageSetup] = useState<string | null>(null);
-  const [selectedPackages, setSelectedPackages] = useState<ReadonlySet<string>>(
-    new Set(),
+  const [selectedPreset, setSelectedPreset] = useState("");
+  const [selectedInstalledModules, setSelectedInstalledModules] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const selectedPresetEntry = installedPresets.find(
+    (item) => item.identity === selectedPreset,
   );
+  const selectedPresetAvailable =
+    selectedPreset === "" ||
+    (selectedPresetEntry?.supportedGrids.includes(gridType) === true &&
+      (selectedPresetEntry.availabilityByGrid?.[gridType] ?? "available") ===
+        "available");
+
+  useEffect(() => {
+    if (
+      selectedPreset !== "" &&
+      !installedPresets
+        .find((item) => item.identity === selectedPreset)
+        ?.supportedGrids.includes(gridType)
+    ) {
+      setSelectedPreset("");
+    }
+    setSelectedInstalledModules((current) => {
+      const retained = [...current].filter((identity) =>
+        installedModules
+          .find((item) => item.identity === identity)
+          ?.supportedGrids.includes(gridType),
+      );
+      if (
+        retained.length === current.size &&
+        retained.every((identity) => current.has(identity))
+      ) {
+        return current;
+      }
+      return new Set(retained);
+    });
+  }, [gridType, installedModules, installedPresets, selectedPreset]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (!selectedPresetAvailable) {
+      setErrorKey("package.error.presetUnavailable");
+      return;
+    }
     const parsedWidth = Number(width);
     const parsedHeight = Number(height);
     const parsedCellSize = Number(cellSize);
@@ -109,6 +179,10 @@ export function NewProjectDialog({
           defaultEdgeColor: withAlpha(gridColor),
         },
       }),
+      {
+        ...(selectedPreset === "" ? {} : { presetIdentity: selectedPreset }),
+        moduleIdentities: [...selectedInstalledModules].sort(),
+      },
     );
   };
 
@@ -248,7 +322,95 @@ export function NewProjectDialog({
           </div>
           <section className={styles.packages}>
             <h2>{t("new.packages")}</h2>
-            {[BASIC_MODULE, ...optionalPackages].map((choice) => {
+            {installedPresets.length > 0 ? (
+              <label className={styles.field}>
+                {t("package.preset.select")}
+                <select
+                  value={selectedPreset}
+                  onChange={(event) => {
+                    setSelectedPreset(event.target.value);
+                    if (event.target.value !== "") {
+                      setSelectedInstalledModules(new Set());
+                    }
+                  }}
+                >
+                  <option value="">{t("package.preset.none")}</option>
+                  {installedPresets.map((preset) => {
+                    const supported = preset.supportedGrids.includes(gridType);
+                    const availability =
+                      preset.availabilityByGrid?.[gridType] ?? "available";
+                    const available = supported && availability === "available";
+                    const statusKey = !supported
+                      ? "package.status.gridUnsupported"
+                      : availability === "required-unavailable"
+                        ? "package.preset.requiredUnavailable"
+                        : availability === "version-conflict"
+                          ? "package.preset.versionConflict"
+                          : availability === "incompatible"
+                            ? "package.status.incompatible"
+                            : (preset.statusKey ?? "package.status.ready");
+                    return (
+                      <option
+                        key={preset.identity}
+                        value={preset.identity}
+                        disabled={!available}
+                      >
+                        {preset.label} · {t(statusKey)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+            ) : null}
+            {onOpenPackageSettings === undefined ? null : (
+              <button type="button" onClick={onOpenPackageSettings}>
+                {t("package.settings.open")}
+              </button>
+            )}
+            {installedModules.map((module) => {
+              const supported = module.supportedGrids.includes(gridType);
+              return (
+                <label
+                  className={styles.packageRow}
+                  key={module.identity}
+                  data-disabled={!supported || selectedPreset !== ""}
+                >
+                  <span>
+                    <input
+                      type="checkbox"
+                      aria-label={module.label}
+                      checked={selectedInstalledModules.has(module.identity)}
+                      disabled={!supported || selectedPreset !== ""}
+                      onChange={(event) =>
+                        setSelectedInstalledModules((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(module.identity);
+                          else next.delete(module.identity);
+                          return next;
+                        })
+                      }
+                    />
+                    <strong>{module.label}</strong>
+                  </span>
+                  <span className={styles.status}>
+                    {t(
+                      supported
+                        ? module.statusKey
+                        : "package.status.gridUnsupported",
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+            {[
+              BASIC_MODULE,
+              ...optionalPackages.filter(
+                (choice) =>
+                  !installedModules.some((module) =>
+                    module.identity.startsWith(`module:${choice.moduleId}@`),
+                  ),
+              ),
+            ].map((choice) => {
               const supported = packageSupportsGrid(choice, gridType);
               const statusKey = supported
                 ? choice.statusKey
@@ -260,22 +422,6 @@ export function NewProjectDialog({
                   data-disabled={!supported || choice.status !== "enabled"}
                 >
                   <span>
-                    {choice.required || choice.status !== "available" ? null : (
-                      <input
-                        type="checkbox"
-                        aria-label={t(choice.nameKey)}
-                        checked={selectedPackages.has(choice.moduleId)}
-                        disabled={!supported}
-                        onChange={(event) =>
-                          setSelectedPackages((current) => {
-                            const next = new Set(current);
-                            if (event.target.checked) next.add(choice.moduleId);
-                            else next.delete(choice.moduleId);
-                            return next;
-                          })
-                        }
-                      />
-                    )}
                     <strong>{t(choice.nameKey)}</strong>
                     <small>
                       {choice.moduleId} · {choice.version}
@@ -355,7 +501,11 @@ export function NewProjectDialog({
             >
               {t("action.cancel")}
             </button>
-            <button className={styles.primary} type="submit">
+            <button
+              className={styles.primary}
+              type="submit"
+              disabled={busy || !selectedPresetAvailable}
+            >
               {t("action.create")}
             </button>
           </footer>
