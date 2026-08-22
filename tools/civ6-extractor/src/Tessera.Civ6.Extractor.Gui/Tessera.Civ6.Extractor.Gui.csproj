@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>TesseraCiv6Extractor</AssemblyName>
+    <RootNamespace>Tessera.Civ6.Extractor.Gui</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tessera.Civ6.Extractor.Core\Tessera.Civ6.Extractor.Core.csproj" />
+  </ItemGroup>
+
+</Project>
