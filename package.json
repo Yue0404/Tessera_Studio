@@ -25,7 +25,8 @@
     "e2e:chromium": "playwright test --config=playwright.cross-browser.config.ts --project=chromium-playwright",
     "e2e:firefox": "playwright test --config=playwright.cross-browser.config.ts --project=firefox-playwright",
     "support:matrix": "node scripts/run-browser-support-matrix.mjs",
-    "support:matrix:test": "node --test scripts/browser-support-matrix-result.test.mjs"
+    "support:matrix:test": "node --test scripts/browser-support-matrix-result.test.mjs",
+    "verify:civ6-extractor-contract": "node tools/civ6-extractor/scripts/verify-package-compatibility.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
