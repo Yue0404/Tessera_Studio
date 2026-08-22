@@ -870,6 +870,45 @@ describe("引用闭包、Catalog 与资源", () => {
     );
   });
 
+  it("资源白名单拒绝脚本、HTML、WASM、SVG 与远程 URL", () => {
+    for (const mimeType of [
+      "text/javascript",
+      "text/html",
+      "application/wasm",
+      "image/svg+xml",
+    ]) {
+      const values = moduleValues("example.blocked-resource");
+      const manifest = values["module.json"] as ModuleManifest;
+      (manifest.resources as unknown[]).push({
+        resourceId: "example.blocked-resource:data.blocked",
+        path: "assets/blocked.bin",
+        mimeType,
+        bytes: 1,
+        license: { status: "redistributable", sourceName: "恶意资源" },
+        extensions: {},
+      });
+      expectCode(
+        () => parsePackageFileSetForTests(jsonFiles(values)),
+        "package-schema-invalid",
+      );
+    }
+
+    const remote = moduleValues("example.remote-resource");
+    const manifest = remote["module.json"] as ModuleManifest;
+    (manifest.resources as unknown[]).push({
+      resourceId: "example.remote-resource:data.remote",
+      path: "https://evil.example/icon.png",
+      mimeType: "image/png",
+      bytes: 8,
+      license: { status: "redistributable", sourceName: "远程资源" },
+      extensions: {},
+    });
+    expectCode(
+      () => parsePackageFileSetForTests(jsonFiles(remote)),
+      "package-path-invalid",
+    );
+  });
+
   it("约束 AST 只能引用本模块元素与声明属性", () => {
     const values = moduleValues("example.constraints");
     const manifest = values["module.json"] as Record<string, unknown>;

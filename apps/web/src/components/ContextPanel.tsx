@@ -53,7 +53,12 @@ export function ContextPanel({
     <aside className={styles.panel}>
       <header>
         <h2>{t(titleKey)}</h2>
-        <button type="button" onClick={onClose} aria-label={t("action.close")}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("action.close")}
+          title={t("action.close")}
+        >
           <X size={18} />
         </button>
       </header>

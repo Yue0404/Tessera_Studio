@@ -7,3 +7,4 @@ export * from "./project-hit-test.js";
 export * from "./render-utils.js";
 export * from "./render-layer-order.js";
 export * from "./tessera-renderer.js";
+export * from "./webgl-context-lifecycle.js";

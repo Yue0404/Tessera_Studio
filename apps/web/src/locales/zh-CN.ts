@@ -93,6 +93,8 @@ export const zhCN = {
       "此扩展包尚未安装。M0 保留通用设置入口，包导入在后续里程碑启用。",
     "new.cancelUnavailable": "首次使用时尚无可返回的工程",
     "catalog.search": "搜索元素",
+    "catalog.expand": "展开元素目录",
+    "catalog.collapse": "收起元素目录",
     "catalog.cellColors": "地块颜色",
     "catalog.edgeStyles": "边样式",
     "catalog.placedObjects": "放置物体",
@@ -177,6 +179,11 @@ export const zhCN = {
     "status.connections": "连线与箭头",
     "status.zoom": "缩放 100%",
     "canvas.label": "地图编辑画布",
+    "toolbar.project": "工程命令",
+    "toolbar.canvasTools": "地图画布工具",
+    "toolbar.contextPanels": "属性与设置面板",
+    "renderer.contextLost":
+      "图形上下文已丢失，画布交互已暂停。浏览器恢复后会自动重建地图视图。",
     "projectConflict.title": "本地已有同一工程",
     "projectConflict.description":
       "文件“{{name}}”与当前本地工程使用相同 ID（{{id}}）。请选择打开方式。",

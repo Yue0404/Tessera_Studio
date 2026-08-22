@@ -22,6 +22,10 @@ import { endpointPoint, overlayAnchorPoint } from "./render-utils.js";
 import { hitTestProjectObject } from "./project-hit-test.js";
 import { enableRenderLayerSorting } from "./render-layer-order.js";
 import { InteractionRangeState } from "./interaction-range-state.js";
+import {
+  WebGlContextLifecycle,
+  type RendererContextStatus,
+} from "./webgl-context-lifecycle.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
 export interface OverlayPlacement {
@@ -67,6 +71,7 @@ export interface RendererInteraction {
   ): void;
   select(objects: readonly SelectedObject[], additive: boolean): void;
   cancelTool(): void;
+  contextStatusChanged?(status: RendererContextStatus): void;
 }
 
 export class TesseraRenderer {
@@ -89,6 +94,8 @@ export class TesseraRenderer {
   #camera = { x: 0, y: 0 };
   #lastScreenPoint: MapPoint | null = null;
   #resizeObserver: ResizeObserver | undefined;
+  #contextLifecycle: WebGlContextLifecycle | undefined;
+  #contextLost = false;
 
   constructor(
     host: HTMLElement,
@@ -116,9 +123,17 @@ export class TesseraRenderer {
       backgroundAlpha: 1,
     });
     this.#application.canvas.dataset.testid = "map-canvas";
+    this.#application.canvas.dataset.rendererStatus = "available";
     this.#application.canvas.setAttribute("aria-label", this.#canvasLabel);
     this.#application.canvas.tabIndex = 0;
     this.#host.append(this.#application.canvas);
+    this.#contextLifecycle = new WebGlContextLifecycle(
+      this.#application.canvas,
+      {
+        onLost: this.#handleContextLost,
+        onRestored: this.#handleContextRestored,
+      },
+    );
     this.#root.addChild(this.#content, this.#preview);
     this.#application.stage.addChild(this.#root);
     this.#application.canvas.addEventListener(
@@ -142,6 +157,7 @@ export class TesseraRenderer {
 
   render(state: Readonly<ProjectState>): void {
     this.#state = state;
+    if (this.#contextLost) return;
     const width = Math.max(1, this.#host.clientWidth);
     const height = Math.max(1, this.#host.clientHeight);
     this.#ranges.updateViewport(this.#camera, width, height);
@@ -169,6 +185,8 @@ export class TesseraRenderer {
 
   destroy(): void {
     this.#resizeObserver?.disconnect();
+    this.#contextLifecycle?.destroy();
+    this.#contextLifecycle = undefined;
     this.#application.canvas.removeEventListener(
       "pointerdown",
       this.#onPointerDown,
@@ -365,6 +383,7 @@ export class TesseraRenderer {
   }
 
   readonly #onPointerDown = (event: PointerEvent): void => {
+    if (this.#contextLost) return;
     if (event.button !== 0) return;
     const screen = this.#screenPoint(event);
     const point = this.#mapPoint(screen);
@@ -430,6 +449,7 @@ export class TesseraRenderer {
   };
 
   readonly #onPointerMove = (event: PointerEvent): void => {
+    if (this.#contextLost) return;
     const screen = this.#screenPoint(event);
     const point = this.#mapPoint(screen);
     const tool = this.#interaction.getToolState().tool;
@@ -449,6 +469,7 @@ export class TesseraRenderer {
   };
 
   readonly #onPointerUp = (event: PointerEvent): void => {
+    if (this.#contextLost) return;
     const screen = this.#screenPoint(event);
     const point = this.#mapPoint(screen);
     const toolState = this.#interaction.getToolState();
@@ -469,6 +490,7 @@ export class TesseraRenderer {
 
   readonly #onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
+    if (this.#contextLost) return;
     if (this.#painting) this.#interaction.cancelStroke();
     this.#painting = false;
     this.#connectionStart = null;
@@ -478,6 +500,7 @@ export class TesseraRenderer {
   };
 
   readonly #onKeyDown = (event: KeyboardEvent): void => {
+    if (this.#contextLost) return;
     const target = event.target;
     if (
       target instanceof HTMLInputElement ||
@@ -505,4 +528,28 @@ export class TesseraRenderer {
           : 1,
     };
   }
+
+  readonly #handleContextLost = (): void => {
+    this.#contextLost = true;
+    this.#application.stop();
+    if (this.#painting) this.#interaction.cancelStroke();
+    this.#painting = false;
+    this.#connectionStart = null;
+    this.#connectionEdges = [];
+    this.#lastScreenPoint = null;
+    this.#interaction.cancelTool();
+    this.#application.canvas.dataset.rendererStatus = "context-lost";
+    this.#application.canvas.setAttribute("aria-disabled", "true");
+    this.#interaction.contextStatusChanged?.("lost");
+  };
+
+  readonly #handleContextRestored = (): void => {
+    this.#contextLost = false;
+    this.#application.canvas.dataset.rendererStatus = "available";
+    this.#application.canvas.removeAttribute("aria-disabled");
+    // Pixi 的 contextChange 已重建底层 GPU 系统；重新生成全部场景指令和可见缓存。
+    this.render(this.#state);
+    this.#application.start();
+    this.#interaction.contextStatusChanged?.("available");
+  };
 }

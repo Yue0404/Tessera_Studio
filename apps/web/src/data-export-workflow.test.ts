@@ -114,4 +114,28 @@ describe("data export workflow", () => {
     ).toThrow("data-export-download-failed");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
   });
+
+  it("下载成功释放 Object URL，URL 创建失败不产生待回收引用", () => {
+    const revokeObjectURL = vi.fn();
+    const artifact = createDataExportArtifact(project(), {
+      kind: "full-project",
+    });
+    downloadDataExportArtifact(artifact, {
+      createObjectURL: () => "blob:success",
+      revokeObjectURL,
+      click: vi.fn(),
+    });
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:success");
+
+    expect(() =>
+      downloadDataExportArtifact(artifact, {
+        createObjectURL: () => {
+          throw new Error("allocation-failed");
+        },
+        revokeObjectURL,
+        click: vi.fn(),
+      }),
+    ).toThrow("data-export-download-failed");
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+  });
 });

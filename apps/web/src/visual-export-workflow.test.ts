@@ -154,4 +154,33 @@ describe("visual export workflow", () => {
       action: "switch-svg",
     });
   });
+
+  it("视觉下载成功释放 URL，URL 创建失败不产生待回收引用", () => {
+    const revokeObjectURL = vi.fn();
+    const result: VisualExportResult = {
+      format: "svg",
+      mimeType: "image/svg+xml",
+      blob: new Blob(["<svg/>"], { type: "image/svg+xml" }),
+      width: 1,
+      height: 1,
+      executionMode: "fallback",
+    };
+    downloadVisualExportResult(result, "地图", {
+      createObjectURL: () => "blob:success",
+      revokeObjectURL,
+      click: vi.fn(),
+    });
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:success");
+
+    expect(() =>
+      downloadVisualExportResult(result, "地图", {
+        createObjectURL: () => {
+          throw new Error("allocation-failed");
+        },
+        revokeObjectURL,
+        click: vi.fn(),
+      }),
+    ).toThrow("visual-export-download-failed");
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+  });
 });

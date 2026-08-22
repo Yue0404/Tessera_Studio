@@ -70,7 +70,8 @@ export function ElementCatalog(props: Props) {
         className={styles.restore}
         type="button"
         onClick={props.onToggle}
-        aria-label={t("catalog.search")}
+        aria-label={t("catalog.expand")}
+        title={t("catalog.expand")}
       >
         <ChevronRight size={19} />
       </button>
@@ -85,7 +86,8 @@ export function ElementCatalog(props: Props) {
         <button
           type="button"
           onClick={props.onToggle}
-          aria-label={t("action.close")}
+          aria-label={t("catalog.collapse")}
+          title={t("catalog.collapse")}
         >
           <ChevronLeft size={18} />
         </button>

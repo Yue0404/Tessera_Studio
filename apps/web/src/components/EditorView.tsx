@@ -104,6 +104,7 @@ export function EditorView({
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [fillBusy, setFillBusy] = useState(false);
   const [fillProgress, setFillProgress] = useState(0);
+  const [rendererContextLost, setRendererContextLost] = useState(false);
 
   placementRef.current = {
     brushColor,
@@ -250,6 +251,10 @@ export function EditorView({
         },
         select: (objects, additive) => store.select(objects, additive),
         cancelTool: () => store.cancelTool(),
+        contextStatusChanged: (status) => {
+          if (status === "lost") fillTaskRef.current?.cancel();
+          if (!cancelled) setRendererContextLost(status === "lost");
+        },
       },
       t("canvas.label"),
     );
@@ -349,6 +354,15 @@ export function EditorView({
     <Tooltip.Provider delayDuration={280}>
       <main className={styles.editor}>
         <div ref={canvasHost} className={styles.canvasHost} />
+        {rendererContextLost ? (
+          <div
+            className={styles.contextLost}
+            role="alert"
+            data-testid="renderer-context-lost"
+          >
+            {t("renderer.contextLost")}
+          </div>
+        ) : null}
         <AppCommandBar
           projectName={state.name}
           saveStatusKey={saveStatusKey}
