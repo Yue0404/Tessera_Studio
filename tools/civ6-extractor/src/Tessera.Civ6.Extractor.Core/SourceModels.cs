@@ -31,5 +31,5 @@ internal sealed record PackageResource(
 internal static class ExtractionLayout
 {
     public const string RulesPath = "Base/Assets/Gameplay/Data/Districts.xml";
-    public const string ArtDefPath = "Base/Assets/ArtDefs/Districts.artdef";
+    public const string ArtDefPath = "Base/ArtDefs/Districts.artdef";
 }

@@ -21,7 +21,7 @@ public sealed class PackageOutputValidator : IPackageOutputValidator
         var files = Directory.EnumerateFiles(packageDirectory, "*", SearchOption.AllDirectories).ToArray();
         if (files.Length == 0 || files.Any(path => !AllowedExtensions.Contains(Path.GetExtension(path))))
         {
-            throw new ExtractionException("output-content-forbidden", "生成包只能包含静态 PNG/WebP 与 JSON。", packageDirectory);
+            throw new ExtractionException("output-content-forbidden", "生成包只能包含静态 PNG/WebP 与 JSON。", "package");
         }
 
         foreach (var required in new[]

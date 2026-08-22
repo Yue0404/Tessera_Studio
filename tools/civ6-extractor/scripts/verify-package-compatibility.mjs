@@ -4,6 +4,7 @@ import console from "node:console";
 import {
   mkdtempSync,
   mkdirSync,
+  copyFileSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -83,6 +84,44 @@ async function main() {
 
     const input = join(temporaryRoot, "CivilizationVI");
     const output = join(temporaryRoot, "generated", "tessera.civ6");
+    const baselineText = `<AssetObjects..GameDependencyData />`;
+    writeFixture(
+      input,
+      "Base/Civ6.dep",
+      `<AssetObjects..GameDependencyData><ID><name text="Civ6"/><id text="cb2f71b7-843e-4af3-9ca7-992acda9c195"/></ID></AssetObjects..GameDependencyData>`,
+    );
+    writeFixture(input, "DLC/Expansion1/Expansion1.dep", baselineText);
+    writeFixture(input, "DLC/Expansion2/Expansion2.dep", baselineText);
+    writeFixture(
+      input,
+      "DLC/Expansion1/Expansion1.modinfo",
+      `<Mod id="1B28771A-C749-434B-9053-D1380C553DE9" version="1" />`,
+    );
+    writeFixture(
+      input,
+      "DLC/Expansion2/Expansion2.modinfo",
+      `<Mod id="4873eb62-8ccc-4574-b784-dda455e74e68" version="1" />`,
+    );
+    writeFixture(
+      input,
+      "DLC/Expansion1/Data/Expansion1_Districts.xml",
+      `<GameInfo />`,
+    );
+    writeFixture(
+      input,
+      "DLC/Expansion1/ArtDefs/Districts.artdef",
+      `<AssetObjects..ArtDefSet />`,
+    );
+    writeFixture(
+      input,
+      "DLC/Expansion2/Data/Expansion2_Districts.xml",
+      `<GameInfo />`,
+    );
+    writeFixture(
+      input,
+      "DLC/Expansion2/ArtDefs/Districts.artdef",
+      `<AssetObjects..ArtDefSet />`,
+    );
     writeFixture(
       input,
       "Base/Assets/Gameplay/Data/Districts.xml",
@@ -90,11 +129,40 @@ async function main() {
     );
     writeFixture(
       input,
-      "Base/Assets/ArtDefs/Districts.artdef",
+      "Base/ArtDefs/Districts.artdef",
       `<AssetObjects><Asset id="DISTRICT_CITY_CENTER" imagePath="Base/Assets/UI/Icons/city-center.png" /></AssetObjects>`,
     );
     writeFixture(input, "Base/Assets/UI/Icons/city-center.png", tinyPng);
-    runDotnet([cliPath, "--input", input, "--output", output], "合成包生成");
+    const cliExecutable = resolve(
+      repositoryRoot,
+      "tools/civ6-extractor/src/Tessera.Civ6.Extractor.Cli/bin/Release/net10.0/TesseraCiv6Extractor.exe",
+    );
+    const syntheticExecutable = join(
+      input,
+      "Base/Binaries/Win64Steam/CivilizationVI.exe",
+    );
+    mkdirSync(dirname(syntheticExecutable), { recursive: true });
+    copyFileSync(cliExecutable, syntheticExecutable);
+    const inspection = JSON.parse(
+      runDotnet([cliPath, "inspect", "--input", input], "合成安装检查"),
+    );
+    assert(inspection.ok === true, "合成安装检查未成功。");
+    assert(inspection.files.length === 12, "白名单扫描文件数量不匹配。");
+    assert(
+      !JSON.stringify(inspection).includes(temporaryRoot),
+      "检查结果泄露了绝对路径。",
+    );
+    const extraction = JSON.parse(
+      runDotnet(
+        [cliPath, "extract", "--input", input, "--output", output],
+        "合成包生成",
+      ),
+    );
+    assert(extraction.ok === true, "合成包生成未成功。");
+    assert(
+      !JSON.stringify(extraction).includes(temporaryRoot),
+      "生成结果泄露了绝对路径。",
+    );
 
     const files = listFiles(output);
     const source = {

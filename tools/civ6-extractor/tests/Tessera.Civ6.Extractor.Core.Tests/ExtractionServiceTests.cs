@@ -160,16 +160,33 @@ public sealed class ExtractionServiceTests
         Assert.False(Directory.Exists(fixture.Output));
     }
 
-    [Fact]
-    public async Task ArtDef绝对路径被拒绝()
+    [Theory]
+    [InlineData("C:/secret.png")]
+    [InlineData("Base/Assets/../Mods/secret.png")]
+    public async Task ArtDef绝对路径或路径穿越被拒绝(string imagePath)
     {
         using var fixture = new SyntheticGameFixture();
-        fixture.ReplaceArtDef("<AssetObjects><Asset id=\"DISTRICT_CITY_CENTER\" imagePath=\"C:/secret.png\" /></AssetObjects>");
+        fixture.ReplaceArtDef($"<AssetObjects><Asset id=\"DISTRICT_CITY_CENTER\" imagePath=\"{imagePath}\" /></AssetObjects>");
 
         var error = await Assert.ThrowsAsync<ExtractionException>(() =>
             new Civ6ExtractionService().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output)));
 
         Assert.Equal("input-artdef-path-invalid", error.Code);
+        Assert.False(Directory.Exists(fixture.Output));
+    }
+
+    [Fact]
+    public async Task ArtDef不能把模组目录带入正式游戏扫描()
+    {
+        using var fixture = new SyntheticGameFixture();
+        fixture.ReplaceArtDef(
+            "<AssetObjects><Asset id=\"DISTRICT_CITY_CENTER\" imagePath=\"Mods/Untrusted/icon.png\" /></AssetObjects>");
+        fixture.AddImage("Mods/Untrusted/icon.png");
+
+        var error = await Assert.ThrowsAsync<ExtractionException>(() =>
+            new Civ6ExtractionService().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output)));
+
+        Assert.Equal("input-path-not-whitelisted", error.Code);
         Assert.False(Directory.Exists(fixture.Output));
     }
 

@@ -7,29 +7,47 @@ static async Task<int> RunAsync(string[] arguments)
 {
     if (arguments is ["--help"] or ["-h"] || arguments.Length == 0)
     {
-        Console.WriteLine("用法: TesseraCiv6Extractor --input <正式游戏目录> --output <输出目录> [--module-version <SemVer>]");
+        Console.WriteLine("用法: TesseraCiv6Extractor inspect --input <正式游戏目录>");
+        Console.WriteLine("      TesseraCiv6Extractor extract --input <正式游戏目录> --output <输出目录> [--module-version <SemVer>]");
         return arguments.Length == 0 ? 2 : 0;
     }
 
     try
     {
-        var options = ParseOptions(arguments);
+        var command = arguments[0] is "inspect" or "extract" ? arguments[0] : "extract";
+        var optionArguments = command == arguments[0] ? arguments[1..] : arguments;
+        var options = ParseOptions(optionArguments, command);
         using var cancellation = new CancellationTokenSource();
         Console.CancelKeyPress += (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
             cancellation.Cancel();
         };
+        if (command == "inspect")
+        {
+            var inspection = await new Civ6InstallationProbe().InspectAsync(Require(options, "input"), cancellation.Token);
+            Console.WriteLine(Serialize(new
+            {
+                ok = true,
+                inspection.Storefront,
+                inspection.GameVersion,
+                inspection.VersionStatus,
+                inspection.Files,
+                inspection.Diagnostics,
+            }));
+            return 0;
+        }
+
         var service = new Civ6ExtractionService();
         var result = await service.ExtractAsync(new ExtractionRequest(
             Require(options, "input"),
             Require(options, "output"),
             options.GetValueOrDefault("module-version", "1.0.0"),
             typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0"), cancellation.Token);
-        Console.WriteLine(JsonSerializer.Serialize(new
+        Console.WriteLine(Serialize(new
         {
             ok = true,
-            outputDirectory = result.OutputDirectory,
+            outputWritten = true,
             moduleId = result.ModuleId,
             moduleVersion = result.ModuleVersion,
             elementCount = result.ElementCount,
@@ -39,12 +57,12 @@ static async Task<int> RunAsync(string[] arguments)
     }
     catch (OperationCanceledException)
     {
-        Console.Error.WriteLine(JsonSerializer.Serialize(new { ok = false, code = "operation-cancelled" }));
+        Console.Error.WriteLine(Serialize(new { ok = false, code = "operation-cancelled" }));
         return 130;
     }
     catch (ExtractionException error)
     {
-        Console.Error.WriteLine(JsonSerializer.Serialize(new
+        Console.Error.WriteLine(Serialize(new
         {
             ok = false,
             code = error.Code,
@@ -53,19 +71,19 @@ static async Task<int> RunAsync(string[] arguments)
         }));
         return 2;
     }
-    catch (Exception error)
+    catch (Exception)
     {
-        Console.Error.WriteLine(JsonSerializer.Serialize(new
+        Console.Error.WriteLine(Serialize(new
         {
             ok = false,
             code = "unexpected-error",
-            message = error.Message,
+            message = "发生未分类错误，未写入输出。",
         }));
         return 1;
     }
 }
 
-static Dictionary<string, string> ParseOptions(string[] arguments)
+static Dictionary<string, string> ParseOptions(string[] arguments, string command)
 {
     if (arguments.Length % 2 != 0)
     {
@@ -82,7 +100,9 @@ static Dictionary<string, string> ParseOptions(string[] arguments)
         }
     }
 
-    var supported = new HashSet<string>(["input", "output", "module-version"], StringComparer.Ordinal);
+    var supported = command == "inspect"
+        ? new HashSet<string>(["input"], StringComparer.Ordinal)
+        : new HashSet<string>(["input", "output", "module-version"], StringComparer.Ordinal);
     var unknown = options.Keys.FirstOrDefault(key => !supported.Contains(key));
     if (unknown is not null)
     {
@@ -96,3 +116,8 @@ static string Require(IReadOnlyDictionary<string, string> options, string key) =
     options.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
         ? value
         : throw new ExtractionException("cli-argument-required", $"缺少 --{key} 参数。", key);
+
+static string Serialize<T>(T value) => JsonSerializer.Serialize(value, new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+});

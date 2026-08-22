@@ -4,11 +4,16 @@ public sealed class Civ6ExtractionService
 {
     private readonly TimeProvider timeProvider;
     private readonly IPackageOutputValidator outputValidator;
+    private readonly Civ6InstallationProbe installationProbe;
 
-    public Civ6ExtractionService(TimeProvider? timeProvider = null, IPackageOutputValidator? outputValidator = null)
+    public Civ6ExtractionService(
+        TimeProvider? timeProvider = null,
+        IPackageOutputValidator? outputValidator = null,
+        Civ6InstallationProbe? installationProbe = null)
     {
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.outputValidator = outputValidator ?? new PackageOutputValidator();
+        this.installationProbe = installationProbe ?? new Civ6InstallationProbe();
     }
 
     public async Task<ExtractionResult> ExtractAsync(ExtractionRequest request, CancellationToken cancellationToken = default)
@@ -22,6 +27,7 @@ public sealed class Civ6ExtractionService
 
         var output = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.OutputDirectory));
         EnsureDirectoriesDoNotOverlap(input.Root, output);
+        var inspection = await installationProbe.InspectAsync(input.Root, cancellationToken);
 
         var rulesBytes = await input.ReadAllBytesAsync(ExtractionLayout.RulesPath, cancellationToken);
         var artDefBytes = await input.ReadAllBytesAsync(ExtractionLayout.ArtDefPath, cancellationToken);
@@ -35,17 +41,23 @@ public sealed class Civ6ExtractionService
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal))
         {
+            Civ6InstallationProbe.EnsureWhitelistedContentPath(imagePath);
             var bytes = await input.ReadAllBytesAsync(imagePath, cancellationToken);
             images[imagePath] = PngFixtureParser.Parse(bytes, imagePath);
         }
 
-        var sourceFiles = new List<SourceFileFact>
+        source = source with
         {
-            new(ExtractionLayout.RulesPath, "tessera.civ6:source.rules", rulesBytes.LongLength),
-            new(ExtractionLayout.ArtDefPath, "tessera.civ6:source.artdef", artDefBytes.LongLength),
+            SourceBuild = inspection.GameVersion,
+            DlcIds = ["Expansion1", "Expansion2"],
         };
-        sourceFiles.AddRange(images.Select((pair, index) =>
-            new SourceFileFact(pair.Key, $"tessera.civ6:source.image-{index + 1}", pair.Value.Bytes.LongLength)));
+        var sourceFiles = inspection.Files.Select((value, index) =>
+            new SourceFileFact(value.RelativePath, $"tessera.civ6:source.installation-{index + 1:D4}", value.Bytes))
+            .ToList();
+        sourceFiles.AddRange(images
+            .Where(pair => sourceFiles.All(value => !string.Equals(value.RelativePath, pair.Key, StringComparison.OrdinalIgnoreCase)))
+            .Select((pair, index) =>
+                new SourceFileFact(pair.Key, $"tessera.civ6:source.image-{index + 1:D4}", pair.Value.Bytes.LongLength)));
         var package = PackageJsonBuilder.Build(
             source,
             artAssets,

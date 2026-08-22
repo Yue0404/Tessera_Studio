@@ -47,10 +47,7 @@ internal sealed class SafeInputRoot
 
     public string ResolveExistingFile(string relativePath)
     {
-        if (Path.IsPathFullyQualified(relativePath) || relativePath.Contains("..", StringComparison.Ordinal))
-        {
-            throw new ExtractionException("input-path-invalid", "输入文件路径必须是游戏根目录下的规范相对路径。", relativePath);
-        }
+        ValidateRelativePath(relativePath);
 
         var fullPath = Path.GetFullPath(Path.Combine(Root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
         if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
@@ -60,6 +57,20 @@ internal sealed class SafeInputRoot
 
         EnsurePathHasNoReparsePoint(fullPath, relativePath);
         return fullPath;
+    }
+
+    public bool TryResolveExistingFile(string relativePath, out string fullPath)
+    {
+        ValidateRelativePath(relativePath);
+        fullPath = Path.GetFullPath(Path.Combine(Root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
+        {
+            fullPath = string.Empty;
+            return false;
+        }
+
+        EnsurePathHasNoReparsePoint(fullPath, relativePath);
+        return true;
     }
 
     public async Task<byte[]> ReadAllBytesAsync(string relativePath, CancellationToken cancellationToken)
@@ -97,6 +108,15 @@ internal sealed class SafeInputRoot
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {
             throw new ExtractionException("input-path-reparse-point", "输入路径不能穿过符号链接或重解析点。", fieldPath);
+        }
+    }
+
+    private static void ValidateRelativePath(string relativePath)
+    {
+        var segments = relativePath.Replace('\\', '/').Split('/');
+        if (Path.IsPathFullyQualified(relativePath) || segments.Any(segment => segment is "" or "." or ".."))
+        {
+            throw new ExtractionException("input-path-invalid", "输入文件路径必须是游戏根目录下的规范相对路径。", relativePath);
         }
     }
 }
