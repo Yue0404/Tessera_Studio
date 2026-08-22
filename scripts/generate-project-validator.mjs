@@ -6,6 +6,10 @@ import addFormats from "ajv-formats";
 import standaloneCode from "ajv/dist/standalone/index.js";
 
 const sourceRoot = new URL("../packages/formats/src/", import.meta.url);
+const moduleRuntimeSourceRoot = new URL(
+  "../packages/module-runtime/src/",
+  import.meta.url,
+);
 
 function transpile(source) {
   return ts.transpileModule(source, {
@@ -29,6 +33,10 @@ const fragmentSource = transpile(
   await readFile(new URL("fragment-schema.ts", sourceRoot), "utf8"),
 ).replaceAll("./project-schema.js", projectModuleUrl);
 const fragmentModule = await import(dataUrl(fragmentSource));
+const moduleSchemasSource = transpile(
+  await readFile(new URL("schemas.ts", moduleRuntimeSourceRoot), "utf8"),
+);
+const moduleSchemas = await import(dataUrl(moduleSchemasSource));
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -51,6 +59,14 @@ function generate(schema, sourceName) {
       return "";
     },
   );
+  const equalBindings = [];
+  standalone = standalone.replaceAll(
+    /const\s+([A-Za-z_$][\w$]*)\s*=\s*require\("ajv\/dist\/runtime\/equal"\)\.default;/g,
+    (_declaration, binding) => {
+      equalBindings.push(binding);
+      return "";
+    },
+  );
   const dateTimeBindings = [];
   standalone = standalone.replaceAll(
     /const\s+([A-Za-z_$][\w$]*)\s*=\s*require\("ajv-formats\/dist\/formats"\)\.fullFormats\["date-time"\];/g,
@@ -66,6 +82,13 @@ function generate(schema, sourceName) {
 const ucs2length = typeof ucs2lengthModule === 'function' ? ucs2lengthModule : ucs2lengthModule.default;
 ${[...new Set(ucs2Bindings)].map((binding) => `const ${binding} = ucs2length;`).join("\n")}
 `;
+  const equalPrelude =
+    equalBindings.length === 0
+      ? ""
+      : `import equalModule from 'ajv/dist/runtime/equal.js';
+const deepEqual = typeof equalModule === 'function' ? equalModule : equalModule.default;
+${[...new Set(equalBindings)].map((binding) => `const ${binding} = deepEqual;`).join("\n")}
+`;
   let dateTimePrelude = "";
   if (dateTimeBindings.length > 0) {
     dateTimePrelude = `import formatDefinitions from 'ajv-formats/dist/formats.js';
@@ -73,10 +96,14 @@ const fullFormats = formatDefinitions.fullFormats ?? formatDefinitions.default?.
 ${[...new Set(dateTimeBindings)].map((binding) => `const ${binding} = fullFormats['date-time'];`).join("\n")}
 `;
   }
+  // 没有 deep-equal 依赖时维持既有 Project/Fragment 产物的逐字节布局。
+  const runtimePreludes =
+    equalPrelude === ""
+      ? `${ucs2Prelude}\n${dateTimePrelude}`
+      : `${ucs2Prelude}\n${equalPrelude}\n${dateTimePrelude}`;
   const generated = `// @ts-nocheck
 // 本文件由 scripts/generate-project-validator.mjs 从 ${sourceName} 生成，禁止手改。
-${ucs2Prelude}
-${dateTimePrelude}
+${runtimePreludes}
 ${standalone}
 `;
   assertBrowserEsm(generated, sourceName);
@@ -103,6 +130,28 @@ const outputs = [
     generated: generate(fragmentModule.fragmentV1Schema, "fragment-schema.ts"),
     label: "Fragment",
   },
+  ...[
+    ["module-validator.generated.ts", "moduleManifestSchema", "Module"],
+    ["preset-validator.generated.ts", "presetManifestSchema", "Preset"],
+    ["catalog-validator.generated.ts", "catalogManifestSchema", "Catalog"],
+    [
+      "migration-validator.generated.ts",
+      "migrationManifestSchema",
+      "Migration",
+    ],
+    ["element-validator.generated.ts", "elementFileSchema", "Element"],
+    ["constraint-validator.generated.ts", "constraintFileSchema", "Constraint"],
+    ["locale-validator.generated.ts", "localeFileSchema", "Locale"],
+    [
+      "civ6-source-validator.generated.ts",
+      "civ6SourceManifestSchema",
+      "Civ6 source",
+    ],
+  ].map(([path, schemaName, label]) => ({
+    path: new URL(path, moduleRuntimeSourceRoot),
+    generated: generate(moduleSchemas[schemaName], "schemas.ts"),
+    label,
+  })),
 ];
 
 if (process.argv.includes("--check")) {

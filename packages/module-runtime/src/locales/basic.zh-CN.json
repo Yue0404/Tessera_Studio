@@ -1,0 +1,21 @@
+{
+  "module.name": "初始模块",
+  "module.description": "颜色、边、标记、文字与连接等基础地图编辑能力。",
+  "layer.cellStyle": "地格样式",
+  "layer.edgeStyle": "边样式",
+  "layer.placedObject": "放置物体",
+  "layer.connection": "连线与箭头",
+  "layer.annotation": "文字与标记",
+  "element.cellColor.name": "地格颜色",
+  "element.cellColor.description": "设置地格颜色并可添加标签。",
+  "element.edgeStyle.name": "边样式",
+  "element.edgeStyle.description": "设置共享边的颜色与线型。",
+  "element.marker.name": "标记",
+  "element.marker.description": "在地格、边或地图坐标放置标记。",
+  "element.text.name": "文字",
+  "element.text.description": "在地格、边或地图坐标放置文字。",
+  "element.connectionLine.name": "连线",
+  "element.connectionLine.description": "绘制两个锚点之间的线段。",
+  "element.connectionArrow.name": "箭头",
+  "element.connectionArrow.description": "绘制两个锚点之间的箭头。"
+}

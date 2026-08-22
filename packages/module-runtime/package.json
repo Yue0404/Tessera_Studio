@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
   },
@@ -11,6 +12,10 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@tessera/core": "workspace:*"
+    "@tessera/core": "workspace:*",
+    "semver": "^7.8.5"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.8.0"
   }
 }
