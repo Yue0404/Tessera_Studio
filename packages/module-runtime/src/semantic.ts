@@ -38,6 +38,13 @@ export function assertSemVerRange(value: string, path: string): void {
     runtimeError("package-version-invalid", path, { value });
 }
 
+/** 统一比较已验证的 SemVer，避免调用方自行实现先行版本排序。 */
+export function compareSemanticVersions(left: string, right: string): number {
+  assertSemVer(left, "version.left");
+  assertSemVer(right, "version.right");
+  return compare(left, right);
+}
+
 function assertAppVersionRange(
   range: { readonly min: string; readonly maxExclusive?: string },
   path: string,

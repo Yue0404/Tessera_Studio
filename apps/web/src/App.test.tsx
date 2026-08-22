@@ -680,4 +680,96 @@ describe("App recovery", () => {
       expect(screen.getByTestId("editor-project")).toBeDefined(),
     );
   });
+
+  it("提取器目录只在打开包设置后加载，失败不影响基础新建流程", async () => {
+    const extractorCatalogLoader = vi.fn(async () => {
+      throw new Error("catalog-offline");
+    });
+    const packageRepository = {
+      async recover() {
+        return {
+          completedCommitIds: [],
+          rolledBackCommitIds: [],
+          deletedOrphanCommitIds: [],
+          issues: [],
+        };
+      },
+      async listRegistrations() {
+        return [];
+      },
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{
+            loadLatest: async () => null,
+            save: vi.fn(async () => undefined),
+          }}
+          packageRepository={packageRepository as never}
+          extractorCatalogLoader={extractorCatalogLoader}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByRole("heading", { name: "新建地图" });
+    expect(extractorCatalogLoader).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "管理模块与预设包" }));
+    await waitFor(() =>
+      expect(extractorCatalogLoader).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      await screen.findByText(/基础网站和本地包导入仍可正常使用/),
+    ).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined();
+  });
+
+  it("动态目录匹配后才在文明6卡片显示外部下载链接", async () => {
+    const assetUrl =
+      "https://github.com/Yue0404/Tessera_Studio/releases/download/extractor-v0.1.0-preview.1/tessera-civ6-extractor-v0.1.0-preview.1-windows-x64.zip";
+    const packageRepository = {
+      async recover() {
+        return {
+          completedCommitIds: [],
+          rolledBackCommitIds: [],
+          deletedOrphanCommitIds: [],
+          issues: [],
+        };
+      },
+      async listRegistrations() {
+        return [];
+      },
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{
+            loadLatest: async () => null,
+            save: vi.fn(async () => undefined),
+          }}
+          packageRepository={packageRepository as never}
+          extractorCatalogLoader={async () => ({
+            extractorId: "tessera.civ6-extractor",
+            version: "0.1.0-preview.1",
+            os: "windows",
+            arch: "x64",
+            minOsBuild: 19045,
+            artifactType: "portable-zip",
+            entrypoint: "TesseraCiv6Extractor.exe",
+            bytes: 51_549_893,
+            sha256: "1".repeat(64),
+            outputModuleId: "tessera.civ6",
+            outputModuleVersion: "1.0.0",
+            minAppVersion: "0.1.0",
+            assetUrl,
+          })}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByRole("heading", { name: "新建地图" });
+    fireEvent.click(screen.getByRole("button", { name: "管理模块与预设包" }));
+    const link = await screen.findByRole("link", {
+      name: "下载匹配版本提取器",
+    });
+    expect(link.getAttribute("href")).toBe(assetUrl);
+  });
 });

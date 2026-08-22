@@ -36,6 +36,10 @@ import type {
 } from "./project-file-workflow.js";
 import type { InstalledPackageCatalog } from "./local-package-workflow.js";
 import type { InstalledPresetAvailability } from "./package-project-runtime.js";
+import type {
+  ExtractorRelease,
+  ExtractorReleaseCatalog,
+} from "./extractor-release-catalog.js";
 
 interface AppRepository extends ProjectSaveTarget {
   loadLatest(): Promise<ProjectState | null>;
@@ -72,6 +76,27 @@ type ProjectWorkflowLoader = () => Promise<ProjectWorkflowModule>;
 const loadProjectWorkflowDefault: ProjectWorkflowLoader = () =>
   import("./project-file-workflow.js");
 
+type ExtractorCatalogLoader = (
+  signal: AbortSignal,
+  installedModuleVersions: ReadonlySet<string>,
+) => Promise<ExtractorRelease | null>;
+
+const loadExtractorCatalogDefault: ExtractorCatalogLoader = async (
+  signal,
+  installedModuleVersions,
+) => {
+  const runtime = await import("./extractor-release-catalog.js");
+  const catalog: ExtractorReleaseCatalog =
+    await runtime.fetchExtractorReleaseCatalog({ signal });
+  return (
+    runtime.selectCiv6ExtractorRelease(
+      catalog,
+      TESSERA_APP_VERSION,
+      installedModuleVersions,
+    ) ?? null
+  );
+};
+
 interface Props {
   repository?: AppRepository;
   repositoryFactory?: () => OwnedAppRepository;
@@ -81,6 +106,7 @@ interface Props {
   fragmentWorkflowLoader?: FragmentWorkflowLoader;
   projectWorkflowLoader?: ProjectWorkflowLoader;
   packageRepository?: LocalPackageRepository;
+  extractorCatalogLoader?: ExtractorCatalogLoader;
 }
 
 interface PackageCatalogState {
@@ -173,6 +199,7 @@ export function App({
   fragmentWorkflowLoader = loadFragmentWorkflowDefault,
   projectWorkflowLoader = loadProjectWorkflowDefault,
   packageRepository,
+  extractorCatalogLoader = loadExtractorCatalogDefault,
 }: Props = {}) {
   const { t } = useTranslation();
   const repositoryHolder = useMemo(() => {
@@ -220,6 +247,11 @@ export function App({
   const [packageSettingsOpen, setPackageSettingsOpen] = useState(false);
   const [packageBusy, setPackageBusy] = useState(false);
   const [packageErrorKey, setPackageErrorKey] = useState<string | null>(null);
+  const [extractorCatalog, setExtractorCatalog] = useState<{
+    readonly status: "loading" | "ready" | "error";
+    readonly release: ExtractorRelease | null;
+  }>({ status: "loading", release: null });
+  const extractorCatalogOperation = useRef(0);
   const createInFlight = useRef(false);
   const [createBusy, setCreateBusy] = useState(false);
 
@@ -348,6 +380,44 @@ export function App({
       sameIdResolver.current = null;
     };
   }, [packageRepository, repository]);
+
+  useEffect(() => {
+    if (!packageSettingsOpen) return;
+    const operation = extractorCatalogOperation.current + 1;
+    extractorCatalogOperation.current = operation;
+    const controller = new AbortController();
+    const installedVersions = new Set(
+      packageCatalog.entries
+        .filter(
+          (entry) =>
+            entry.registration.identity.kind === "module" &&
+            entry.registration.identity.artifactId === "tessera.civ6",
+        )
+        .map((entry) => entry.registration.identity.version),
+    );
+    setExtractorCatalog({ status: "loading", release: null });
+    void extractorCatalogLoader(controller.signal, installedVersions).then(
+      (release) => {
+        if (
+          !mounted.current ||
+          controller.signal.aborted ||
+          extractorCatalogOperation.current !== operation
+        )
+          return;
+        setExtractorCatalog({ status: "ready", release });
+      },
+      () => {
+        if (
+          !mounted.current ||
+          controller.signal.aborted ||
+          extractorCatalogOperation.current !== operation
+        )
+          return;
+        setExtractorCatalog({ status: "error", release: null });
+      },
+    );
+    return () => controller.abort();
+  }, [extractorCatalogLoader, packageCatalog.entries, packageSettingsOpen]);
 
   const create = async (
     project: ProjectState,
@@ -685,6 +755,29 @@ export function App({
             : null,
     };
   });
+  const civ6Items = packageDialogItems.filter(
+    (item) =>
+      item.registration.identity.kind === "module" &&
+      item.registration.identity.artifactId === "tessera.civ6",
+  );
+  const readyCiv6Items = civ6Items.filter(
+    (item) => item.statusKey === "package.status.ready",
+  );
+  const civ6Versions = (readyCiv6Items.length > 0 ? readyCiv6Items : civ6Items)
+    .map((item) => item.registration.identity.version)
+    .sort();
+  const civ6StatusKey =
+    civ6Items.length === 0
+      ? "package.civ6.status.notInstalled"
+      : readyCiv6Items.length > 0
+        ? "package.civ6.status.installed"
+        : civ6Items.some(
+              (item) =>
+                item.statusKey === "package.status.corrupted" ||
+                item.statusKey === "package.status.pending",
+            )
+          ? "package.civ6.status.corrupted"
+          : "package.civ6.status.incompatible";
   const installedPresets = packageCatalog.packages
     .filter((item) => item.kind === "preset")
     .map((item) => {
@@ -757,9 +850,18 @@ export function App({
           registrations={packageDialogItems}
           busy={packageBusy}
           errorKey={packageErrorKey}
+          civ6={{
+            statusKey: civ6StatusKey,
+            installedVersions: civ6Versions,
+            catalogStatus: extractorCatalog.status,
+            release: extractorCatalog.release,
+          }}
           onImport={(file) => void importPackage(file)}
           onDelete={(registration) => void deletePackage(registration)}
-          onClose={() => setPackageSettingsOpen(false)}
+          onClose={() => {
+            extractorCatalogOperation.current += 1;
+            setPackageSettingsOpen(false);
+          }}
         />
       )}
     </>

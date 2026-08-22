@@ -40,6 +40,38 @@
   margin-block: 16px;
 }
 
+.civ6Card {
+  display: grid;
+  gap: 10px;
+  margin-block: 12px 16px;
+  padding: 14px;
+  border: 1px solid rgb(217 184 102 / 45%);
+  border-radius: 8px;
+  background: rgb(7 23 31 / 65%);
+}
+
+.civ6Card header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.civ6Card header span,
+.releaseDetails {
+  display: grid;
+  gap: 4px;
+}
+
+.releaseDetails {
+  padding-block-start: 4px;
+}
+
+.hash {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
 .list article {
   display: flex;
   align-items: center;

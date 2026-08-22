@@ -10,6 +10,7 @@ const moduleRuntimeSourceRoot = new URL(
   "../packages/module-runtime/src/",
   import.meta.url,
 );
+const webSourceRoot = new URL("../apps/web/src/", import.meta.url);
 
 function transpile(source) {
   return ts.transpileModule(source, {
@@ -37,6 +38,12 @@ const moduleSchemasSource = transpile(
   await readFile(new URL("schemas.ts", moduleRuntimeSourceRoot), "utf8"),
 );
 const moduleSchemas = await import(dataUrl(moduleSchemasSource));
+const extractorReleaseSchemaSource = transpile(
+  await readFile(new URL("extractor-release-schema.ts", webSourceRoot), "utf8"),
+);
+const extractorReleaseSchema = await import(
+  dataUrl(extractorReleaseSchemaSource)
+);
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -152,6 +159,14 @@ const outputs = [
     generated: generate(moduleSchemas[schemaName], "schemas.ts"),
     label,
   })),
+  {
+    path: new URL("extractor-release-validator.generated.ts", webSourceRoot),
+    generated: generate(
+      extractorReleaseSchema.extractorReleaseCatalogV1Schema,
+      "extractor-release-schema.ts",
+    ),
+    label: "Extractor release catalog",
+  },
 ];
 
 if (process.argv.includes("--check")) {
