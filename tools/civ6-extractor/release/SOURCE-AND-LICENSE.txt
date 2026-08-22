@@ -1,0 +1,12 @@
+SOURCE AND LICENSE STATUS
+
+Project source: https://github.com/Yue0404/Tessera_Studio
+Component: Tessera Studio Civilization VI Extractor
+Version: 0.1.0-preview.1
+
+At the time this preview artifact was assembled, the source repository did not contain a repository-level LICENSE file.
+This notice identifies the source and current license status; it does not create or imply an additional license grant.
+
+The bundled .NET runtime license and third-party notices are included separately as DOTNET-LICENSE.txt and DOTNET-THIRD-PARTY-NOTICES.txt.
+
+The extractor uses its own clean-room, fully managed parsers and PNG encoders. It does not bundle SkiaSharp, game DLLs, game assets, generated modules, or Civilization VI SDK components.

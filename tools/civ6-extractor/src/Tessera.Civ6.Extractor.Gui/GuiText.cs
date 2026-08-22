@@ -44,6 +44,22 @@ public static class GuiText
     public static GuiErrorPresentation DescribeError(string code, string? fieldPath = null) =>
         new(Error(code), code, SafeField(fieldPath));
 
+    public static string DescribeCompatibilityError(WindowsCompatibilityResult result) => result.ErrorCode switch
+    {
+        "extractor-windows-required" => string.Join(
+            Environment.NewLine,
+            Get("ErrorWindowsRequired"),
+            Format("ErrorCodeLine", result.ErrorCode)),
+        "extractor-windows-build-unsupported" => string.Join(
+            Environment.NewLine,
+            Format("ErrorWindowsBuildUnsupported", WindowsReleaseCompatibility.MinimumBuild, result.DetectedBuild),
+            Format("ErrorCodeLine", result.ErrorCode)),
+        _ => string.Join(
+            Environment.NewLine,
+            Get("ErrorUnknownAction"),
+            Format("ErrorCodeLine", result.ErrorCode ?? "extractor-platform-unknown")),
+    };
+
     public static string Progress(string? stage) => stage switch
     {
         "checking-installation" => Get("ProgressChecking"),

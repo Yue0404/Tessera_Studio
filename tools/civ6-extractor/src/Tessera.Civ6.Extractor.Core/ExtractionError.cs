@@ -18,8 +18,8 @@ public sealed class ExtractionException : Exception
 public sealed record ExtractionRequest(
     string InputDirectory,
     string OutputDirectory,
-    string ModuleVersion = "1.0.0",
-    string GeneratorVersion = "1.0.0");
+    string ModuleVersion = ExtractorVersions.OutputModule,
+    string GeneratorVersion = ExtractorVersions.Tool);
 
 public sealed record ExtractionResult(
     string ArchivePath,

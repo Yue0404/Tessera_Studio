@@ -5,6 +5,7 @@
       "tessera.civ6.extractor.core": {
         "type": "Project"
       }
-    }
+    },
+    "net10.0-windows7.0/win-x64": {}
   }
 }

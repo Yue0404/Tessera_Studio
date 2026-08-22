@@ -70,4 +70,6 @@
   <data name="ProgressWriting" xml:space="preserve"><value>正在原子写入模块包…</value></data>
   <data name="ProgressValidating" xml:space="preserve"><value>正在验证生成的模块包…</value></data>
   <data name="ProgressArchive" xml:space="preserve"><value>正在生成网站可导入的模块归档…</value></data>
+  <data name="ErrorWindowsRequired" xml:space="preserve"><value>此提取器只能在 64 位 Windows 10 或 Windows 11 上运行。</value></data>
+  <data name="ErrorWindowsBuildUnsupported" xml:space="preserve"><value>当前 Windows 版本不受支持。最低需要系统内部版本 {0}，检测到 {1}。</value></data>
 </root>

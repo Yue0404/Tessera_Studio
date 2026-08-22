@@ -6,6 +6,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>TesseraCiv6Extractor</AssemblyName>
     <RootNamespace>Tessera.Civ6.Extractor.Gui</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>

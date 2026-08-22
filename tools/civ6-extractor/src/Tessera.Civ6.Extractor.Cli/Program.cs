@@ -102,8 +102,8 @@ static async Task<int> RunAsync(string[] arguments)
         var result = await service.ExtractAsync(new ExtractionRequest(
             Require(options, "input"),
             Require(options, "output"),
-            options.GetValueOrDefault("module-version", "1.0.0"),
-            typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0"), cancellation.Token);
+            options.GetValueOrDefault("module-version", ExtractorVersions.OutputModule),
+            ExtractorVersions.Tool), cancellation.Token);
         Console.WriteLine(Serialize(new
         {
             ok = true,

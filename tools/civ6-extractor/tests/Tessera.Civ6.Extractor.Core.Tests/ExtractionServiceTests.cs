@@ -16,6 +16,7 @@ public sealed class ExtractionServiceTests
         fixture.ExtractArchive(result);
 
         Assert.Equal("tessera.civ6", result.ModuleId);
+        Assert.Equal(ExtractorVersions.OutputModule, result.ModuleVersion);
         Assert.Equal(18, result.ElementCount);
         Assert.Equal(1, result.ResourceCount);
         Assert.Equal(fixture.ArchivePath, result.ArchivePath);
@@ -27,6 +28,12 @@ public sealed class ExtractionServiceTests
             path => Path.GetExtension(path) is ".xml" or ".artdef" or ".webp");
 
         using var module = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "module.json")));
+        Assert.Equal(
+            ExtractorVersions.Tool,
+            module.RootElement
+                .GetProperty("packageSource")
+                .GetProperty("generatorVersion")
+                .GetString());
         var resource = Assert.Single(module.RootElement.GetProperty("resources").EnumerateArray());
         Assert.Equal("tessera.civ6:asset.route.route-railroad", resource.GetProperty("resourceId").GetString());
         Assert.Equal("assets/previews/route/route-railroad.png", resource.GetProperty("path").GetString());

@@ -220,6 +220,48 @@ public sealed class GuiSmokeTests
         Assert.Contains("operation-invalid", presentation.DialogText, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false, 26100, false, "extractor-windows-required")]
+    [InlineData(true, 19044, false, "extractor-windows-build-unsupported")]
+    [InlineData(true, 19045, true, null)]
+    [InlineData(true, 26100, true, null)]
+    public void Windows发布守卫严格执行19045基线(
+        bool isWindows,
+        int build,
+        bool supported,
+        string? errorCode)
+    {
+        var result = WindowsReleaseCompatibility.Evaluate(isWindows, build);
+
+        Assert.Equal(supported, result.Supported);
+        Assert.Equal(errorCode, result.ErrorCode);
+        Assert.Equal(build, result.DetectedBuild);
+    }
+
+    [Fact]
+    public void 旧Windows错误使用集中资源并包含稳定错误码和版本事实()
+    {
+        var result = WindowsReleaseCompatibility.Evaluate(true, 19044);
+
+        var message = GuiText.DescribeCompatibilityError(result);
+
+        Assert.Contains("19045", message, StringComparison.Ordinal);
+        Assert.Contains("19044", message, StringComparison.Ordinal);
+        Assert.Contains("extractor-windows-build-unsupported", message, StringComparison.Ordinal);
+        Assert.DoesNotContain(nameof(WindowsCompatibilityResult), message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void 非Windows错误使用集中资源且不泄露异常文本()
+    {
+        var result = WindowsReleaseCompatibility.Evaluate(false, 0);
+
+        var message = GuiText.DescribeCompatibilityError(result);
+
+        Assert.Contains(GuiText.Get("ErrorWindowsRequired"), message, StringComparison.Ordinal);
+        Assert.Contains("extractor-windows-required", message, StringComparison.Ordinal);
+    }
+
     private static T Find<T>(Control root, string name)
         where T : Control => Assert.IsType<T>(Assert.Single(root.Controls.Find(name, true)));
 
