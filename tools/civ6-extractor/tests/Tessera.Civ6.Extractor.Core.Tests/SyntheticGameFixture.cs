@@ -232,7 +232,22 @@ internal sealed class SyntheticGameFixture : IDisposable
         WriteArtDef("DLC/Expansion2/ArtDefs/Resources.artdef", "Resource", []);
         WriteArtDef("DLC/Expansion2/ArtDefs/Improvements.artdef", "Improvement", ["IMPROVEMENT_SKI_RESORT"]);
         WriteArtDef("DLC/Expansion2/ArtDefs/Districts.artdef", "District", ["DISTRICT_CANAL"]);
-        WriteArtDef("DLC/Expansion2/ArtDefs/Routes.artdef", "Route", ["ROUTE_RAILROAD"]);
+        WriteText("DLC/Expansion2/ArtDefs/Routes.artdef", ArtDefDocument("Route", """
+            <Element><m_Fields><m_Values /></m_Fields><m_ChildCollections><Element>
+              <m_CollectionName text="StrategicView"/><m_ReplaceMergedCollectionElements>false</m_ReplaceMergedCollectionElements>
+              <Element><m_Fields><m_Values><Element class="AssetObjects..ArtDefReferenceValue">
+                <m_ElementName text="Railroad_Completed"/><m_RootCollectionName text="Routes"/>
+                <m_ArtDefPath text="StrategicView.artdef"/><m_ParamName text="XrefName"/>
+              </Element></m_Values></m_Fields><m_ChildCollections/><m_Name text="EXP2_Routes_StrategicView"/></Element>
+            </Element></m_ChildCollections><m_Name text="ROUTE_RAILROAD"/></Element>
+            """));
+        WriteText("DLC/Expansion2/ArtDefs/StrategicView.artdef", ArtDefDocument("Routes", """
+            <Element><m_Fields><m_Values><Element class="AssetObjects..BLPEntryValue">
+              <m_EntryName text="Railroad"/><m_XLPClass text="StrategicView_Route"/>
+              <m_XLPPath text="strategicview_routes.xlp"/><m_BLPPackage text="strategicview/strategicview_routes"/>
+              <m_LibraryName text="StrategicView_Route"/><m_ParamName text="RouteXLPEntry"/>
+            </Element></m_Values></m_Fields><m_ChildCollections/><m_Name text="Railroad_Completed"/></Element>
+            """));
         WriteArtDef("DLC/Expansion2/ArtDefs/Buildings.artdef", "Building", ["BUILDING_GOLDEN_GATE_BRIDGE"]);
 
         var civBlpHeader = new byte[] { 0x43, 0x49, 0x56, 0x42, 0x4c, 0x50, 0x02, 0x00 };
@@ -240,6 +255,77 @@ internal sealed class SyntheticGameFixture : IDisposable
         WriteBytes("Base/Platforms/Windows/BLPs/UI/Icons.blp", civBlpHeader);
         WriteBytes("DLC/Expansion1/Platforms/Windows/BLPs/UI/Icons.blp", civBlpHeader);
         WriteBytes("DLC/Expansion2/Platforms/Windows/BLPs/UI/Icons.blp", civBlpHeader);
+        WriteBytes(
+            "DLC/Expansion2/Platforms/Windows/BLPs/strategicview/strategicview_routes.blp",
+            CreateSyntheticRailroadBlp());
+    }
+
+    private static byte[] CreateSyntheticRailroadBlp()
+    {
+        const int dataStart = 2048;
+        const int slotBytes = 32;
+        const int descriptorOffset = 512;
+        var bytes = new byte[dataStart + slotBytes * 2];
+        "CIVBLP\u0002\u0000"u8.CopyTo(bytes);
+        WriteUInt32(bytes, 8, 1024);
+        WriteUInt32(bytes, 12, 1024);
+        WriteUInt32(bytes, 16, dataStart);
+        WriteUInt32(bytes, 20, 2);
+        WriteUInt32(bytes, 24, bytes.Length);
+        WriteAscii(bytes, 256, "Railroad");
+        WriteAscii(bytes, 280, "Railroad_Visible");
+        WriteAscii(bytes, 312, "Railroad_Revealed");
+        WriteDescriptor(bytes, descriptorOffset, "Railroad_Visible", 0);
+        WriteDescriptor(bytes, descriptorOffset + 104, "Railroad_Revealed", slotBytes);
+        WriteSolidBc2Block(bytes.AsSpan(dataStart + 16, 16), 0xf800);
+        WriteSolidBc2Block(bytes.AsSpan(dataStart + slotBytes + 16, 16), 0x07e0);
+        return bytes;
+    }
+
+    private static void WriteDescriptor(byte[] bytes, int hashOffset, string name, int slotOffset)
+    {
+        WriteUInt64(bytes, hashOffset - 16, checked((ulong)slotOffset));
+        WriteUInt64(bytes, hashOffset - 8, 16);
+        WriteUInt32(bytes, hashOffset, Fnv1a(name));
+        WriteUInt16(bytes, hashOffset + 40, 74);
+        WriteUInt16(bytes, hashOffset + 42, 4);
+        WriteUInt16(bytes, hashOffset + 44, 4);
+        WriteUInt16(bytes, hashOffset + 46, 1);
+        WriteUInt16(bytes, hashOffset + 48, 1);
+        WriteUInt16(bytes, hashOffset + 50, 1);
+    }
+
+    private static void WriteSolidBc2Block(Span<byte> block, ushort rgb565)
+    {
+        block[..8].Fill(0xff);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(block[8..], rgb565);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(block[10..], rgb565);
+    }
+
+    private static void WriteAscii(byte[] bytes, int offset, string value) =>
+        Encoding.ASCII.GetBytes(value + "\0").CopyTo(bytes, offset);
+
+    private static void WriteUInt16(byte[] bytes, int offset, ushort value) =>
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset), value);
+
+    private static void WriteUInt32(byte[] bytes, int offset, int value) =>
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset), checked((uint)value));
+
+    private static void WriteUInt32(byte[] bytes, int offset, uint value) =>
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset), value);
+
+    private static void WriteUInt64(byte[] bytes, int offset, ulong value) =>
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(offset), value);
+
+    private static uint Fnv1a(string value)
+    {
+        var hash = 2166136261u;
+        foreach (var item in Encoding.UTF8.GetBytes(value))
+        {
+            hash = unchecked((hash ^ item) * 16777619u);
+        }
+
+        return hash;
     }
 
     private void WriteArtDef(string relativePath, string collection, IReadOnlyList<string> names)

@@ -37,13 +37,19 @@ public sealed class Civ6ExtractionService
             ["Expansion1", "Expansion2"],
             scan.Definitions,
             scan.ChineseText);
-        var sourceFiles = MergeSourceFiles(inspection, scan);
+        var artExtraction = await Civ6BlpTextureExtractor.ExtractRailroadPreviewAsync(
+            input,
+            scan.Definitions,
+            cancellationToken);
+        var artAssets = artExtraction is null ? Array.Empty<GeneratedArtAsset>() : [artExtraction.Asset];
+        var sourceFiles = MergeSourceFiles(inspection, scan, artExtraction?.SourceFiles ?? []);
         var package = PackageJsonBuilder.Build(
             source,
             request.ModuleVersion,
             request.GeneratorVersion,
             timeProvider.GetUtcNow(),
-            sourceFiles);
+            sourceFiles,
+            artAssets);
 
         await AtomicDirectoryPublisher.PublishAsync(output, async staging =>
         {
@@ -100,18 +106,44 @@ public sealed class Civ6ExtractionService
             installation.GameVersion,
             content.Definitions,
             cancellationToken);
+        var extracted = await Civ6BlpTextureExtractor.ExtractRailroadPreviewAsync(
+            input,
+            content.Definitions,
+            cancellationToken);
+        var diagnostics = installation.Diagnostics.Concat(content.Diagnostics).Concat(art.Diagnostics)
+            .Where(value => value.Code != "art-static-image-extraction-unavailable")
+            .Append(new Civ6InstallationDiagnostic(
+                "art-static-image-extraction-partial",
+                "warning",
+                "仅已验证的 CIVBLP v2 BC2 纹理链可提取；其他 CIVBLP/CIVBIG 格式仍保持无图占位。",
+                extracted?.Asset.SourceEntryName))
+            .OrderBy(value => value.Code, StringComparer.Ordinal)
+            .ThenBy(value => value.RelativePath, StringComparer.Ordinal)
+            .ToArray();
         return art with
         {
-            Diagnostics = installation.Diagnostics.Concat(content.Diagnostics).Concat(art.Diagnostics)
-                .OrderBy(value => value.Code, StringComparer.Ordinal)
-                .ThenBy(value => value.RelativePath, StringComparer.Ordinal)
-                .ToArray(),
+            StaticImageExtractionAvailable = extracted is not null,
+            StaticImageBlockerCode = extracted is null ? "firaxis-container-decoder-unavailable" : "partial-bc2-only",
+            Diagnostics = diagnostics,
         };
+    }
+
+    public async Task<Civ6TextureContainerInspection> InspectTextureContainersAsync(
+        string inputDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        var input = SafeInputRoot.Open(inputDirectory);
+        var installation = await installationProbe.InspectAsync(input.Root, cancellationToken);
+        return await Civ6TextureContainerProbe.InspectAsync(
+            input,
+            installation.GameVersion,
+            cancellationToken);
     }
 
     private static SourceFileFact[] MergeSourceFiles(
         Civ6InstallationInspection inspection,
-        Civ6ContentScanResult scan)
+        Civ6ContentScanResult scan,
+        IReadOnlyList<SourceFileFact> artSourceFiles)
     {
         var files = new SortedDictionary<string, long>(StringComparer.Ordinal);
         foreach (var value in inspection.Files)
@@ -120,6 +152,11 @@ public sealed class Civ6ExtractionService
         }
 
         foreach (var value in scan.SourceFiles)
+        {
+            files[value.RelativePath] = value.Bytes;
+        }
+
+        foreach (var value in artSourceFiles)
         {
             files[value.RelativePath] = value.Bytes;
         }

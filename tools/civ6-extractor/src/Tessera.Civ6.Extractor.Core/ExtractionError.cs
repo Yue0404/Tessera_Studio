@@ -72,3 +72,30 @@ public sealed record Civ6ArtAssetInspection(
     string StaticImageBlockerCode,
     IReadOnlyList<Civ6ArtAssetSample> Samples,
     IReadOnlyList<Civ6InstallationDiagnostic> Diagnostics);
+
+public sealed record Civ6BlpTextureInspection(
+    string RelativePath,
+    string EntryName,
+    int DxgiFormat,
+    int Width,
+    int Height,
+    int ArraySize,
+    int MipCount,
+    long PayloadBytes,
+    long SlotOffset,
+    long SlotPrefixBytes);
+
+public sealed record Civ6CivBigTextureInspection(
+    string RelativePath,
+    int DxgiFormat,
+    int Width,
+    int Height,
+    int ArraySize,
+    int MipCount,
+    long PayloadBytes,
+    long HeaderBytes);
+
+public sealed record Civ6TextureContainerInspection(
+    string GameVersion,
+    Civ6BlpTextureInspection Blp,
+    IReadOnlyList<Civ6CivBigTextureInspection> CivBigSamples);

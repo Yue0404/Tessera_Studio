@@ -3,7 +3,7 @@ namespace Tessera.Civ6.Extractor.Core.Tests;
 public sealed class ArtAssetProbeTests
 {
     [Fact]
-    public async Task 正式ID经ArtDef引用落到可证CivBlp容器且不伪造图片()
+    public async Task 正式ID经ArtDef引用落到可证容器且只声明已验证BC2切片可提取()
     {
         using var fixture = new SyntheticGameFixture();
 
@@ -11,8 +11,8 @@ public sealed class ArtAssetProbeTests
 
         Assert.Equal(18, result.TotalContentCount);
         Assert.Equal(18, result.MappedContentCount);
-        Assert.False(result.StaticImageExtractionAvailable);
-        Assert.Equal("firaxis-container-decoder-unavailable", result.StaticImageBlockerCode);
+        Assert.True(result.StaticImageExtractionAvailable);
+        Assert.Equal("partial-bc2-only", result.StaticImageBlockerCode);
         Assert.Equal(8, result.Categories.Count);
         var wheat = Assert.Single(result.Samples, value => value.ContentId == "RESOURCE_WHEAT");
         var asset = Assert.Single(wheat.Assets);
@@ -20,7 +20,8 @@ public sealed class ArtAssetProbeTests
         Assert.Equal("Base/Platforms/Windows/BLPs/environment/clutter.blp", asset.ContainerRelativePath);
         Assert.Equal("firaxis-civblp-v2", asset.ContainerFormat);
         Assert.False(asset.DirectStaticImage);
-        Assert.Contains(result.Diagnostics, value => value.Code == "art-static-image-extraction-unavailable");
+        Assert.Contains(result.Diagnostics, value => value.Code == "art-static-image-extraction-partial");
+        Assert.DoesNotContain(result.Diagnostics, value => value.Code == "art-static-image-extraction-unavailable");
     }
 
     [Fact]

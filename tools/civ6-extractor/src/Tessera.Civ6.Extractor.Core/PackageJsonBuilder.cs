@@ -28,12 +28,14 @@ internal static partial class PackageJsonBuilder
         string moduleVersion,
         string generatorVersion,
         DateTimeOffset generatedAt,
-        IReadOnlyList<SourceFileFact> sourceFiles)
+        IReadOnlyList<SourceFileFact> sourceFiles,
+        IReadOnlyList<GeneratedArtAsset> artAssets)
     {
         EnsureSemVer(moduleVersion, "moduleVersion");
         EnsureSemVer(generatorVersion, "generatorVersion");
         var timestamp = generatedAt.ToUniversalTime().ToString("O");
-        var elements = source.Objects.Select(value => BuildElement(value, source, timestamp))
+        var assetsByContent = artAssets.ToDictionary(value => value.ContentId, StringComparer.Ordinal);
+        var elements = source.Objects.Select(value => BuildElement(value, source, timestamp, assetsByContent))
             .OrderBy(value => value.ElementId, StringComparer.Ordinal)
             .ToArray();
         var locale = BuildLocale(source);
@@ -42,6 +44,10 @@ internal static partial class PackageJsonBuilder
             ["locales/zh-CN.json"] = JsonBytes(locale),
             ["elements/content.json"] = JsonBytes(elements),
         };
+        foreach (var asset in artAssets.OrderBy(value => value.PackagePath, StringComparer.Ordinal))
+        {
+            files.Add(asset.PackagePath, asset.Bytes);
+        }
 
         var categories = source.Objects
             .GroupBy(value => value.Category, StringComparer.Ordinal)
@@ -118,7 +124,18 @@ internal static partial class PackageJsonBuilder
             catalogManifestPath = "catalog/content-catalog.json",
             defaultLanguage = "zh-CN",
             locales = new Dictionary<string, string> { ["zh-CN"] = "locales/zh-CN.json" },
-            resources = Array.Empty<object>(),
+            resources = artAssets.OrderBy(value => value.ResourceId, StringComparer.Ordinal).Select(value => new
+            {
+                resourceId = value.ResourceId,
+                path = value.PackagePath,
+                mimeType = value.MimeType,
+                bytes = value.Bytes.Length,
+                license = new
+                {
+                    status = "local-only",
+                    sourceName = "Sid Meier's Civilization VI formal game files",
+                },
+            }),
             capabilities = Capabilities,
             packageSource = new
             {
@@ -141,7 +158,7 @@ internal static partial class PackageJsonBuilder
             extensions = EmptyObject(),
         });
 
-        return new GeneratedPackage(files, elements.Length, 0);
+        return new GeneratedPackage(files, elements.Length, artAssets.Count);
     }
 
     private static SortedDictionary<string, string> BuildLocale(Civ6SourceInfo source)
@@ -180,10 +197,15 @@ internal static partial class PackageJsonBuilder
         return locale;
     }
 
-    private static ElementJson BuildElement(Civ6ContentDefinition value, Civ6SourceInfo source, string timestamp)
+    private static ElementJson BuildElement(
+        Civ6ContentDefinition value,
+        Civ6SourceInfo source,
+        string timestamp,
+        Dictionary<string, GeneratedArtAsset> artAssets)
     {
         var slug = ElementSlug(value);
         var (primitive, layerId, style) = VisualSemantics(value.Category);
+        artAssets.TryGetValue(value.Id, out var asset);
         return new(
             ElementId(value),
             CategoryId(value.Category),
@@ -197,7 +219,7 @@ internal static partial class PackageJsonBuilder
             EmptyAttributeSchema(),
             Array.Empty<object>(),
             Array.Empty<string>(),
-            Array.Empty<string>(),
+            asset is null ? [] : [asset.ResourceId],
             new SourceJson(
                 $"tessera.civ6:source.{slug}",
                 source.RulesetId,
@@ -210,11 +232,20 @@ internal static partial class PackageJsonBuilder
                     ["sourceRelativePath"] = value.SourceRelativePath,
                 }),
             null,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["generatedPlaceholder"] = true,
-                ["hasExtractedArt"] = false,
-            });
+            asset is null
+                ? new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["generatedPlaceholder"] = true,
+                    ["hasExtractedArt"] = false,
+                }
+                : new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["generatedPlaceholder"] = false,
+                    ["hasExtractedArt"] = true,
+                    ["assetWidth"] = asset.Width,
+                    ["assetHeight"] = asset.Height,
+                    ["assetSourceEntry"] = asset.SourceEntryName,
+                });
     }
 
     private static (string Primitive, string LayerId, object Style) VisualSemantics(string category) => category switch

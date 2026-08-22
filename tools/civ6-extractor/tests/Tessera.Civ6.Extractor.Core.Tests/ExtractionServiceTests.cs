@@ -7,7 +7,7 @@ public sealed class ExtractionServiceTests
     private static readonly DateTimeOffset FixedNow = new(2026, 8, 22, 8, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task 正式结构生成八类无图目录且不修改输入()
+    public async Task 正式结构生成八类目录并提取一条铁路预览且不修改输入()
     {
         using var fixture = new SyntheticGameFixture();
         var before = fixture.SnapshotInput();
@@ -16,14 +16,18 @@ public sealed class ExtractionServiceTests
 
         Assert.Equal("tessera.civ6", result.ModuleId);
         Assert.Equal(18, result.ElementCount);
-        Assert.Equal(0, result.ResourceCount);
+        Assert.Equal(1, result.ResourceCount);
         Assert.Equal(before, fixture.SnapshotInput());
         Assert.DoesNotContain(
             Directory.EnumerateFiles(fixture.Output, "*", SearchOption.AllDirectories),
-            path => Path.GetExtension(path) is ".xml" or ".artdef" or ".png" or ".webp");
+            path => Path.GetExtension(path) is ".xml" or ".artdef" or ".webp");
 
         using var module = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "module.json")));
-        Assert.Empty(module.RootElement.GetProperty("resources").EnumerateArray());
+        var resource = Assert.Single(module.RootElement.GetProperty("resources").EnumerateArray());
+        Assert.Equal("tessera.civ6:asset.route.railroad-preview", resource.GetProperty("resourceId").GetString());
+        Assert.Equal("assets/route/railroad-preview.png", resource.GetProperty("path").GetString());
+        Assert.Equal("image/png", resource.GetProperty("mimeType").GetString());
+        Assert.Equal("local-only", resource.GetProperty("license").GetProperty("status").GetString());
         Assert.Equal(9, module.RootElement.GetProperty("layers").GetArrayLength());
         Assert.Equal("elements/content.json", Assert.Single(module.RootElement.GetProperty("elementFiles").EnumerateArray()).GetString());
 
@@ -37,7 +41,16 @@ public sealed class ExtractionServiceTests
         Assert.Equal(3, counts["tessera.civ6:category.wonder"]);
 
         using var elements = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "elements", "content.json")));
-        Assert.All(elements.RootElement.EnumerateArray(), element =>
+        var railroad = elements.RootElement.EnumerateArray().Single(element =>
+            element.GetProperty("elementId").GetString() == "tessera.civ6:object.route.route-railroad");
+        Assert.Equal(
+            "tessera.civ6:asset.route.railroad-preview",
+            Assert.Single(railroad.GetProperty("resourceIds").EnumerateArray()).GetString());
+        Assert.True(railroad.GetProperty("extensions").GetProperty("hasExtractedArt").GetBoolean());
+        Assert.Equal(4, railroad.GetProperty("extensions").GetProperty("assetWidth").GetInt32());
+        Assert.Equal(4, railroad.GetProperty("extensions").GetProperty("assetHeight").GetInt32());
+        Assert.All(elements.RootElement.EnumerateArray().Where(element =>
+            element.GetProperty("elementId").GetString() != "tessera.civ6:object.route.route-railroad"), element =>
         {
             Assert.Empty(element.GetProperty("resourceIds").EnumerateArray());
             Assert.True(element.GetProperty("extensions").GetProperty("generatedPlaceholder").GetBoolean());
@@ -45,6 +58,11 @@ public sealed class ExtractionServiceTests
         });
         Assert.DoesNotContain(elements.RootElement.EnumerateArray(), element =>
             element.GetProperty("elementId").GetString()!.Contains("monument", StringComparison.Ordinal));
+        var png = await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "assets", "route", "railroad-preview.png"));
+        Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, png[..8]);
+        Assert.Equal(4u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png.AsSpan(16, 4)));
+        Assert.Equal(4u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png.AsSpan(20, 4)));
+        Assert.Equal(6, png[25]);
     }
 
     [Fact]
@@ -135,9 +153,12 @@ public sealed class ExtractionServiceTests
         Assert.DoesNotContain(fixture.Root, provenanceText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("hash", provenanceText, StringComparison.OrdinalIgnoreCase);
         using var provenance = JsonDocument.Parse(provenanceText);
-        Assert.Equal(31, provenance.RootElement.GetProperty("files").GetArrayLength());
+        Assert.Equal(34, provenance.RootElement.GetProperty("files").GetArrayLength());
         Assert.Contains(provenance.RootElement.GetProperty("files").EnumerateArray(), value =>
             value.GetProperty("relativePath").GetString() == "DLC/Expansion2/Text/Expansion2_Translations_Text.xml");
+        Assert.Contains(provenance.RootElement.GetProperty("files").EnumerateArray(), value =>
+            value.GetProperty("relativePath").GetString() ==
+            "DLC/Expansion2/Platforms/Windows/BLPs/strategicview/strategicview_routes.blp");
         Assert.All(provenance.RootElement.GetProperty("files").EnumerateArray(), file =>
         {
             var relativePath = file.GetProperty("relativePath").GetString();

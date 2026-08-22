@@ -7,6 +7,7 @@ const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const dotnetPath = process.env.TESSERA_DOTNET_PATH?.trim() || "dotnet";
 const catalogMode = process.argv.includes("--catalog");
 const artMode = process.argv.includes("--art");
+const textureMode = process.argv.includes("--texture");
 const input =
   process.argv
     .slice(2)
@@ -22,11 +23,13 @@ if (!input) {
     repositoryRoot,
     "tools/civ6-extractor/src/Tessera.Civ6.Extractor.Cli/bin/Release/net10.0/TesseraCiv6Extractor.dll",
   );
-  const command = artMode
-    ? [cliPath, "art", "inspect", "--input", input]
-    : catalogMode
-      ? [cliPath, "catalog", "inspect", "--input", input]
-      : [cliPath, "inspect", "--input", input];
+  const command = textureMode
+    ? [cliPath, "texture", "inspect", "--input", input]
+    : artMode
+      ? [cliPath, "art", "inspect", "--input", input]
+      : catalogMode
+        ? [cliPath, "catalog", "inspect", "--input", input]
+        : [cliPath, "inspect", "--input", input];
   const result = spawnSync(dotnetPath, command, {
     cwd: repositoryRoot,
     encoding: "utf8",

@@ -305,13 +305,38 @@ async function main() {
     const { parseExtensionPackageSource } = await vite.ssrLoadModule(
       "/packages/module-runtime/src/index.ts",
     );
+    let decodedResourceCount = 0;
     const parsed = await parseExtensionPackageSource(source, {
       resourceDecoder: {
         async validate(request) {
           let consumed = 0;
-          for await (const chunk of request.stream)
+          const prefix = [];
+          for await (const chunk of request.stream) {
             consumed += chunk.byteLength;
+            for (const value of chunk) {
+              if (prefix.length < 26) prefix.push(value);
+            }
+          }
           assert(consumed === request.bytes, `资源未完整消费：${request.path}`);
+          assert(
+            request.mimeType === "image/png",
+            `资源类型不匹配：${request.path}`,
+          );
+          assert(
+            prefix.slice(0, 8).join(",") === "137,80,78,71,13,10,26,10",
+            `PNG 签名不匹配：${request.path}`,
+          );
+          const width = new DataView(Uint8Array.from(prefix).buffer).getUint32(
+            16,
+          );
+          const height = new DataView(Uint8Array.from(prefix).buffer).getUint32(
+            20,
+          );
+          assert(
+            width > 0 && height > 0 && prefix[25] === 6,
+            `PNG 尺寸或 RGBA 类型无效：${request.path}`,
+          );
+          decodedResourceCount += 1;
         },
       },
     });
@@ -321,7 +346,26 @@ async function main() {
     assert(parsed.version === "1.0.0", "模块版本不匹配。");
     const expectedElements = realMode ? 197 : 8;
     assert(parsed.elements.length === expectedElements, "目录元素数量不匹配。");
-    assert(parsed.manifest.resources.length === 0, "无图目录不应声明资源。");
+    const expectedResources = realMode ? 1 : 0;
+    assert(
+      parsed.manifest.resources.length === expectedResources,
+      "资源声明数量不匹配。",
+    );
+    assert(
+      decodedResourceCount === expectedResources,
+      "资源没有逐项经过统一解码网关。",
+    );
+    if (realMode) {
+      const railroad = parsed.elements.find(
+        (value) =>
+          value.elementId === "tessera.civ6:object.route.route-railroad",
+      );
+      assert(
+        railroad?.resourceIds?.[0] ===
+          "tessera.civ6:asset.route.railroad-preview",
+        "铁路元素没有闭合到提取资源。",
+      );
+    }
     assert(
       parsed.catalog?.entries.length === expectedElements,
       "内容目录未闭合到元素集合。",

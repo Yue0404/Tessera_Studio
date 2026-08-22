@@ -18,6 +18,21 @@ internal sealed record Civ6ContentDefinition(
 
 internal sealed record SourceFileFact(string RelativePath, string ResourceId, long Bytes);
 
+internal sealed record GeneratedArtAsset(
+    string ContentId,
+    string ResourceId,
+    string PackagePath,
+    string MimeType,
+    int Width,
+    int Height,
+    string SourceRelativePath,
+    string SourceEntryName,
+    byte[] Bytes);
+
+internal sealed record GeneratedArtExtraction(
+    GeneratedArtAsset Asset,
+    IReadOnlyList<SourceFileFact> SourceFiles);
+
 internal sealed record Civ6ContentScanResult(
     IReadOnlyList<Civ6ContentDefinition> Definitions,
     IReadOnlyDictionary<string, string> ChineseText,
