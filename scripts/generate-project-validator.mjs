@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
+import { format as formatWithPrettier } from "prettier";
 import ts from "typescript";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -161,9 +162,13 @@ const outputs = [
   })),
   {
     path: new URL("extractor-release-validator.generated.ts", webSourceRoot),
-    generated: generate(
-      extractorReleaseSchema.extractorReleaseCatalogV1Schema,
-      "extractor-release-schema.ts",
+    // 此生成文件不在 prettierignore 中；在生成阶段固定 LF 并格式化，保证 Windows/Linux 幂等。
+    generated: await formatWithPrettier(
+      generate(
+        extractorReleaseSchema.extractorReleaseCatalogV1Schema,
+        "extractor-release-schema.ts",
+      ),
+      { parser: "typescript", endOfLine: "lf" },
     ),
     label: "Extractor release catalog",
   },
