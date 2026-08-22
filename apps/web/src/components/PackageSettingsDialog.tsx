@@ -95,6 +95,7 @@ export function PackageSettingsDialog({
           </header>
           <p>{t("package.civ6.description")}</p>
           <button
+            className={styles.actionButton}
             type="button"
             disabled={busy}
             onClick={() => packageInput.current?.click()}
@@ -207,7 +208,12 @@ export function PackageSettingsDialog({
           )}
         </div>
         <footer>
-          <button type="button" disabled={busy} onClick={close}>
+          <button
+            className={styles.actionButton}
+            type="button"
+            disabled={busy}
+            onClick={close}
+          >
             {t("action.close")}
           </button>
         </footer>

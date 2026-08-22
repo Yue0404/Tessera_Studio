@@ -42,6 +42,51 @@ const extractorRelease = {
 };
 
 describe("PackageSettingsDialog", () => {
+  it("文明6导入与关闭按钮使用同一局部高对比度样式", () => {
+    const view = render(
+      <I18nextProvider i18n={i18n}>
+        <PackageSettingsDialog
+          registrations={[]}
+          busy={false}
+          errorKey={null}
+          civ6={emptyCiv6}
+          onImport={vi.fn()}
+          onDelete={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const importButton = screen.getByRole("button", {
+      name: "导入已有文明 6 模块包",
+    });
+    const closeButton = screen.getByRole("button", { name: "关闭" });
+    expect(importButton.className).toContain("actionButton");
+    expect(closeButton.className).toBe(importButton.className);
+    expect(importButton.hasAttribute("disabled")).toBe(false);
+
+    view.rerender(
+      <I18nextProvider i18n={i18n}>
+        <PackageSettingsDialog
+          registrations={[]}
+          busy
+          errorKey={null}
+          civ6={emptyCiv6}
+          onImport={vi.fn()}
+          onDelete={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "导入已有文明 6 模块包" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "关闭" }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
   it("展示解析显示名、非敏感来源与状态原因", () => {
     render(
       <I18nextProvider i18n={i18n}>

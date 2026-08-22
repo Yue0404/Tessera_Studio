@@ -2,24 +2,16 @@ import { expect, test } from "@playwright/test";
 
 test("生产预览可载入并打开包设置", async ({ page }) => {
   const pageErrors: string[] = [];
-  const runtimeConsoleErrors: string[] = [];
-  const failedScripts: string[] = [];
+  const consoleErrors: string[] = [];
+  const failedResources: string[] = [];
 
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("console", (message) => {
-    if (
-      message.type() === "error" &&
-      !message.text().startsWith("Failed to load resource:")
-    ) {
-      runtimeConsoleErrors.push(message.text());
-    }
+    if (message.type() === "error") consoleErrors.push(message.text());
   });
   page.on("response", (response) => {
-    if (
-      response.request().resourceType() === "script" &&
-      response.status() >= 400
-    ) {
-      failedScripts.push(`${response.status()} ${response.url()}`);
+    if (response.status() >= 400) {
+      failedResources.push(`${response.status()} ${response.url()}`);
     }
   });
 
@@ -30,9 +22,37 @@ test("生产预览可载入并打开包设置", async ({ page }) => {
   await expect(page.getByText("应用载入失败，请重试。")).toHaveCount(0);
 
   await page.getByRole("button", { name: "管理模块与预设包" }).click();
-  await expect(page.getByRole("dialog", { name: "包设置" })).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "包设置" });
+  await expect(dialog).toBeVisible();
 
-  expect(failedScripts).toEqual([]);
+  const importButton = dialog.getByRole("button", {
+    name: "导入已有文明 6 模块包",
+  });
+  await expect(importButton).toBeVisible();
+  await expect(importButton).toHaveCSS("color", "rgb(19, 38, 48)");
+  await expect(importButton).toHaveCSS(
+    "background-color",
+    "rgb(217, 184, 102)",
+  );
+
+  await importButton.hover();
+  await expect(importButton).toHaveCSS(
+    "background-color",
+    "rgb(240, 203, 117)",
+  );
+  await page.mouse.move(0, 0);
+  await page.keyboard.press("Tab");
+  await expect(importButton).toBeFocused();
+  await expect(importButton).toHaveCSS("outline-width", "3px");
+  await expect(importButton).toHaveCSS("outline-color", "rgb(115, 167, 216)");
+
+  await importButton.evaluate((button) => {
+    if (button instanceof HTMLButtonElement) button.disabled = true;
+  });
+  await expect(importButton).toHaveCSS("color", "rgb(198, 205, 207)");
+  await expect(importButton).toHaveCSS("background-color", "rgb(43, 61, 71)");
+
+  expect(failedResources).toEqual([]);
   expect(pageErrors).toEqual([]);
-  expect(runtimeConsoleErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
 });
