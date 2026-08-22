@@ -5,6 +5,7 @@ import {
   mkdirSync,
   copyFileSync,
   existsSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -64,6 +65,14 @@ function emptyArtDef(collection) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function canonicalExistingPath(path) {
+  const canonical = realpathSync.native(path);
+  // Windows runner 可能在临时目录中混用短路径、大小写或分隔符；文件身份应按文件系统语义比较。
+  return process.platform === "win32"
+    ? canonical.toLocaleLowerCase("en-US")
+    : canonical;
 }
 
 async function validateArchiveInBrowser(vite, archivePath) {
@@ -383,12 +392,17 @@ async function main() {
     );
     assert(extraction.ok === true, "合成包生成未成功。");
     assert(isAbsolute(extraction.archivePath), "CLI 未返回绝对归档路径。");
+    assert(existsSync(extraction.archivePath), "CLI 返回的归档不存在。");
+    const expectedArchivePath = join(
+      dirname(output),
+      "tessera.civ6.tessera-module.zip",
+    );
     assert(
-      extraction.archivePath ===
-        join(dirname(output), "tessera.civ6.tessera-module.zip"),
+      existsSync(expectedArchivePath) &&
+        canonicalExistingPath(extraction.archivePath) ===
+          canonicalExistingPath(expectedArchivePath),
       "CLI 返回的归档位置不符合单一 ZIP 制品契约。",
     );
-    assert(existsSync(extraction.archivePath), "CLI 返回的归档不存在。");
     assert(!existsSync(output), "内部 staging 目录被误留为正式制品。");
     const safeExtraction = { ...extraction };
     delete safeExtraction.archivePath;
