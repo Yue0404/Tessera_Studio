@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "1",
+  "entries": [
+    {
+      "id": "concept-new-project-v1",
+      "kind": "concept",
+      "path": "manual/assets/concept-new-project-v1.png",
+      "viewport": null,
+      "capture": "本地权威产品概念图的受跟踪副本",
+      "checks": ["单一新建流程", "网格和尺寸优先", "扩展包为可选区"]
+    },
+    {
+      "id": "concept-editor-v2",
+      "kind": "concept",
+      "path": "manual/assets/concept-editor-v2.png",
+      "viewport": null,
+      "capture": "本地权威编辑器概念图的受跟踪副本",
+      "checks": ["地图为底层主体", "浮动面板", "紧凑工具"]
+    },
+    {
+      "id": "production-new-project-1440x900",
+      "kind": "browser",
+      "path": "manual/assets/production-new-project-1440x900.png",
+      "viewport": { "width": 1440, "height": 900, "dpr": 1 },
+      "capture": "tests/production-e2e/release-visual-evidence.spec.ts",
+      "checks": ["首屏无白屏", "创建按钮可见", "页面无滚动", "控制台无错误"]
+    },
+    {
+      "id": "production-editor-1440x900",
+      "kind": "browser",
+      "path": "manual/assets/production-editor-1440x900.png",
+      "viewport": { "width": 1440, "height": 900, "dpr": 1 },
+      "capture": "tests/production-e2e/release-visual-evidence.spec.ts",
+      "checks": [
+        "真实画布可见",
+        "地图为底层",
+        "工具与保存状态可达",
+        "控制台无错误"
+      ]
+    }
+  ]
+}

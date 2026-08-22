@@ -1,0 +1,30 @@
+# 发布候选说明
+
+## 当前候选范围
+
+M6 发布候选覆盖：
+
+- 正方形与尖顶正六边形编辑；
+- 固定模块图层、共享边、连接线、文字和标记；
+- 撤销/重做、本地自动保存与刷新恢复；
+- full/partial Project、Fragment、PNG、SVG；
+- 通用模块/预设包安装和只读缺失占位；
+- 可选 Civilization VI 本地模块工作流；
+- PC 桌面 Chrome、Edge、Firefox 自动化证据；
+- 纯静态 GitHub Pages 制品。
+
+## 已知发布阻塞
+
+- 仓库尚无根级项目许可证；在所有者作出决定前，本说明不授予 Tessera Studio 代码或资产的使用许可。
+- 普通 Windows 10 22H2 已不属于 Microsoft 当前支持的通用 Windows 版本，不能仅凭 build 19045 守卫宣称 .NET 10 正式支持。提取器正式系统范围需单独决策。
+- M4 真实性能、前一主要浏览器版本和人工无障碍证据必须在最终追踪矩阵中闭合或明确延期。
+- Civilization VI 提取器尚未创建正式 GitHub Release，受跟踪下载目录必须保持空，禁止填写占位 URL、体积或哈希。
+- M4-C1 的内部修订 gzip Blob 持久化不在本候选范围。
+
+## 制品边界
+
+网站 Pages 制品不得包含测试 harness、本地工程、扩展包、游戏资源或提取器。提取器 Release 与网站静态制品独立发布；外层 Release ZIP 才记录 SHA-256，工程格式和模块内容不使用无意义内容哈希。
+
+## 发布后动作
+
+只有合并后的干净提交通过全部 CI，才可部署正式 Pages。提取器 Release 需要单独生成、审计、上传并独立复算 SHA-256；取得真实 HTTPS Release 资产 URL 后，再通过后续 PR 回填 `apps/web/public/extractor-releases.json`。
