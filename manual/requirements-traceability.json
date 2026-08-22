@@ -236,7 +236,7 @@
       ],
       "automatedTests": ["tests/benchmarks/runtime-performance.test.ts"],
       "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/12"],
-      "blocker": "M4-C1 的正式 P95、缺帧与接缝证据尚未在合并提交中闭合。"
+      "blocker": "M4-C 浏览器真实性能验收所需的正式 P95、缺帧与接缝证据尚未在合并提交中闭合。"
     },
     {
       "area": "编辑、覆盖物、连接与边",
