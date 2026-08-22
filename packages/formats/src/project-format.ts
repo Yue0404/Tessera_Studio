@@ -4,6 +4,7 @@ import {
   OverlayManager,
   SparseChunkStore,
   TESSERA_APP_VERSION,
+  configureProjectSpatialIndexes,
   createFixedLayerMap,
   type CellOverride,
   type ConnectionData,
@@ -1375,6 +1376,7 @@ function stateFromProjectDocument(
     configurable: false,
     enumerable: true,
   });
+  configureProjectSpatialIndexes(state);
   return state;
 }
 

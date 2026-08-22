@@ -2,7 +2,8 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  FillThresholdError,
+  BackgroundTaskError,
+  type BackgroundTask,
   type EditorStore,
   type MapRect,
 } from "@tessera/core";
@@ -59,6 +60,7 @@ export function EditorView({
   const fileInput = useRef<HTMLInputElement>(null);
   const fragmentInput = useRef<HTMLInputElement>(null);
   const dialogPreviousFocus = useRef<HTMLElement | null>(null);
+  const fillTaskRef = useRef<BackgroundTask<number> | null>(null);
   const [exportDialog, setExportDialog] = useState<{
     selectionBounds: MapRect | null;
     customBounds: MapRect;
@@ -99,6 +101,8 @@ export function EditorView({
   const [saveStatusKey, setSaveStatusKey] =
     useState<SaveStatusKey>("status.saved");
   const [errorKey, setErrorKey] = useState<string | null>(null);
+  const [fillBusy, setFillBusy] = useState(false);
+  const [fillProgress, setFillProgress] = useState(0);
 
   placementRef.current = {
     brushColor,
@@ -113,6 +117,60 @@ export function EditorView({
     const host = canvasHost.current;
     if (host === null) return;
     let cancelled = false;
+    const startFill = (row: number, column: number, confirmed = false) => {
+      try {
+        fillTaskRef.current?.cancel();
+        const task = store.startFillCells(
+          row,
+          column,
+          alphaColor(placementRef.current.brushColor),
+          { confirmed },
+        );
+        fillTaskRef.current = task;
+        setFillBusy(true);
+        setFillProgress(0);
+        const unsubscribe = task.subscribeProgress((event) => {
+          if (!cancelled && fillTaskRef.current === task) {
+            setFillProgress(event.progress);
+          }
+        });
+        void task.result
+          .catch((error: unknown) => {
+            if (
+              cancelled ||
+              (error instanceof BackgroundTaskError &&
+                error.code === "batch-task-cancelled")
+            ) {
+              return;
+            }
+            setErrorKey(
+              error instanceof BackgroundTaskError &&
+                (error.code === "batch-work-too-large" ||
+                  error.code === "batch-history-too-large")
+                ? "error.fillTooLarge"
+                : "error.fillFailed",
+            );
+          })
+          .finally(() => {
+            unsubscribe();
+            if (!cancelled && fillTaskRef.current === task) {
+              fillTaskRef.current = null;
+              setFillBusy(false);
+            }
+          });
+      } catch (error) {
+        if (
+          error instanceof BackgroundTaskError &&
+          error.code === "batch-confirmation-required"
+        ) {
+          if (window.confirm(t("fill.confirmLarge"))) {
+            startFill(row, column, true);
+          }
+          return;
+        }
+        setErrorKey("error.fillTooLarge");
+      }
+    };
     const instance = new TesseraRenderer(
       host,
       store.state,
@@ -131,21 +189,7 @@ export function EditorView({
             alphaColor(placementRef.current.brushColor),
           ),
         eraseCell: (row, column) => store.eraseCell(row, column),
-        fillCells: (row, column) => {
-          try {
-            store.fillCells(
-              row,
-              column,
-              alphaColor(placementRef.current.brushColor),
-            );
-          } catch (error) {
-            if (error instanceof FillThresholdError) {
-              setErrorKey("error.fillTooLarge");
-              return;
-            }
-            throw error;
-          }
-        },
+        fillCells: (row, column) => startFill(row, column),
         getBrushMode: () => placementRef.current.brushMode,
         paintEdge: (edgeId, adjacentCellIds) =>
           store.paintEdge(
@@ -214,6 +258,8 @@ export function EditorView({
     });
     return () => {
       cancelled = true;
+      fillTaskRef.current?.cancel();
+      fillTaskRef.current = null;
       if (renderer.current === instance) {
         renderer.current = undefined;
         instance.destroy();
@@ -390,6 +436,18 @@ export function EditorView({
           />
         )}
         <EditorStatusBar state={state} />
+        {fillBusy && (
+          <div className={styles.fillTask} role="status">
+            <span>
+              {t("fill.running", {
+                percent: Math.round(fillProgress * 100),
+              })}
+            </span>
+            <button type="button" onClick={() => fillTaskRef.current?.cancel()}>
+              {t("fill.cancel")}
+            </button>
+          </div>
+        )}
         {(errorKey ?? externalErrorKey) !== null && (
           <div
             role="alert"

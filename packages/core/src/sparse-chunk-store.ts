@@ -1,6 +1,16 @@
-import { chunkCoordinateOf, chunkKeyOf, parseCellId } from "./coordinates.js";
+import {
+  CHUNK_SIZE,
+  assertGridCoordinate,
+  chunkCoordinateOf,
+  chunkKeyOf,
+  parseCellId,
+} from "./coordinates.js";
 import type {
+  CellCoordinate,
   CellOverride,
+  ProjectGrid,
+  RuntimeChunkCacheOptions,
+  RuntimeChunkCacheStats,
   SparseCellStoreContract,
   SparseChunkBucket,
 } from "./types.js";
@@ -111,6 +121,13 @@ export class SparseChunkStore implements SparseCellStoreContract {
   }
 
   evictRuntimeChunks(maxLoaded: number): readonly string[] {
+    return this.#evictRuntimeChunks(maxLoaded, new Set());
+  }
+
+  #evictRuntimeChunks(
+    maxLoaded: number,
+    protectedKeys: ReadonlySet<string>,
+  ): readonly string[] {
     if (!Number.isInteger(maxLoaded) || maxLoaded < 0) {
       throw new RangeError("runtime-chunk-limit-invalid");
     }
@@ -120,11 +137,92 @@ export class SparseChunkStore implements SparseCellStoreContract {
     );
     for (const [key] of candidates) {
       if (this.#runtimeLru.size <= maxLoaded) break;
+      if (protectedKeys.has(key)) continue;
       if (this.#buckets.get(key)?.dirty === true) continue;
       this.#runtimeLru.delete(key);
       evicted.push(key);
     }
     return evicted;
+  }
+
+  updateRuntimeViewport(
+    grid: ProjectGrid,
+    visibleCells: readonly CellCoordinate[],
+    options: RuntimeChunkCacheOptions = {},
+  ): RuntimeChunkCacheStats {
+    const rings = options.prefetchRings ?? 2;
+    const maxLoaded = options.maxLoaded ?? 256;
+    if (!Number.isInteger(rings) || rings < 0 || rings > 2) {
+      throw new RangeError("runtime-chunk-prefetch-invalid");
+    }
+    if (!Number.isInteger(maxLoaded) || maxLoaded < 0) {
+      throw new RangeError("runtime-chunk-limit-invalid");
+    }
+    if (visibleCells.length === 0) {
+      const evictedChunkKeys = this.evictRuntimeChunks(maxLoaded);
+      return {
+        visibleChunkCount: 0,
+        prefetchedChunkCount: 0,
+        hitCount: 0,
+        missCount: 0,
+        loadedChunkCount: this.#runtimeLru.size,
+        dirtyRetainedCount: this.#dirtyLoadedCount(),
+        evictedChunkKeys,
+      };
+    }
+
+    let minChunkRow = Number.POSITIVE_INFINITY;
+    let maxChunkRow = Number.NEGATIVE_INFINITY;
+    let minChunkColumn = Number.POSITIVE_INFINITY;
+    let maxChunkColumn = Number.NEGATIVE_INFINITY;
+    const visibleKeys = new Set<string>();
+    for (const cell of visibleCells) {
+      assertGridCoordinate(grid, cell);
+      const chunk = chunkCoordinateOf(cell);
+      minChunkRow = Math.min(minChunkRow, chunk.chunkRow);
+      maxChunkRow = Math.max(maxChunkRow, chunk.chunkRow);
+      minChunkColumn = Math.min(minChunkColumn, chunk.chunkColumn);
+      maxChunkColumn = Math.max(maxChunkColumn, chunk.chunkColumn);
+      visibleKeys.add(chunkKeyOf(chunk));
+    }
+
+    const lastChunkRow = Math.floor((grid.height - 1) / CHUNK_SIZE);
+    const lastChunkColumn = Math.floor((grid.width - 1) / CHUNK_SIZE);
+    const workingKeys: string[] = [];
+    for (
+      let chunkRow = Math.max(0, minChunkRow - rings);
+      chunkRow <= Math.min(lastChunkRow, maxChunkRow + rings);
+      chunkRow += 1
+    ) {
+      for (
+        let chunkColumn = Math.max(0, minChunkColumn - rings);
+        chunkColumn <= Math.min(lastChunkColumn, maxChunkColumn + rings);
+        chunkColumn += 1
+      ) {
+        workingKeys.push(chunkKeyOf({ chunkRow, chunkColumn }));
+      }
+    }
+
+    let hitCount = 0;
+    let missCount = 0;
+    for (const key of workingKeys) {
+      if (this.#runtimeLru.has(key)) hitCount += 1;
+      else missCount += 1;
+      this.#runtimeLru.set(key, ++this.#clock);
+    }
+    const evictedChunkKeys = this.#evictRuntimeChunks(
+      Math.max(maxLoaded, workingKeys.length),
+      new Set(workingKeys),
+    );
+    return {
+      visibleChunkCount: visibleKeys.size,
+      prefetchedChunkCount: workingKeys.length - visibleKeys.size,
+      hitCount,
+      missCount,
+      loadedChunkCount: this.#runtimeLru.size,
+      dirtyRetainedCount: this.#dirtyLoadedCount(),
+      evictedChunkKeys,
+    };
   }
 
   markAllClean(): void {
@@ -169,5 +267,13 @@ export class SparseChunkStore implements SparseCellStoreContract {
     ) {
       this.#buckets.delete(key);
     }
+  }
+
+  #dirtyLoadedCount(): number {
+    let count = 0;
+    for (const key of this.#runtimeLru.keys()) {
+      if (this.#buckets.get(key)?.dirty === true) count += 1;
+    }
+    return count;
   }
 }

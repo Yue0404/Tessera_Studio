@@ -1,3 +1,6 @@
+import type { SpatialIndexStats } from "./sparse-spatial-index.js";
+import type { MapRect } from "./viewport-clipping.js";
+
 export type GridType = "square" | "hex-pointy";
 
 export interface MapStyle {
@@ -189,6 +192,23 @@ export interface SparseChunkBucket {
   readonly dirty: boolean;
 }
 
+export interface RuntimeChunkCacheOptions {
+  /** 视口外预取圈数，运行时最多允许两圈。 */
+  readonly prefetchRings?: 0 | 1 | 2;
+  /** 除当前工作集外允许保留的历史分块总上限。 */
+  readonly maxLoaded?: number;
+}
+
+export interface RuntimeChunkCacheStats {
+  readonly visibleChunkCount: number;
+  readonly prefetchedChunkCount: number;
+  readonly hitCount: number;
+  readonly missCount: number;
+  readonly loadedChunkCount: number;
+  readonly dirtyRetainedCount: number;
+  readonly evictedChunkKeys: readonly string[];
+}
+
 export interface SparseCellStoreContract {
   readonly size: number;
   readonly bucketCount: number;
@@ -203,6 +223,11 @@ export interface SparseCellStoreContract {
   unassignOverlay(overlayId: string, ownerCellId: string): void;
   touchRuntimeChunk(chunkRow: number, chunkColumn: number): void;
   evictRuntimeChunks(maxLoaded: number): readonly string[];
+  updateRuntimeViewport(
+    grid: ProjectGrid,
+    visibleCells: readonly CellCoordinate[],
+    options?: RuntimeChunkCacheOptions,
+  ): RuntimeChunkCacheStats;
   markAllClean(): void;
   readonly loadedChunkKeys: readonly string[];
 }
@@ -229,6 +254,12 @@ export interface ConnectionManagerContract {
   add(connection: ConnectionData): ConnectionData;
   replace(connection: ConnectionData): ConnectionData;
   delete(connectionId: string): boolean;
+  configureSpatialIndex(
+    bucketSize: number,
+    resolveBounds: (connection: ConnectionData) => MapRect | undefined,
+  ): void;
+  query(rect: MapRect): readonly ConnectionData[];
+  readonly spatialIndexStats: SpatialIndexStats;
 }
 
 export interface OverlayManagerContract {
@@ -239,6 +270,12 @@ export interface OverlayManagerContract {
   add(overlay: OverlayData): OverlayData;
   replace(overlay: OverlayData): OverlayData;
   delete(overlayId: string): boolean;
+  configureSpatialIndex(
+    bucketSize: number,
+    resolveBounds: (overlay: OverlayData) => MapRect | undefined,
+  ): void;
+  query(rect: MapRect): readonly OverlayData[];
+  readonly spatialIndexStats: SpatialIndexStats;
 }
 
 export interface ProjectState {

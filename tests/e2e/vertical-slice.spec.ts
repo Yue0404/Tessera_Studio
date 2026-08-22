@@ -257,7 +257,7 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
   await expect(page.getByTestId("connection-count")).toContainText("2");
 });
 
-test("M1 连通填充、擦除、安全门与 Shift 多选", async ({ page }) => {
+test("连通填充、擦除与 Shift 多选", async ({ page }) => {
   test.setTimeout(90_000);
   await createProject(page, "正方形", "填充擦除", "20");
   const canvas = page.getByLabel("地图编辑画布");
@@ -275,12 +275,28 @@ test("M1 连通填充、擦除、安全门与 Shift 多选", async ({ page }) =>
   await expect(page.getByText("已选择 2 个对象")).toBeVisible();
 });
 
-test("M1 40000 地图连通填充触发安全门且保持稀疏", async ({ page }) => {
+test("M4 10001 以上填充进入后台且取消不提交半成品", async ({ page }) => {
+  await createProject(page, "正方形", "后台填充取消", "101");
+  await page.getByRole("button", { name: "画刷" }).click();
+  await page.getByLabel("操作模式").selectOption("fill");
+  await page.clock.install();
+  const browserNow = await page.evaluate(() => Date.now());
+  await page.clock.pauseAt(browserNow + 60_000);
+  await page.getByLabel("地图编辑画布").click({ position: { x: 500, y: 300 } });
+  const cancel = page.getByRole("button", { name: "取消填充" });
+  await expect(cancel).toBeVisible();
+  await cancel.evaluate((button: HTMLButtonElement) => button.click());
+  await page.clock.runFor(1);
+  await expect(cancel).toBeHidden();
+  await expect(page.getByTestId("cell-count")).toContainText("0");
+});
+
+test("M4 40000 地图连通填充触发总量门禁且保持稀疏", async ({ page }) => {
   await createProject(page, "正方形", "填充安全门", "40000");
   await page.getByRole("button", { name: "画刷" }).click();
   await page.getByLabel("操作模式").selectOption("fill");
   await page.getByLabel("地图编辑画布").click({ position: { x: 500, y: 300 } });
-  await expect(page.getByRole("alert")).toContainText("10000 格安全上限");
+  await expect(page.getByRole("alert")).toContainText("运行时或 64 MiB");
   await expect(page.getByTestId("cell-count")).toContainText("0");
 });
 

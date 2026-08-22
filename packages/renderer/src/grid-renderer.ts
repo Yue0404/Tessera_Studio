@@ -1,5 +1,6 @@
 import { Container, Graphics } from "pixi.js";
 import {
+  edgeIdentity,
   edgeSegment,
   type ProjectState,
   type VisibleCell,
@@ -78,9 +79,16 @@ export class GridRenderer {
       }
     }
     if (edgeLayer?.visible === false) return;
-    for (const edge of [...state.edges.values()].sort((left, right) =>
-      left.edgeId < right.edgeId ? -1 : left.edgeId > right.edgeId ? 1 : 0,
-    )) {
+    const visibleEdgeIds = new Set<string>();
+    for (const cell of visible) {
+      const sideCount = state.grid.type === "square" ? 4 : 6;
+      for (let side = 0; side < sideCount; side += 1) {
+        visibleEdgeIds.add(edgeIdentity(state.grid, cell, side).edgeId);
+      }
+    }
+    for (const edgeId of [...visibleEdgeIds].sort()) {
+      const edge = state.edges.get(edgeId);
+      if (edge === undefined) continue;
       if (edge.persistence !== "explicit-style") continue;
       const segment = edgeSegment(
         state.grid,

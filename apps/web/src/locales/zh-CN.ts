@@ -293,7 +293,11 @@ export const zhCN = {
     "error.invalidCellSize": "单元格尺寸必须是 12–96 的整数。",
     "error.invalidGridOpacity": "网格线透明度必须在 0.1–1 之间。",
     "error.invalidGridWidth": "网格线粗细必须在 0.5–8 之间。",
+    "fill.confirmLarge": "此填充预计超过 250000 格，是否继续？",
+    "fill.running": "正在后台填充：{{percent}}%",
+    "fill.cancel": "取消填充",
     "error.fillTooLarge":
-      "填充区域超过 M1 的 10000 格安全上限；M4 将替换为 PERF-007 四档确认策略。",
+      "填充区域超过运行时或 64 MiB 历史差异安全上限，请缩小范围。",
+    "error.fillFailed": "填充任务失败，工程未写入半成品。",
   },
 } as const;

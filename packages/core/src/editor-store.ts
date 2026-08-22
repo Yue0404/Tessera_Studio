@@ -1,10 +1,16 @@
 import { assertGridCoordinate, parseCellId } from "./coordinates.js";
 import { ConnectionManager } from "./connection-manager.js";
-import { planFillRegion } from "./fill-region.js";
+import {
+  planFillRegion,
+  startFillRegionTask,
+  type FillRegionTaskOptions,
+} from "./fill-region.js";
+import { BackgroundTaskError, type BackgroundTask } from "./background-task.js";
 import { cellId } from "./geometry.js";
 import { EdgeManager } from "./edge-manager.js";
 import { createFixedLayerMap } from "./layers.js";
 import { OverlayManager } from "./overlay-manager.js";
+import { configureProjectSpatialIndexes } from "./project-spatial-index.js";
 import { normalizeRotationDegrees } from "./rotation.js";
 import { SparseChunkStore } from "./sparse-chunk-store.js";
 import { ToolStateMachine } from "./tool-state-machine.js";
@@ -100,6 +106,7 @@ export function createProject(input: NewProjectInput): ProjectState {
     configurable: false,
     enumerable: true,
   });
+  configureProjectSpatialIndexes(state);
   return state;
 }
 
@@ -231,16 +238,56 @@ export class EditorStore {
     assertGridCoordinate(this.#state.grid, { row, column });
     if (this.#layerLocked("tessera.basic.cell-style")) return 0;
     const matched = planFillRegion(this.#state, row, column, fillColor, limit);
-    this.beginBatch();
-    try {
-      for (const cell of matched)
-        this.paintCell(cell.row, cell.column, fillColor);
-      this.commitBatch();
-      return matched.length;
-    } catch (error) {
-      this.cancelBatch();
-      throw error;
+    this.#commitFillPlan(matched, fillColor);
+    return matched.length;
+  }
+
+  startFillCells(
+    row: number,
+    column: number,
+    fillColor: string,
+    options: FillRegionTaskOptions = {},
+  ): BackgroundTask<number> {
+    assertGridCoordinate(this.#state.grid, { row, column });
+    if (this.#layerLocked("tessera.basic.cell-style")) {
+      const empty = startFillRegionTask(
+        this.#state,
+        row,
+        column,
+        this.#state.cells.get(cellId(this.#state.grid.type, row, column))
+          ?.fillColor ?? this.#state.style.defaultCellColor,
+        options,
+      );
+      return { ...empty, result: empty.result.then(() => 0) };
     }
+    const stateAtStart = this.#state;
+    const revisionAtStart = this.#state.revision;
+    const planning = startFillRegionTask(
+      this.#state,
+      row,
+      column,
+      fillColor,
+      options,
+    );
+    return {
+      taskId: planning.taskId,
+      subscribeProgress: planning.subscribeProgress,
+      cancel: planning.cancel,
+      result: planning.result.then((matched) => {
+        if (
+          this.#state !== stateAtStart ||
+          this.#state.revision !== revisionAtStart
+        ) {
+          throw new BackgroundTaskError(
+            "batch-state-changed",
+            { revisionAtStart, revisionNow: this.#state.revision },
+            "retry",
+          );
+        }
+        this.#commitFillPlan(matched, fillColor);
+        return matched.length;
+      }),
+    };
   }
 
   paintEdge(
@@ -1065,6 +1112,44 @@ export class EditorStore {
     this.#undo.push(entry);
     if (this.#undo.length > 100) this.#undo.shift();
     this.#redo.length = 0;
+  }
+
+  #commitFillPlan(
+    matched: readonly { row: number; column: number }[],
+    fillColor: string,
+  ): void {
+    if (matched.length === 0) return;
+    const changes = matched.map(({ row, column }) => {
+      const id = cellId(this.#state.grid.type, row, column);
+      const previous = this.#state.cells.get(id);
+      const next: CellOverride = {
+        instanceId: previous?.instanceId ?? newUuid(),
+        cellId: id,
+        row,
+        column,
+        fillColor,
+        fillOpacity: previous?.fillOpacity ?? 1,
+        ...(previous?.label === undefined ? {} : { label: previous.label }),
+      };
+      return { id, previous, next };
+    });
+    this.#execute({
+      managers: new Set(["cells", "chunks"]),
+      apply: () => {
+        for (const change of changes) {
+          this.#state.cells.set(change.id, change.next);
+        }
+      },
+      revert: () => {
+        for (const change of changes) {
+          if (change.previous === undefined) {
+            this.#state.cells.delete(change.id);
+          } else {
+            this.#state.cells.set(change.id, change.previous);
+          }
+        }
+      },
+    });
   }
 
   #layerLocked(layerId: string): boolean {

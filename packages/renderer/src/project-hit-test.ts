@@ -16,7 +16,14 @@ export function hitTestProjectObject(
   point: MapPoint,
   cell: VisibleCell | undefined,
 ): SelectedObject | null {
-  const overlays = [...state.overlays.values()].sort((left, right) => {
+  const queryRadius = Math.max(96, state.grid.cellSize * 2);
+  const queryRect = {
+    minX: point.x - queryRadius,
+    minY: point.y - queryRadius,
+    maxX: point.x + queryRadius,
+    maxY: point.y + queryRadius,
+  };
+  const overlays = [...state.overlays.query(queryRect)].sort((left, right) => {
     const z =
       (state.layers.get(right.layerId)?.zIndex ?? 0) -
       (state.layers.get(left.layerId)?.zIndex ?? 0);
@@ -34,7 +41,7 @@ export function hitTestProjectObject(
       return { kind: "overlay", id: overlay.overlayId };
     }
   }
-  for (const connection of state.connections.values()) {
+  for (const connection of state.connections.query(queryRect)) {
     if (state.layers.get(connection.layerId)?.visible === false) continue;
     const start = endpointPoint(state, connection.start);
     const end = endpointPoint(state, connection.end);

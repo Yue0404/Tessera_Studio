@@ -19,7 +19,7 @@ export class OverlayRenderer {
       configureRenderLayer(container, state, layerId);
       for (const child of container.removeChildren()) child.destroy();
     }
-    const sorted = [...state.overlays.values()].sort(
+    const sorted = [...state.overlays.query(viewport)].sort(
       (left, right) =>
         (state.layers.get(left.layerId)?.zIndex ?? 0) -
           (state.layers.get(right.layerId)?.zIndex ?? 0) ||

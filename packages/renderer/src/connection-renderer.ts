@@ -26,12 +26,13 @@ export class ConnectionRenderer {
     for (const child of this.#container.removeChildren()) child.destroy();
     const layer = state.layers.get("tessera.basic.connection");
     if (layer?.visible === false) return;
-    const connections = [...state.connections.values()].sort((left, right) =>
-      left.connectionId < right.connectionId
-        ? -1
-        : left.connectionId > right.connectionId
-          ? 1
-          : 0,
+    const connections = [...state.connections.query(viewport)].sort(
+      (left, right) =>
+        left.connectionId < right.connectionId
+          ? -1
+          : left.connectionId > right.connectionId
+            ? 1
+            : 0,
     );
     for (const connection of connections) {
       const start = endpointPoint(state, connection.start);

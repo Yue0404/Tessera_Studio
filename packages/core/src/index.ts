@@ -1,3 +1,4 @@
+export * from "./background-task.js";
 export * from "./connection-manager.js";
 export * from "./coordinates.js";
 export * from "./editor-store.js";
@@ -6,8 +7,10 @@ export * from "./fill-region.js";
 export * from "./geometry.js";
 export * from "./layers.js";
 export * from "./overlay-manager.js";
+export * from "./project-spatial-index.js";
 export * from "./rotation.js";
 export * from "./sparse-chunk-store.js";
+export * from "./sparse-spatial-index.js";
 export * from "./tool-state-machine.js";
 export * from "./viewport-clipping.js";
 export * from "./version.js";

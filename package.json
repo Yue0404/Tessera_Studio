@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "benchmark:runtime": "node scripts/run-runtime-benchmark.mjs",
     "e2e": "playwright test"
   },
   "devDependencies": {

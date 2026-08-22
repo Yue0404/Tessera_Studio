@@ -153,12 +153,10 @@ export class TesseraRenderer {
       viewport.maxX,
       viewport.maxY,
     );
-    for (const cell of this.#visible) {
-      state.cells.touchRuntimeChunk(
-        Math.floor(cell.row / 64),
-        Math.floor(cell.column / 64),
-      );
-    }
+    state.cells.updateRuntimeViewport(state.grid, this.#visible, {
+      prefetchRings: 2,
+      maxLoaded: 256,
+    });
     const background = this.#colorValue(state.style.canvasBackground);
     this.#application.renderer.background.color = background.color;
     this.#application.renderer.background.alpha = background.alpha;
@@ -257,7 +255,16 @@ export class TesseraRenderer {
           cell.center.y <= rect.maxY,
       )
       .map((cell) => ({ kind: "cell", id: cell.cellId }));
-    for (const edge of this.#state.edges.values()) {
+    const visibleEdgeIds = new Set<string>();
+    for (const cell of this.#visible) {
+      const sideCount = this.#state.grid.type === "square" ? 4 : 6;
+      for (let side = 0; side < sideCount; side += 1) {
+        visibleEdgeIds.add(edgeIdentity(this.#state.grid, cell, side).edgeId);
+      }
+    }
+    for (const edgeId of visibleEdgeIds) {
+      const edge = this.#state.edges.get(edgeId);
+      if (edge === undefined) continue;
       const segment = edgeSegment(
         this.#state.grid,
         edge.edgeId,
@@ -270,7 +277,7 @@ export class TesseraRenderer {
         selected.push({ kind: "edge", id: edge.edgeId });
       }
     }
-    for (const connection of this.#state.connections.values()) {
+    for (const connection of this.#state.connections.query(rect)) {
       const points = this.#connectionPoints(connection.start, connection.end);
       if (
         points !== undefined &&
@@ -279,7 +286,7 @@ export class TesseraRenderer {
         selected.push({ kind: "connection", id: connection.connectionId });
       }
     }
-    for (const overlay of this.#state.overlays.values()) {
+    for (const overlay of this.#state.overlays.query(rect)) {
       const point = overlayAnchorPoint(this.#state, overlay);
       if (
         point !== undefined &&
