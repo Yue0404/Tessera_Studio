@@ -19,7 +19,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark:runtime": "node scripts/run-runtime-benchmark.mjs",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:edge": "playwright test --config=playwright.cross-browser.config.ts --project=edge-system",
+    "e2e:chrome": "playwright test --config=playwright.cross-browser.config.ts --project=chrome-system",
+    "e2e:chromium": "playwright test --config=playwright.cross-browser.config.ts --project=chromium-playwright",
+    "e2e:firefox": "playwright test --config=playwright.cross-browser.config.ts --project=firefox-playwright",
+    "support:matrix": "node scripts/run-browser-support-matrix.mjs",
+    "support:matrix:test": "node --test scripts/browser-support-matrix-result.test.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

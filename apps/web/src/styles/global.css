@@ -44,7 +44,8 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid var(--color-focus);
+  /* Firefox 在 Windows 缩放下会把 2 CSS px 量化为 1.6px，留足可见焦点面积。 */
+  outline: 3px solid var(--color-focus);
   outline-offset: 2px;
 }
 

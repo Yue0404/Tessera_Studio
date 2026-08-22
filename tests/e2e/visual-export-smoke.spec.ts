@@ -69,11 +69,10 @@ test("主线程 fallback 支持指定 RGBA 背景且隐藏层不绘制", async (
   expect(colored.executionMode).toBe("fallback");
   expect(colored.signature).toEqual(pngSignature);
   const background = colored.samples.empty ?? [];
-  expect(background[0]).toBeGreaterThanOrEqual(17);
-  expect(background[0]).toBeLessThanOrEqual(18);
-  expect(background[1]).toBe(34);
-  expect(background[2]).toBeGreaterThanOrEqual(51);
-  expect(background[2]).toBeLessThanOrEqual(52);
+  // 半透明 PNG 经预乘/反预乘后，不同浏览器可产生至多两个通道级的舍入差。
+  expect(Math.abs((background[0] ?? 0) - 17)).toBeLessThanOrEqual(2);
+  expect(Math.abs((background[1] ?? 0) - 34)).toBeLessThanOrEqual(2);
+  expect(Math.abs((background[2] ?? 0) - 51)).toBeLessThanOrEqual(2);
   expect(background[3]).toBe(128);
   expect(hidden.samples.text?.[3]).toBe(0);
   expect(hidden.samples.redCell).toEqual([255, 0, 0, 255]);
