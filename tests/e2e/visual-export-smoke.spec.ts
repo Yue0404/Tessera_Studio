@@ -8,6 +8,7 @@ interface PngSmokeResult {
   readonly height: number;
   readonly executionMode: string;
   readonly samples: Readonly<Record<string, readonly number[]>>;
+  readonly coloredPixelCounts: Readonly<Record<string, number>>;
 }
 
 interface VisualExportSmokeModule {
@@ -51,8 +52,8 @@ test("Chromium Worker 真实生成方格 PNG，包含透明度、裁切线、文
   expect(result.samples.redCell).toEqual([255, 0, 0, 255]);
   expect(result.samples.marker?.[1]).toBeGreaterThan(200);
   expect(result.samples.marker?.[3]).toBeGreaterThan(200);
-  expect(result.samples.crossingLine?.[0]).toBeGreaterThan(200);
-  expect(result.samples.crossingLine?.[2]).toBeGreaterThan(200);
+  expect(result.coloredPixelCounts.crossingLineLeft).toBeGreaterThan(10);
+  expect(result.coloredPixelCounts.crossingLineRight).toBeGreaterThan(10);
   expect(result.samples.text?.[3]).toBeGreaterThan(0);
 });
 

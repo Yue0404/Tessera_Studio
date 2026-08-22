@@ -22,6 +22,20 @@ interface PngSmokeResult {
   readonly height: number;
   readonly executionMode: string;
   readonly samples: Readonly<Record<string, readonly number[]>>;
+  readonly coloredPixelCounts: Readonly<Record<string, number>>;
+}
+
+interface ColorRegionSample {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly matches: (
+    red: number,
+    green: number,
+    blue: number,
+    alpha: number,
+  ) => boolean;
 }
 
 const fallbackCapabilities: VisualExportCanvasCapabilities = {
@@ -53,10 +67,12 @@ function createStore(type: GridType): EditorStore {
 async function decodePng(
   blob: Blob,
   samplePoints: Readonly<Record<string, readonly [number, number]>>,
+  colorRegions: Readonly<Record<string, ColorRegionSample>> = {},
 ): Promise<{
   readonly width: number;
   readonly height: number;
   readonly samples: Readonly<Record<string, readonly number[]>>;
+  readonly coloredPixelCounts: Readonly<Record<string, number>>;
 }> {
   const bitmap = await createImageBitmap(blob);
   const canvas = document.createElement("canvas");
@@ -71,8 +87,36 @@ async function decodePng(
       ...context.getImageData(Math.floor(x), Math.floor(y), 1, 1).data,
     ];
   }
+  const coloredPixelCounts: Record<string, number> = {};
+  for (const [name, region] of Object.entries(colorRegions)) {
+    const pixels = context.getImageData(
+      region.x,
+      region.y,
+      region.width,
+      region.height,
+    ).data;
+    let count = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (
+        region.matches(
+          pixels[index] ?? 0,
+          pixels[index + 1] ?? 0,
+          pixels[index + 2] ?? 0,
+          pixels[index + 3] ?? 0,
+        )
+      ) {
+        count += 1;
+      }
+    }
+    coloredPixelCounts[name] = count;
+  }
   bitmap.close();
-  return { width: canvas.width, height: canvas.height, samples };
+  return {
+    width: canvas.width,
+    height: canvas.height,
+    samples,
+    coloredPixelCounts,
+  };
 }
 
 async function pngResult(
@@ -80,6 +124,7 @@ async function pngResult(
   background: VisualExportBackground,
   forceFallback: boolean,
   samplePoints: Readonly<Record<string, readonly [number, number]>>,
+  colorRegions: Readonly<Record<string, ColorRegionSample>> = {},
 ): Promise<PngSmokeResult> {
   const capabilities = forceFallback
     ? fallbackCapabilities
@@ -98,7 +143,7 @@ async function pngResult(
   const task = startVisualExport(plan, { capabilities });
   const result = await task.result;
   const bytes = new Uint8Array(await result.blob.arrayBuffer());
-  const decoded = await decodePng(result.blob, samplePoints);
+  const decoded = await decodePng(result.blob, samplePoints, colorRegions);
   return {
     blobType: result.blob.type,
     blobSize: result.blob.size,
@@ -107,6 +152,7 @@ async function pngResult(
     height: decoded.height,
     executionMode: result.executionMode,
     samples: decoded.samples,
+    coloredPixelCounts: decoded.coloredPixelCounts,
   };
 }
 
@@ -170,8 +216,27 @@ export async function renderSquarePngSmoke(
       empty: [10, 10],
       redCell: [30, 30],
       marker: [100, 40],
-      crossingLine: [70, 80],
       text: [60, 120],
+    },
+    {
+      // 线段为虚线，单点可能正好落在间隔或平台相关的抗锯齿边缘；
+      // 左右两侧分别出现品红像素，才能证明外外穿界线经裁切后仍贯穿画布。
+      crossingLineLeft: {
+        x: 0,
+        y: 76,
+        width: 60,
+        height: 9,
+        matches: (red, green, blue, alpha) =>
+          red > 200 && green < 80 && blue > 200 && alpha > 128,
+      },
+      crossingLineRight: {
+        x: 100,
+        y: 76,
+        width: 60,
+        height: 9,
+        matches: (red, green, blue, alpha) =>
+          red > 200 && green < 80 && blue > 200 && alpha > 128,
+      },
     },
   );
 }

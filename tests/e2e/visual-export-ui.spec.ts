@@ -77,7 +77,7 @@ test("PNG viewport 与 SVG selection 通过生产 UI 下载并可解析", async 
 
 test("已启动的 PNG 可取消，非法 custom 范围给出受控行动", async ({ page }) => {
   test.setTimeout(90_000);
-  await createSquareProject(page, "图片取消", "80");
+  await createSquareProject(page, "图片取消", "110");
   const downloads: Download[] = [];
   page.on("download", (download) => downloads.push(download));
   await openVisualExport(page);
@@ -85,7 +85,8 @@ test("已启动的 PNG 可取消，非法 custom 范围给出受控行动", asyn
   await page.getByLabel("图片范围").selectOption("full-map");
   await page.getByLabel("2×").check();
   await page.getByRole("button", { name: "开始生成" }).click();
-  await page.getByRole("button", { name: "取消生成" }).click();
+  // 取消按钮只会在真实任务创建后出现；force 跳过动作稳定性等待，避免大画布编码完成后节点先卸载。
+  await page.getByRole("button", { name: "取消生成" }).click({ force: true });
   await expect(page.getByText("已取消图片导出，没有生成文件。")).toBeVisible();
   expect(downloads).toHaveLength(0);
 
