@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./visual-export": "./src/visual-export/index.ts"
   },
   "scripts": {
     "build": "tsc -b",

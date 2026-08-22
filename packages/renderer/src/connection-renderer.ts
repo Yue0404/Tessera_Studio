@@ -1,69 +1,95 @@
-import { Graphics } from "pixi.js";
-import type { Container } from "pixi.js";
+import { Container, Graphics } from "pixi.js";
 import {
   clipSegmentToRect,
   pointInRect,
   type MapRect,
   type ProjectState,
 } from "@tessera/core";
-import { colorValue, endpointPoint } from "./render-utils.js";
+import {
+  createPixiText,
+  drawPixiArrow,
+  drawPixiStroke,
+} from "./pixi-visual.js";
+import { endpointPoint } from "./render-utils.js";
+import { configureRenderLayer } from "./render-layer-order.js";
+import { arrowSize, connectionLabelStyle } from "./visual-style.js";
 
 export class ConnectionRenderer {
-  readonly #graphics = new Graphics();
+  readonly #container = new Container();
 
   constructor(container: Container) {
-    container.addChild(this.#graphics);
+    container.addChild(this.#container);
   }
 
   render(state: Readonly<ProjectState>, viewport: MapRect): void {
-    this.#graphics.clear();
+    configureRenderLayer(this.#container, state, "tessera.basic.connection");
+    for (const child of this.#container.removeChildren()) child.destroy();
     const layer = state.layers.get("tessera.basic.connection");
     if (layer?.visible === false) return;
-    for (const connection of state.connections.values()) {
+    const connections = [...state.connections.values()].sort((left, right) =>
+      left.connectionId < right.connectionId
+        ? -1
+        : left.connectionId > right.connectionId
+          ? 1
+          : 0,
+    );
+    for (const connection of connections) {
       const start = endpointPoint(state, connection.start);
       const end = endpointPoint(state, connection.end);
       if (start === undefined || end === undefined) continue;
       const clipped = clipSegmentToRect(start, end, viewport);
       if (clipped === null) continue;
-      const stroke = colorValue(connection.style.strokeColor);
-      this.#graphics
-        .moveTo(clipped[0].x, clipped[0].y)
-        .lineTo(clipped[1].x, clipped[1].y)
-        .stroke({
-          color: stroke.color,
-          alpha:
-            stroke.alpha *
-            connection.style.strokeOpacity *
-            (layer?.opacity ?? 1),
-          width: connection.style.strokeWidth,
-        });
-      if (
-        connection.kind === "arrow" &&
-        connection.arrowEnd &&
-        pointInRect(end, viewport)
-      ) {
-        this.#drawArrow(clipped[0], clipped[1], stroke.color, stroke.alpha);
+      const item = new Container();
+      const graphics = new Graphics();
+      const opacity = connection.style.strokeOpacity * (layer?.opacity ?? 1);
+      drawPixiStroke(graphics, start, end, clipped[0], clipped[1], {
+        color: connection.style.strokeColor,
+        width: connection.style.strokeWidth,
+        opacity,
+        lineStyle: connection.style.lineStyle,
+      });
+      if (connection.kind === "arrow") {
+        const size = arrowSize(
+          connection.style.strokeWidth,
+          state.grid.cellSize,
+        );
+        if (connection.arrowStart && pointInRect(start, viewport)) {
+          drawPixiArrow(
+            graphics,
+            end,
+            start,
+            size,
+            connection.style.strokeColor,
+            opacity,
+          );
+        }
+        if (connection.arrowEnd && pointInRect(end, viewport)) {
+          drawPixiArrow(
+            graphics,
+            start,
+            end,
+            size,
+            connection.style.strokeColor,
+            opacity,
+          );
+        }
       }
+      item.addChild(graphics);
+      if (connection.label !== null) {
+        item.addChild(
+          createPixiText(
+            { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+            connection.label,
+            connectionLabelStyle(
+              state.grid.cellSize,
+              connection.style.strokeColor,
+              opacity,
+            ),
+            null,
+          ),
+        );
+      }
+      this.#container.addChild(item);
     }
-  }
-
-  #drawArrow(
-    start: { x: number; y: number },
-    end: { x: number; y: number },
-    color: number,
-    alpha: number,
-  ): void {
-    const angle = Math.atan2(end.y - start.y, end.x - start.x);
-    const size = 10;
-    this.#graphics
-      .poly([
-        end.x,
-        end.y,
-        end.x - size * Math.cos(angle - Math.PI / 6),
-        end.y - size * Math.sin(angle - Math.PI / 6),
-        end.x - size * Math.cos(angle + Math.PI / 6),
-        end.y - size * Math.sin(angle + Math.PI / 6),
-      ])
-      .fill({ color, alpha });
   }
 }

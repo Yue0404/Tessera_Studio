@@ -1,5 +1,4 @@
 import {
-  cellPolygon,
   ConnectionManager,
   EdgeManager,
   OverlayManager,
@@ -12,7 +11,33 @@ import {
   type ProjectState,
 } from "@tessera/core";
 import type { ErrorObject } from "ajv";
+import {
+  computeProjectContentBounds,
+  contentBoundsEqual,
+} from "./content-bounds.js";
+import {
+  compareCellId,
+  compareLayerInstance,
+  compareStableId,
+  isSortedUnique,
+} from "./deterministic-order.js";
+import { validateEmbeddedAssets } from "./embedded-asset-validation.js";
+import type { ProjectV1Document } from "./format-types.js";
+import { parseJsonWithSafetyLimits } from "./json-input.js";
+import {
+  ProjectReconcileError,
+  type ProjectSerializationMode,
+  reconcileProjectDocument,
+} from "./project-reconcile.js";
 import validateProject from "./project-validator.generated.js";
+import {
+  assertCanonicalEdge,
+  assertMapPointInsideGrid,
+  assertTextLimits,
+  compareCellIds,
+  validateKnownBasicPlacement,
+  validateKnownBasicInstance,
+} from "./semantic-helpers.js";
 
 const projectValidator = validateProject as typeof validateProject & {
   errors?: ErrorObject[] | null;
@@ -204,38 +229,216 @@ function validateSemanticClosure(project: Record<string, any>): void {
   ) {
     throw new ProjectFormatError("grid-orientation-mismatch");
   }
+  const grid = {
+    type: project.grid.type,
+    width: project.grid.width,
+    height: project.grid.height,
+    cellSize: project.grid.cellSize,
+  } as const;
+  const moduleIds = new Set<string>();
   if (
-    project.modules.length !== 1 ||
-    project.modules[0]?.moduleId !== "tessera.basic" ||
-    project.modules[0]?.version !== BASIC_VERSION ||
-    project.modules[0]?.packageSourceKind !== "built-in"
+    !isSortedUnique(project.modules, (left: any, right: any) =>
+      compareStableId(left.moduleId, right.moduleId),
+    )
+  ) {
+    throw new ProjectFormatError("module-order-invalid");
+  }
+  for (const module of project.modules as any[]) {
+    if (moduleIds.has(module.moduleId)) {
+      throw new ProjectFormatError("module-duplicate", {
+        moduleId: module.moduleId,
+      });
+    }
+    moduleIds.add(module.moduleId);
+  }
+  const basicModule = project.modules.find(
+    (module: any) => module.moduleId === "tessera.basic",
+  );
+  if (
+    basicModule?.version !== BASIC_VERSION ||
+    basicModule?.packageSourceKind !== "built-in"
   ) {
     throw new ProjectFormatError("basic-module-contract-invalid", {
       requiredModuleId: "tessera.basic",
       requiredVersion: BASIC_VERSION,
     });
   }
-  if (
-    project.layerStates.length !== layerStates.length ||
-    project.layerStates.some(
-      (layer: any, index: number) =>
-        layerStates[index]?.[0] !== layer.layerId ||
-        layerStates[index]?.[1] !== layer.zIndex ||
-        layer.moduleVersion !== BASIC_VERSION,
-    )
-  ) {
-    throw new ProjectFormatError("basic-layer-contract-invalid");
+  const layerIds = new Set<string>();
+  let previousLayer: any;
+  for (const layer of project.layerStates as any[]) {
+    if (layerIds.has(layer.layerId)) {
+      throw new ProjectFormatError("layer-duplicate", {
+        layerId: layer.layerId,
+      });
+    }
+    layerIds.add(layer.layerId);
+    if (
+      previousLayer !== undefined &&
+      (previousLayer.zIndex > layer.zIndex ||
+        (previousLayer.zIndex === layer.zIndex &&
+          previousLayer.layerId.localeCompare(layer.layerId) >= 0))
+    ) {
+      throw new ProjectFormatError("layer-order-invalid", {
+        layerId: layer.layerId,
+      });
+    }
+    previousLayer = layer;
+    const ownerModule = [...project.modules]
+      .filter((module: any) => layer.layerId.startsWith(`${module.moduleId}.`))
+      .sort(
+        (left: any, right: any) => right.moduleId.length - left.moduleId.length,
+      )[0];
+    if (
+      ownerModule === undefined ||
+      ownerModule.version !== layer.moduleVersion
+    ) {
+      throw new ProjectFormatError("layer-module-version-mismatch", {
+        layerId: layer.layerId,
+        moduleVersion: layer.moduleVersion,
+      });
+    }
   }
+  for (const [layerId, zIndex] of layerStates) {
+    const layer = project.layerStates.find(
+      (candidate: any) => candidate.layerId === layerId,
+    );
+    if (
+      layer === undefined ||
+      layer.zIndex !== zIndex ||
+      layer.moduleVersion !== BASIC_VERSION
+    ) {
+      throw new ProjectFormatError("basic-layer-contract-invalid", {
+        layerId,
+      });
+    }
+  }
+  if (project.exportScope === "partial") {
+    const included = project.lineage.includedLayerIds as string[];
+    const omitted = project.lineage.omittedLayerIds as string[];
+    const combined = [...included, ...omitted];
+    if (
+      included.some((layerId) => omitted.includes(layerId)) ||
+      [...included].sort().join("\u0000") !== included.join("\u0000") ||
+      [...omitted].sort().join("\u0000") !== omitted.join("\u0000") ||
+      combined.some((layerId, index) => combined.indexOf(layerId) !== index) ||
+      combined.some((layerId) => !layerIds.has(layerId)) ||
+      combined.length !== layerIds.size
+    ) {
+      throw new ProjectFormatError("partial-lineage-layer-set-invalid");
+    }
+  }
+  const validateBounds = (
+    bounds: { minX: number; minY: number; maxX: number; maxY: number } | null,
+    pointer: string,
+  ): void => {
+    if (
+      bounds !== null &&
+      (bounds.minX > bounds.maxX || bounds.minY > bounds.maxY)
+    ) {
+      throw new ProjectFormatError("bounds-order-invalid", { pointer });
+    }
+  };
+  validateBounds(project.contentBounds, "/contentBounds");
+  if (project.lineage !== null) {
+    validateBounds(project.lineage.selectionBounds, "/lineage/selectionBounds");
+  }
+
+  const instanceIds = new Set<string>();
+  const registerInstance = (
+    instanceId: string,
+    elementId: string,
+    layerId: string,
+    pointer: string,
+    structuralReference = false,
+  ): void => {
+    if (instanceIds.has(instanceId)) {
+      throw new ProjectFormatError("instance-id-duplicate", {
+        instanceId,
+        pointer,
+      });
+    }
+    instanceIds.add(instanceId);
+    if (!layerIds.has(layerId)) {
+      throw new ProjectFormatError("instance-layer-reference-missing", {
+        layerId,
+        pointer,
+      });
+    }
+    const separator = elementId.indexOf(":");
+    const moduleId = separator < 0 ? "" : elementId.slice(0, separator);
+    if (!moduleIds.has(moduleId)) {
+      throw new ProjectFormatError("instance-module-reference-missing", {
+        elementId,
+        pointer,
+      });
+    }
+    if (
+      project.exportScope === "partial" &&
+      !project.lineage.includedLayerIds.includes(layerId) &&
+      !structuralReference
+    ) {
+      throw new ProjectFormatError("partial-object-layer-omitted", {
+        layerId,
+        pointer,
+      });
+    }
+  };
   const ownedEdges = new Set<string>();
   const ownedOverlays = new Set<string>();
+  const ownedDomainGroups = new Map<string, string>();
+  const ownedEdgeChunks = new Map<string, string>();
+  const ownedOverlayChunks = new Map<string, string>();
   const cellIds = new Set<string>();
   const chunkKeys = new Set<string>();
+  let previousChunk: { chunkRow: number; chunkColumn: number } | undefined;
   for (const chunk of project.chunks as any[]) {
     const key = `${String(chunk.chunkRow)}:${String(chunk.chunkColumn)}`;
+    if (
+      chunk.chunkRow > Math.floor((project.grid.height - 1) / 64) ||
+      chunk.chunkColumn > Math.floor((project.grid.width - 1) / 64)
+    ) {
+      throw new ProjectFormatError("chunk-out-of-bounds", { chunkKey: key });
+    }
+    if (
+      previousChunk !== undefined &&
+      (previousChunk.chunkRow > chunk.chunkRow ||
+        (previousChunk.chunkRow === chunk.chunkRow &&
+          previousChunk.chunkColumn >= chunk.chunkColumn))
+    ) {
+      throw new ProjectFormatError("chunk-order-invalid", { chunkKey: key });
+    }
+    previousChunk = chunk;
+    if (
+      chunk.cellOverrides.length === 0 &&
+      chunk.ownedEdgeIds.length === 0 &&
+      chunk.ownedOverlayIds.length === 0 &&
+      chunk.ownedDomainGroupIds.length === 0
+    ) {
+      throw new ProjectFormatError("chunk-empty-not-persistable", {
+        chunkKey: key,
+      });
+    }
+    if (
+      !isSortedUnique(chunk.cellOverrides, (left: any, right: any) =>
+        compareCellId(left.cellId, right.cellId),
+      ) ||
+      !isSortedUnique(chunk.ownedEdgeIds, compareStableId) ||
+      !isSortedUnique(chunk.ownedOverlayIds, compareStableId) ||
+      !isSortedUnique(chunk.ownedDomainGroupIds, compareStableId)
+    ) {
+      throw new ProjectFormatError("chunk-content-order-invalid", {
+        chunkKey: key,
+      });
+    }
     if (chunkKeys.has(key))
       throw new ProjectFormatError("chunk-duplicate", { chunkKey: key });
     chunkKeys.add(key);
     for (const cell of chunk.cellOverrides as any[]) {
+      if (!isSortedUnique(cell.layerInstances, compareLayerInstance)) {
+        throw new ProjectFormatError("layer-instance-order-invalid", {
+          cellId: cell.cellId,
+        });
+      }
       const coordinate = parseCellId(cell.cellId);
       if (
         coordinate.row >= project.grid.height ||
@@ -254,6 +457,26 @@ function validateSemanticClosure(project: Record<string, any>): void {
           cellId: cell.cellId,
         });
       cellIds.add(cell.cellId);
+      for (const instance of cell.layerInstances as any[]) {
+        const pointer = `/chunks/${key}/cellOverrides/${cell.cellId}/layerInstances/${instance.instanceId}`;
+        registerInstance(
+          instance.instanceId,
+          instance.elementId,
+          instance.layerId,
+          pointer,
+        );
+        validateKnownBasicInstance(
+          instance,
+          pointer,
+          (code, details) => new ProjectFormatError(code, details),
+        );
+        validateKnownBasicPlacement(
+          instance.elementId,
+          "cell",
+          pointer,
+          (code, details) => new ProjectFormatError(code, details),
+        );
+      }
     }
     for (const edgeId of chunk.ownedEdgeIds as string[]) {
       if (ownedEdges.has(edgeId))
@@ -261,6 +484,7 @@ function validateSemanticClosure(project: Record<string, any>): void {
           edgeId,
         });
       ownedEdges.add(edgeId);
+      ownedEdgeChunks.set(edgeId, key);
     }
     for (const overlayId of chunk.ownedOverlayIds as string[]) {
       if (ownedOverlays.has(overlayId)) {
@@ -269,7 +493,40 @@ function validateSemanticClosure(project: Record<string, any>): void {
         });
       }
       ownedOverlays.add(overlayId);
+      ownedOverlayChunks.set(overlayId, key);
     }
+    for (const groupId of chunk.ownedDomainGroupIds as string[]) {
+      if (ownedDomainGroups.has(groupId)) {
+        throw new ProjectFormatError("domain-group-owned-by-multiple-chunks", {
+          groupId,
+        });
+      }
+      ownedDomainGroups.set(groupId, key);
+    }
+  }
+  if (
+    !isSortedUnique(
+      project.managers.edgeManager.edges,
+      (left: any, right: any) => compareStableId(left.edgeId, right.edgeId),
+    ) ||
+    !isSortedUnique(
+      project.managers.connectionManager.connections,
+      (left: any, right: any) =>
+        compareStableId(left.connectionId, right.connectionId),
+    ) ||
+    !isSortedUnique(
+      project.managers.overlayManager.overlays,
+      (left: any, right: any) =>
+        compareStableId(left.overlayId, right.overlayId),
+    ) ||
+    !isSortedUnique(project.domainGroups, (left: any, right: any) =>
+      compareStableId(left.groupId, right.groupId),
+    ) ||
+    !isSortedUnique(project.embeddedAssets, (left: any, right: any) =>
+      compareStableId(left.assetId, right.assetId),
+    )
+  ) {
+    throw new ProjectFormatError("manager-array-order-invalid");
   }
   const edgeIds = new Set<string>();
   for (const edge of project.managers.edgeManager.edges as any[]) {
@@ -289,12 +546,59 @@ function validateSemanticClosure(project: Record<string, any>): void {
           cellId: id,
         });
     }
+    if (!isSortedUnique(edge.layerInstances, compareLayerInstance)) {
+      throw new ProjectFormatError("layer-instance-order-invalid", {
+        edgeId: edge.edgeId,
+      });
+    }
+    const edgePointer = `/managers/edgeManager/edges/${edge.edgeId}`;
+    assertCanonicalEdge(
+      grid,
+      edge.edgeId,
+      edge.adjacentCellIds,
+      edgePointer,
+      (code, details) => new ProjectFormatError(code, details),
+    );
+    const edgeOwner = parseCellId(edge.adjacentCellIds[0] as string);
+    const expectedEdgeOwner = chunkKey(edgeOwner.row, edgeOwner.column);
+    if (ownedEdgeChunks.get(edge.edgeId) !== expectedEdgeOwner) {
+      throw new ProjectFormatError("edge-owner-chunk-invalid", {
+        edgeId: edge.edgeId,
+        expectedOwner: expectedEdgeOwner,
+      });
+    }
+    for (const instance of edge.layerInstances as any[]) {
+      const instancePointer = `${edgePointer}/layerInstances/${instance.instanceId}`;
+      const structuralReference =
+        instance.elementId === "tessera.basic:edge.style" &&
+        instance.layerId === "tessera.basic.edge-style" &&
+        instance.attributes?.persistence === "reference-only";
+      registerInstance(
+        instance.instanceId,
+        instance.elementId,
+        instance.layerId,
+        instancePointer,
+        structuralReference,
+      );
+      validateKnownBasicInstance(
+        instance,
+        instancePointer,
+        (code, details) => new ProjectFormatError(code, details),
+      );
+      validateKnownBasicPlacement(
+        instance.elementId,
+        "edge",
+        instancePointer,
+        (code, details) => new ProjectFormatError(code, details),
+      );
+    }
   }
   if (edgeIds.size !== ownedEdges.size)
     throw new ProjectFormatError("chunk-edge-reference-missing");
 
   const overlayIds = new Set<string>();
   const anchoredOverlayIds = new Set<string>();
+  const referencedEdgeIds = new Set<string>();
   for (const overlay of project.managers.overlayManager.overlays as any[]) {
     if (overlayIds.has(overlay.overlayId)) {
       throw new ProjectFormatError("overlay-duplicate", {
@@ -302,7 +606,37 @@ function validateSemanticClosure(project: Record<string, any>): void {
       });
     }
     overlayIds.add(overlay.overlayId);
-    if (overlay.kind !== "anchored-overlay") continue;
+    registerInstance(
+      overlay.overlayId,
+      overlay.elementId,
+      overlay.layerId,
+      `/managers/overlayManager/overlays/${overlay.overlayId}`,
+    );
+    validateKnownBasicInstance(
+      {
+        elementId: overlay.elementId,
+        layerId: overlay.layerId,
+        styleOverrides: overlay.styleOverrides,
+        attributes: overlay.attributes,
+      },
+      `/managers/overlayManager/overlays/${overlay.overlayId}`,
+      (code, details) => new ProjectFormatError(code, details),
+    );
+    validateKnownBasicPlacement(
+      overlay.elementId,
+      overlay.overlayType === "marker" ? "marker-overlay" : "text-overlay",
+      `/managers/overlayManager/overlays/${overlay.overlayId}`,
+      (code, details) => new ProjectFormatError(code, details),
+    );
+    if (overlay.kind === "free-overlay") {
+      assertMapPointInsideGrid(
+        grid,
+        overlay.point,
+        `/managers/overlayManager/overlays/${overlay.overlayId}/point`,
+        (code, details) => new ProjectFormatError(code, details),
+      );
+      continue;
+    }
     anchoredOverlayIds.add(overlay.overlayId);
     if (overlay.anchor.kind === "cell") {
       const coordinate = parseCellId(overlay.anchor.cellId);
@@ -315,10 +649,31 @@ function validateSemanticClosure(project: Record<string, any>): void {
           overlayId: overlay.overlayId,
         });
       }
+      const owner = parseCellId(overlay.anchor.cellId);
+      const expectedOwner = chunkKey(owner.row, owner.column);
+      if (ownedOverlayChunks.get(overlay.overlayId) !== expectedOwner) {
+        throw new ProjectFormatError("overlay-owner-chunk-invalid", {
+          overlayId: overlay.overlayId,
+          expectedOwner,
+        });
+      }
     } else if (!edgeIds.has(overlay.anchor.edgeId)) {
       throw new ProjectFormatError("overlay-edge-reference-missing", {
         overlayId: overlay.overlayId,
       });
+    } else {
+      referencedEdgeIds.add(overlay.anchor.edgeId);
+      const edge = project.managers.edgeManager.edges.find(
+        (candidate: any) => candidate.edgeId === overlay.anchor.edgeId,
+      );
+      const owner = parseCellId(edge.adjacentCellIds[0]);
+      const expectedOwner = chunkKey(owner.row, owner.column);
+      if (ownedOverlayChunks.get(overlay.overlayId) !== expectedOwner) {
+        throw new ProjectFormatError("overlay-owner-chunk-invalid", {
+          overlayId: overlay.overlayId,
+          expectedOwner,
+        });
+      }
     }
   }
   if (
@@ -337,7 +692,39 @@ function validateSemanticClosure(project: Record<string, any>): void {
       });
     }
     connectionIds.add(connection.connectionId);
-    for (const endpoint of [connection.start, connection.end]) {
+    registerInstance(
+      connection.connectionId,
+      connection.elementId,
+      connection.layerId,
+      `/managers/connectionManager/connections/${connection.connectionId}`,
+    );
+    validateKnownBasicInstance(
+      {
+        elementId: connection.elementId,
+        layerId: connection.layerId,
+        styleOverrides: connection.styleOverrides,
+        attributes: connection.attributes,
+      },
+      `/managers/connectionManager/connections/${connection.connectionId}`,
+      (code, details) => new ProjectFormatError(code, details),
+    );
+    validateKnownBasicPlacement(
+      connection.elementId,
+      connection.kind,
+      `/managers/connectionManager/connections/${connection.connectionId}`,
+      (code, details) => new ProjectFormatError(code, details),
+    );
+    if (connection.label !== null) {
+      assertTextLimits(
+        connection.label,
+        `/managers/connectionManager/connections/${connection.connectionId}/label`,
+        (code, details) => new ProjectFormatError(code, details),
+      );
+    }
+    for (const [endpointName, endpoint] of [
+      ["start", connection.start],
+      ["end", connection.end],
+    ] as const) {
       if (endpoint.kind === "cell-center") {
         const coordinate = parseCellId(endpoint.cellId);
         if (
@@ -357,37 +744,119 @@ function validateSemanticClosure(project: Record<string, any>): void {
         throw new ProjectFormatError("connection-edge-reference-missing", {
           connectionId: connection.connectionId,
         });
+      } else if (endpoint.kind === "edge-midpoint") {
+        referencedEdgeIds.add(endpoint.edgeId);
+      } else {
+        assertMapPointInsideGrid(
+          grid,
+          endpoint.point,
+          `/managers/connectionManager/connections/${connection.connectionId}/${endpointName}/point`,
+          (code, details) => new ProjectFormatError(code, details),
+        );
       }
     }
   }
-}
-
-function boundsFor(
-  state: Readonly<ProjectState>,
-): Record<string, number> | null {
-  const points = [...state.cells.values()].flatMap((cell) =>
-    cellPolygon(state.grid, cell.row, cell.column),
-  );
-  for (const edge of state.edges.values()) {
-    for (const id of edge.adjacentCellIds) {
-      const coordinate = parseCellId(id);
-      points.push(
-        ...cellPolygon(state.grid, coordinate.row, coordinate.column),
-      );
+  for (const edge of project.managers.edgeManager.edges as any[]) {
+    const basicInstance = edge.layerInstances.find(
+      (instance: any) => instance.elementId === "tessera.basic:edge.style",
+    );
+    const onlyReferenceContent =
+      edge.layerInstances.length === 0 ||
+      (edge.layerInstances.length === 1 &&
+        basicInstance?.attributes?.persistence === "reference-only");
+    if (onlyReferenceContent && !referencedEdgeIds.has(edge.edgeId)) {
+      throw new ProjectFormatError("reference-only-edge-orphan", {
+        edgeId: edge.edgeId,
+      });
     }
   }
-  if (points.length === 0) return null;
-  return {
-    minX: Math.min(...points.map((point) => point.x)),
-    minY: Math.min(...points.map((point) => point.y)),
-    maxX: Math.max(...points.map((point) => point.x)),
-    maxY: Math.max(...points.map((point) => point.y)),
-  };
+
+  const domainGroupIds = new Set<string>();
+  for (const group of project.domainGroups as any[]) {
+    if (domainGroupIds.has(group.groupId)) {
+      throw new ProjectFormatError("domain-group-duplicate", {
+        groupId: group.groupId,
+      });
+    }
+    domainGroupIds.add(group.groupId);
+    registerInstance(
+      group.groupId,
+      group.elementId,
+      group.layerId,
+      `/domainGroups/${group.groupId}`,
+    );
+    if (group.elementId.startsWith("tessera.basic:")) {
+      throw new ProjectFormatError("basic-domain-group-not-supported", {
+        groupId: group.groupId,
+      });
+    }
+    if (
+      [...group.memberCellIds].sort(compareCellIds).join("\u0000") !==
+      group.memberCellIds.join("\u0000")
+    ) {
+      throw new ProjectFormatError("domain-group-member-order-invalid", {
+        groupId: group.groupId,
+      });
+    }
+    for (const memberCellId of group.memberCellIds as string[]) {
+      const coordinate = parseCellId(memberCellId);
+      if (
+        !memberCellId.startsWith(`cell:${project.grid.type}:`) ||
+        coordinate.row >= project.grid.height ||
+        coordinate.column >= project.grid.width
+      ) {
+        throw new ProjectFormatError("domain-group-member-out-of-bounds", {
+          groupId: group.groupId,
+          cellId: memberCellId,
+        });
+      }
+    }
+    const ownerCellId = group.memberCellIds[0] as string | undefined;
+    if (ownerCellId === undefined) {
+      throw new ProjectFormatError("domain-group-members-empty", {
+        groupId: group.groupId,
+      });
+    }
+    const owner = parseCellId(ownerCellId);
+    const expectedOwner = chunkKey(owner.row, owner.column);
+    if (ownedDomainGroups.get(group.groupId) !== expectedOwner) {
+      throw new ProjectFormatError("domain-group-owner-invalid", {
+        groupId: group.groupId,
+        expectedOwner,
+      });
+    }
+  }
+  if (
+    ownedDomainGroups.size !== domainGroupIds.size ||
+    [...domainGroupIds].some((groupId) => !ownedDomainGroups.has(groupId))
+  ) {
+    throw new ProjectFormatError("domain-group-owner-closure-invalid");
+  }
+
+  validateEmbeddedAssets(
+    project.embeddedAssets,
+    (code, details) => new ProjectFormatError(code, details),
+    "/embeddedAssets",
+  );
+  if (instanceIds.size > 2_000_000) {
+    throw new ProjectFormatError("instance-count-limit-exceeded", {
+      actualInstances: instanceIds.size,
+      maxInstances: 2_000_000,
+    });
+  }
+  const computedBounds = computeProjectContentBounds(project);
+  if (!contentBoundsEqual(project.contentBounds, computedBounds)) {
+    throw new ProjectFormatError("content-bounds-mismatch", {
+      declared: project.contentBounds,
+      computed: computedBounds,
+    });
+  }
 }
 
 export function toProjectV1(
   state: Readonly<ProjectState>,
-): Record<string, unknown> {
+  options: { readonly mode: ProjectSerializationMode } = { mode: "preserve" },
+): ProjectV1Document {
   const chunks = new Map<string, ChunkRecord>();
   const ensureChunk = (row: number, column: number): ChunkRecord => {
     const key = chunkKey(row, column);
@@ -416,8 +885,11 @@ export function toProjectV1(
           instanceId: cell.instanceId,
           elementId: "tessera.basic:cell.color",
           layerId: "tessera.basic.cell-style",
-          styleOverrides: { fillColor: cell.fillColor, fillOpacity: 1 },
-          attributes: {},
+          styleOverrides: {
+            fillColor: cell.fillColor,
+            fillOpacity: cell.fillOpacity,
+          },
+          attributes: { label: cell.label ?? null },
           extensions: {},
         },
       ],
@@ -438,11 +910,16 @@ export function toProjectV1(
       }
     }
   }
+  for (const chunk of chunks.values()) {
+    chunk.ownedEdgeIds.sort(compareStableId);
+    chunk.ownedOverlayIds.sort(compareStableId);
+    chunk.ownedDomainGroupIds.sort(compareStableId);
+  }
 
   const serializedChunks = [...chunks.values()].sort(
     (a, b) => a.chunkRow - b.chunkRow || a.chunkColumn - b.chunkColumn,
   );
-  return {
+  const project: Record<string, any> = {
     kind: "tessera-project",
     formatVersion: "1",
     createdWithAppVersion: "0.1.0",
@@ -471,15 +948,18 @@ export function toProjectV1(
         extensions: {},
       },
     ],
-    layerStates: layerStates.map(([layerId, zIndex]) => ({
-      layerId,
-      moduleVersion: BASIC_VERSION,
-      zIndex,
-      visible: true,
-      locked: false,
-      opacity: 1,
-      extensions: {},
-    })),
+    layerStates: layerStates.map(([layerId, zIndex]) => {
+      const stateLayer = state.layers.get(layerId);
+      return {
+        layerId,
+        moduleVersion: BASIC_VERSION,
+        zIndex,
+        visible: stateLayer?.visible ?? true,
+        locked: stateLayer?.locked ?? false,
+        opacity: stateLayer?.opacity ?? 1,
+        extensions: {},
+      };
+    }),
     mapStyle: {
       canvasBackground: state.style.canvasBackground,
       gridLineStyle: {
@@ -499,13 +979,13 @@ export function toProjectV1(
       },
       extensions: {},
     },
-    contentBounds: boundsFor(state),
+    contentBounds: null,
     chunks: serializedChunks,
     managers: {
       edgeManager: {
         formatVersion: "1",
         edges: [...state.edges.values()]
-          .sort((a, b) => a.edgeId.localeCompare(b.edgeId))
+          .sort((a, b) => compareStableId(a.edgeId, b.edgeId))
           .map((edge) => ({
             kind: "edge",
             edgeId: edge.edgeId,
@@ -533,14 +1013,14 @@ export function toProjectV1(
       connectionManager: {
         formatVersion: "1",
         connections: [...state.connections.values()]
-          .sort((a, b) => a.connectionId.localeCompare(b.connectionId))
+          .sort((a, b) => compareStableId(a.connectionId, b.connectionId))
           .map(serializeConnection),
         extensions: {},
       },
       overlayManager: {
         formatVersion: "1",
         overlays: [...state.overlays.values()]
-          .sort((a, b) => a.overlayId.localeCompare(b.overlayId))
+          .sort((a, b) => compareStableId(a.overlayId, b.overlayId))
           .map(serializeOverlay),
         extensions: {},
       },
@@ -550,38 +1030,77 @@ export function toProjectV1(
     viewState: null,
     extensions: {},
   };
-}
-
-export function stringifyProjectV1(state: Readonly<ProjectState>): string {
-  return `${JSON.stringify(toProjectV1(state), null, 2)}\n`;
-}
-
-export function parseProjectV1(text: string): ProjectState {
-  if (new TextEncoder().encode(text).byteLength > 512 * 1024 * 1024)
-    throw new ProjectFormatError("project-size-limit-exceeded", {
-      maxBytes: 512 * 1024 * 1024,
-    });
-  if (text.charCodeAt(0) === 0xfeff)
-    throw new ProjectFormatError("project-bom-not-allowed");
-  let raw: unknown;
+  project.contentBounds = computeProjectContentBounds(project);
+  let reconciled: ProjectV1Document;
   try {
-    raw = JSON.parse(text);
-  } catch {
-    throw new ProjectFormatError("project-json-invalid");
+    reconciled = reconcileProjectDocument(state, project, options.mode);
+  } catch (error) {
+    if (error instanceof ProjectReconcileError) {
+      throw new ProjectFormatError(error.code, error.details);
+    }
+    throw error;
   }
-  if (!projectValidator(raw))
+  validateProjectDocumentV1(reconciled);
+  return reconciled;
+}
+
+export function stringifyProjectV1(
+  state: Readonly<ProjectState>,
+  options: { readonly mode: ProjectSerializationMode } = { mode: "preserve" },
+): string {
+  return `${JSON.stringify(toProjectV1(state, options), null, 2)}\n`;
+}
+
+export function validateProjectDocumentV1(
+  raw: unknown,
+): asserts raw is ProjectV1Document {
+  if (!projectValidator(raw)) {
     throw new ProjectFormatError(
       "project-schema-invalid",
       {},
       projectValidator.errors ?? [],
     );
-  const project = raw as Record<string, any>;
-  validateSemanticClosure(project);
+  }
+  validateSemanticClosure(raw as Record<string, any>);
+}
+
+export function parseProjectDocumentV1(text: string): ProjectV1Document {
+  const raw = parseJsonWithSafetyLimits(
+    text,
+    (code, details) =>
+      new ProjectFormatError(code.replace(/^format-/, "project-"), details),
+  );
+  validateProjectDocumentV1(raw);
+  return raw;
+}
+
+export function stringifyProjectDocumentV1(project: ProjectV1Document): string {
+  validateProjectDocumentV1(project);
+  return `${JSON.stringify(project, null, 2)}\n`;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+  Object.freeze(value);
+  for (const nested of Object.values(value as Record<string, unknown>)) {
+    deepFreeze(nested);
+  }
+  return value;
+}
+
+function stateFromProjectDocument(
+  projectInput: ProjectV1Document,
+): ProjectState {
+  const project = projectInput as Record<string, any>;
   const cells = new Map<string, CellOverride>();
   for (const chunk of project.chunks as any[]) {
     for (const cell of chunk.cellOverrides as any[]) {
       const instance = cell.layerInstances.find(
-        (item: any) => item.layerId === "tessera.basic.cell-style",
+        (item: any) =>
+          item.elementId === "tessera.basic:cell.color" &&
+          item.layerId === "tessera.basic.cell-style",
       );
       if (instance !== undefined) {
         const coordinate = parseCellId(cell.cellId as string);
@@ -591,6 +1110,9 @@ export function parseProjectV1(text: string): ProjectState {
           ...coordinate,
           fillColor: instance.styleOverrides.fillColor,
           fillOpacity: instance.styleOverrides.fillOpacity,
+          ...(typeof instance.attributes.label === "string"
+            ? { label: instance.attributes.label }
+            : {}),
         });
       }
     }
@@ -598,7 +1120,9 @@ export function parseProjectV1(text: string): ProjectState {
   const edgeValues: EdgeOverride[] = [];
   for (const edge of project.managers.edgeManager.edges as any[]) {
     const instance = edge.layerInstances.find(
-      (item: any) => item.layerId === "tessera.basic.edge-style",
+      (item: any) =>
+        item.elementId === "tessera.basic:edge.style" &&
+        item.layerId === "tessera.basic.edge-style",
     );
     if (instance !== undefined)
       edgeValues.push({
@@ -657,7 +1181,7 @@ export function parseProjectV1(text: string): ProjectState {
       });
     }
   }
-  return {
+  const state: ProjectState = {
     projectId: project.projectId,
     name: project.name,
     createdAt: project.createdAt,
@@ -679,13 +1203,138 @@ export function parseProjectV1(text: string): ProjectState {
     cells: cellStore,
     edges: new EdgeManager(edgeValues),
     connections: new ConnectionManager(
-      project.managers.connectionManager.connections.map(parseConnection),
+      project.managers.connectionManager.connections
+        .filter(
+          (connection: any) =>
+            connection.layerId === "tessera.basic.connection" &&
+            [
+              "tessera.basic:connection.line",
+              "tessera.basic:connection.arrow",
+            ].includes(connection.elementId),
+        )
+        .map(parseConnection),
     ),
     overlays: new OverlayManager(
-      project.managers.overlayManager.overlays.map(parseOverlay),
+      project.managers.overlayManager.overlays
+        .filter(
+          (overlay: any) =>
+            (overlay.elementId === "tessera.basic:marker" &&
+              overlay.layerId === "tessera.basic.placed-object") ||
+            (overlay.elementId === "tessera.basic:text" &&
+              overlay.layerId === "tessera.basic.annotation"),
+        )
+        .map(parseOverlay),
     ),
     layers,
+    formatSource: deepFreeze({
+      exportScope: project.exportScope,
+      isComplete: project.isComplete,
+      lineage: structuredClone(project.lineage),
+      opaqueDocument: deepFreeze(structuredClone(projectInput)),
+    }),
     revision: 0,
     lastTransactionId: null,
   };
+  Object.defineProperty(state, "formatSource", {
+    value: state.formatSource,
+    writable: false,
+    configurable: false,
+    enumerable: true,
+  });
+  return state;
+}
+
+/** 内部修订恢复专用：严格保留 projectId 与 Project 范围身份。 */
+export function restoreProjectV1(text: string): ProjectState {
+  return stateFromProjectDocument(parseProjectDocumentV1(text));
+}
+
+export interface ExternalProjectImportOptions {
+  readonly currentProjectId: string | null;
+  readonly sameProjectIdPolicy: "copy" | "replace";
+  readonly uuidGenerator?: () => string;
+}
+
+export interface PreparedExternalProjectV1 {
+  readonly metadata: Readonly<{
+    projectId: string;
+    name: string;
+    exportScope: ProjectV1Document["exportScope"];
+  }>;
+  toState(options: ExternalProjectImportOptions): ProjectState;
+}
+
+function stateFromExternalProjectDocument(
+  parsed: ProjectV1Document,
+  options: ExternalProjectImportOptions,
+): ProjectState {
+  if (!(["copy", "replace"] as const).includes(options.sameProjectIdPolicy)) {
+    throw new ProjectFormatError("project-import-policy-invalid", {
+      sameProjectIdPolicy: options.sameProjectIdPolicy,
+    });
+  }
+  const mustCopy =
+    parsed.exportScope === "partial" ||
+    (options.currentProjectId === parsed.projectId &&
+      options.sameProjectIdPolicy === "copy");
+  if (!mustCopy) return stateFromProjectDocument(parsed);
+  const nextProjectId = (
+    options.uuidGenerator ?? (() => crypto.randomUUID())
+  )();
+  if (nextProjectId === parsed.projectId) {
+    throw new ProjectFormatError("project-import-copy-id-collision", {
+      projectId: parsed.projectId,
+    });
+  }
+  // parsed 只存在于 prepared 闭包内；原地替换 ID 可避免大型文档再复制一份。
+  const previousProjectId = parsed.projectId;
+  parsed.projectId = nextProjectId;
+  try {
+    validateProjectDocumentV1(parsed);
+    return stateFromProjectDocument(parsed);
+  } catch (error) {
+    parsed.projectId = previousProjectId;
+    throw error;
+  }
+}
+
+/**
+ * 解析和校验外部 Project 一次，并以闭包封装已验证文档，避免调用方伪造
+ * “已验证”类型或在确认身份策略后再次解析大型 JSON。
+ */
+export function prepareExternalProjectV1(
+  text: string,
+): PreparedExternalProjectV1 {
+  const parsed = parseProjectDocumentV1(text);
+  let consumed = false;
+  return Object.freeze({
+    metadata: Object.freeze({
+      projectId: parsed.projectId,
+      name: parsed.name,
+      exportScope: parsed.exportScope,
+    }),
+    toState: (options: ExternalProjectImportOptions) => {
+      if (consumed) {
+        throw new ProjectFormatError("project-import-prepared-consumed");
+      }
+      const state = stateFromExternalProjectDocument(parsed, options);
+      consumed = true;
+      return state;
+    },
+  });
+}
+
+/**
+ * 外部文件载入专用。partial 始终派生新工程；full 仅在同 ID 时应用显式策略。
+ */
+export function importExternalProjectV1(
+  text: string,
+  options: ExternalProjectImportOptions,
+): ProjectState {
+  return prepareExternalProjectV1(text).toState(options);
+}
+
+/** @deprecated 仅为旧调用保留；内部恢复请显式使用 restoreProjectV1。 */
+export function parseProjectV1(text: string): ProjectState {
+  return restoreProjectV1(text);
 }

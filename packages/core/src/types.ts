@@ -38,6 +38,19 @@ export interface CellOverride {
   label?: string;
 }
 
+export type ProjectExportScope = "full" | "partial";
+
+/**
+ * Project v1 的来源信息由 formats 校验和解释，core 只负责随编辑状态携带。
+ * opaqueDocument 必须是已校验文档的深拷贝，禁止业务代码直接修改。
+ */
+export interface ProjectFormatSource {
+  readonly exportScope: ProjectExportScope;
+  readonly isComplete: boolean;
+  readonly lineage: unknown | null;
+  readonly opaqueDocument: unknown | null;
+}
+
 export interface EdgeStyle {
   strokeColor: string;
   strokeWidth: number;
@@ -237,6 +250,7 @@ export interface ProjectState {
   connections: ConnectionManagerContract;
   overlays: OverlayManagerContract;
   layers: ReadonlyMap<string, FixedLayerState>;
+  readonly formatSource: ProjectFormatSource;
   revision: number;
   lastTransactionId: string | null;
 }

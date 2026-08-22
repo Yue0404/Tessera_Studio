@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { normalizeRotationDegrees } from "@tessera/core";
 import type {
   BrushMode,
   ConnectionPlacement,
@@ -213,12 +214,14 @@ export function ElementCatalog(props: Props) {
                 min="-360"
                 max="360"
                 value={props.textOptions.rotation}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const rotation = Number(event.target.value);
+                  if (!Number.isFinite(rotation)) return;
                   props.onTextOptions({
                     ...props.textOptions,
-                    rotation: Number(event.target.value),
-                  })
-                }
+                    rotation: normalizeRotationDegrees(rotation),
+                  });
+                }}
               />
             </label>
           </div>

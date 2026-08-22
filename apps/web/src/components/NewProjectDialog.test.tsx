@@ -111,4 +111,35 @@ describe("NewProjectDialog", () => {
       expect(screen.getByRole("alert").textContent).toContain("1–40000");
     },
   );
+
+  it("工程文件选择后清空 input，允许再次选择同一文件", async () => {
+    const onOpenFile = vi.fn(async () => undefined);
+    render(
+      <I18nextProvider i18n={i18n}>
+        <NewProjectDialog onCreate={vi.fn()} onOpenFile={onOpenFile} />
+      </I18nextProvider>,
+    );
+    const input = screen.getByLabelText("打开");
+    if (!(input instanceof HTMLInputElement)) throw new Error("缺少文件输入");
+    const selected = new File(["{}"], "same.tessera-project.json");
+    fireEvent.change(input, { target: { files: [selected] } });
+    expect(input.value).toBe("");
+    fireEvent.change(input, { target: { files: [selected] } });
+    expect(onOpenFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("启动恢复错误保持可见，同时仍允许新建与载入", () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <NewProjectDialog
+          onCreate={vi.fn()}
+          onOpenFile={vi.fn(async () => undefined)}
+          externalErrorKey="error.projectRecoveryFailed"
+        />
+      </I18nextProvider>,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("本地工程恢复失败");
+    expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined();
+    expect(screen.getByText("打开")).toBeDefined();
+  });
 });

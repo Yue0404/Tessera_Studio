@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { waitForImportedProject } from "./editor-ready.js";
 
 async function createProject(
   page: Page,
@@ -18,6 +19,8 @@ async function createProject(
 async function exportJson(page: Page): Promise<Record<string, unknown>> {
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出" }).click();
+  await page.getByRole("button", { name: "数据导出" }).click();
+  await page.getByRole("button", { name: "生成并下载" }).click();
   const stream = await (await downloadPromise).createReadStream();
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(Buffer.from(chunk));
@@ -57,6 +60,8 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
 
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: "导出" }).click();
+    await page.getByRole("button", { name: "数据导出" }).click();
+    await page.getByRole("button", { name: "生成并下载" }).click();
     const download = await downloadPromise;
     const path = await download.path();
     if (path === null) throw new Error("导出文件没有可读取的临时路径");
@@ -64,7 +69,7 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     const cleanPage = await cleanContext.newPage();
     await cleanPage.goto("/");
     await cleanPage.getByLabel("打开").setInputFiles(path);
-    await expect(cleanPage.getByText(name, { exact: true })).toBeVisible();
+    await waitForImportedProject(cleanPage, name);
     await expect(cleanPage.getByTestId("edge-count")).toContainText("1");
     await cleanContext.close();
   });
@@ -287,6 +292,8 @@ test("40000×40000 创建保持稀疏，合法 full JSON 中没有显式分块�
   await expect(page.getByTestId("edge-count")).toContainText("0");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出" }).click();
+  await page.getByRole("button", { name: "数据导出" }).click();
+  await page.getByRole("button", { name: "生成并下载" }).click();
   const stream = await (await downloadPromise).createReadStream();
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(Buffer.from(chunk));

@@ -1,48 +1,66 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import { EditorStore, FillThresholdError } from "@tessera/core";
 import {
-  parseProjectV1,
-  PROJECT_EXTENSION,
-  PROJECT_MIME,
-  stringifyProjectV1,
-} from "@tessera/formats";
+  FillThresholdError,
+  type EditorStore,
+  type MapRect,
+} from "@tessera/core";
+import { FRAGMENT_EXTENSION, PROJECT_EXTENSION } from "@tessera/formats";
 import {
   TesseraRenderer,
   type BrushMode,
   type ConnectionPlacement,
   type OverlayPlacement,
 } from "@tessera/renderer";
-import type { ProjectRepository } from "@tessera/storage";
+import type { ProjectSaveTarget } from "../project-file-workflow.js";
 import { AppCommandBar } from "./AppCommandBar.js";
 import { CanvasToolRail } from "./CanvasToolRail.js";
 import { ContextPanel } from "./ContextPanel.js";
 import { EditorStatusBar } from "./EditorStatusBar.js";
 import { ElementCatalog, type TextPlacementOptions } from "./ElementCatalog.js";
+import { ExportHubDialog } from "./ExportHubDialog.js";
+import { PartialProjectBanner } from "./PartialProjectBanner.js";
 import styles from "./EditorView.module.css";
 
 type SaveStatusKey =
   "status.saved" | "status.saving" | "status.saveFailed" | "status.unsaved";
 
-interface Props {
+export interface EditorViewProps {
   store: EditorStore;
-  repository: ProjectRepository;
+  repository: ProjectSaveTarget;
   onNew(): void;
-  onLoaded(store: EditorStore): void;
+  onOpenFile(file: File): Promise<void>;
+  onOpenFragmentFile(file: File): Promise<void>;
+  externalErrorKey?: string | null;
+  onDismissExternalError?(): void;
 }
 
 function alphaColor(value: string): string {
   return `${value.toUpperCase()}FF`;
 }
 
-export function EditorView({ store, repository, onNew, onLoaded }: Props) {
+export function EditorView({
+  store,
+  repository,
+  onNew,
+  onOpenFile,
+  onOpenFragmentFile,
+  externalErrorKey = null,
+  onDismissExternalError,
+}: EditorViewProps) {
   const { t } = useTranslation();
   const version = useSyncExternalStore(store.subscribe, () => store.version);
   const state = store.state;
   const canvasHost = useRef<HTMLDivElement>(null);
   const renderer = useRef<TesseraRenderer | undefined>(undefined);
   const fileInput = useRef<HTMLInputElement>(null);
+  const fragmentInput = useRef<HTMLInputElement>(null);
+  const dialogPreviousFocus = useRef<HTMLElement | null>(null);
+  const [exportDialog, setExportDialog] = useState<{
+    selectionBounds: MapRect | null;
+    customBounds: MapRect;
+  } | null>(null);
   const [brushColor, setBrushColor] = useState("#E3614D");
   const [brushMode, setBrushMode] = useState<BrushMode>("paint");
   const [edgeColor, setEdgeColor] = useState("#D9B866");
@@ -145,7 +163,7 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
           const style = {
             ...current.textOptions,
             color: alphaColor(current.textOptions.color),
-            rotation: (current.textOptions.rotation * Math.PI) / 180,
+            rotation: current.textOptions.rotation,
           };
           if (current.overlay.anchor === "edge" && edge !== null) {
             const edgeData = {
@@ -236,27 +254,46 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
     }
   };
 
-  const exportProject = () => {
-    const blob = new Blob([stringifyProjectV1(store.state)], {
-      type: PROJECT_MIME,
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${store.state.name.replaceAll(/[\\/:*?"<>|]/g, "_")}${PROJECT_EXTENSION}`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const openExportDialog = async () => {
+    dialogPreviousFocus.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const viewport = renderer.current?.getViewportBounds() ?? null;
+    const selection = renderer.current?.getSelectionBounds() ?? null;
+    try {
+      const ranges = await import("../visual-export-range.js");
+      const interaction = {
+        viewportBounds: viewport,
+        selectionBounds: selection,
+      };
+      const custom = await ranges.resolveVisualExportRangeSnapshot(
+        state,
+        viewport === null ? { kind: "full-map" } : { kind: "viewport" },
+        interaction,
+      );
+      const clippedSelection =
+        selection === null
+          ? null
+          : (
+              await ranges.resolveVisualExportRangeSnapshot(
+                state,
+                { kind: "selection" },
+                interaction,
+              )
+            ).bounds;
+      setExportDialog({
+        selectionBounds: clippedSelection,
+        customBounds: custom.bounds,
+      });
+    } catch {
+      setErrorKey("error.dataExportSelectionInvalid");
+    }
   };
 
-  const loadFile = async (file: File | undefined) => {
-    if (file === undefined) return;
-    try {
-      const loaded = new EditorStore(parseProjectV1(await file.text()));
-      await repository.save(loaded.state);
-      onLoaded(loaded);
-    } catch {
-      setErrorKey("error.invalidProject");
-    }
+  const closeExportDialog = () => {
+    setExportDialog(null);
+    queueMicrotask(() => dialogPreviousFocus.current?.focus());
   };
 
   return (
@@ -270,18 +307,36 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
           canRedo={store.canRedo}
           onNew={onNew}
           onOpen={() => fileInput.current?.click()}
+          onImportFragment={() => fragmentInput.current?.click()}
           onSave={() => void save()}
-          onExport={exportProject}
+          onExport={() => void openExportDialog()}
           onUndo={() => store.undo()}
           onRedo={() => store.redo()}
         />
+        <input
+          ref={fragmentInput}
+          className={styles.hiddenInput}
+          type="file"
+          accept={FRAGMENT_EXTENSION}
+          aria-label={t("action.importFragment")}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file !== undefined) void onOpenFragmentFile(file);
+          }}
+        />
+        <PartialProjectBanner source={state.formatSource} />
         <input
           ref={fileInput}
           className={styles.hiddenInput}
           type="file"
           accept={PROJECT_EXTENSION}
           aria-label={t("action.open")}
-          onChange={(event) => void loadFile(event.target.files?.[0])}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file !== undefined) void onOpenFile(file);
+          }}
         />
         <ElementCatalog
           collapsed={catalogCollapsed}
@@ -332,14 +387,25 @@ export function EditorView({ store, repository, onNew, onLoaded }: Props) {
           />
         )}
         <EditorStatusBar state={state} />
-        {errorKey !== null && (
+        {(errorKey ?? externalErrorKey) !== null && (
           <div
             role="alert"
             className={styles.error}
-            onClick={() => setErrorKey(null)}
+            onClick={() => {
+              setErrorKey(null);
+              onDismissExternalError?.();
+            }}
           >
-            {t(errorKey)}
+            {t(errorKey ?? externalErrorKey ?? "error.invalidProject")}
           </div>
+        )}
+        {exportDialog !== null && (
+          <ExportHubDialog
+            state={state}
+            selectionBounds={exportDialog.selectionBounds}
+            viewportBounds={exportDialog.customBounds}
+            onClose={closeExportDialog}
+          />
         )}
       </main>
     </Tooltip.Provider>

@@ -1,21 +1,38 @@
-import { Graphics } from "pixi.js";
-import type { Container } from "pixi.js";
+import { Container, Graphics } from "pixi.js";
 import {
   edgeSegment,
   type ProjectState,
   type VisibleCell,
 } from "@tessera/core";
+import { createPixiText, drawPixiStroke } from "./pixi-visual.js";
 import { colorValue } from "./render-utils.js";
+import { configureRenderLayer } from "./render-layer-order.js";
+import { cellLabelStyle as sharedCellLabelStyle } from "./visual-style.js";
 
 export class GridRenderer {
-  readonly #graphics = new Graphics();
+  readonly #cellGraphics = new Graphics();
+  readonly #cellLabels = new Container();
+  readonly #gridGraphics = new Graphics();
+  readonly #edgeGraphics = new Graphics();
 
   constructor(container: Container) {
-    container.addChild(this.#graphics);
+    container.addChild(
+      this.#cellGraphics,
+      this.#cellLabels,
+      this.#gridGraphics,
+      this.#edgeGraphics,
+    );
   }
 
   render(state: Readonly<ProjectState>, visible: readonly VisibleCell[]): void {
-    this.#graphics.clear();
+    configureRenderLayer(this.#cellGraphics, state, "tessera.basic.cell-style");
+    configureRenderLayer(this.#cellLabels, state, "tessera.basic.cell-style");
+    configureRenderLayer(this.#gridGraphics, state, "tessera.system.grid");
+    configureRenderLayer(this.#edgeGraphics, state, "tessera.basic.edge-style");
+    this.#cellGraphics.clear();
+    this.#gridGraphics.clear();
+    this.#edgeGraphics.clear();
+    for (const child of this.#cellLabels.removeChildren()) child.destroy();
     const cellLayer = state.layers.get("tessera.basic.cell-style");
     const gridLayer = state.layers.get("tessera.system.grid");
     const edgeLayer = state.layers.get("tessera.basic.edge-style");
@@ -25,43 +42,65 @@ export class GridRenderer {
       const fill = colorValue(
         override?.fillColor ?? state.style.defaultCellColor,
       );
-      const path = this.#graphics.poly(
-        cell.polygon.flatMap((point) => [point.x, point.y]),
-      );
       if (cellLayer?.visible !== false) {
-        path.fill({
-          color: fill.color,
-          alpha:
-            fill.alpha *
-            (override?.fillOpacity ?? 1) *
-            (cellLayer?.opacity ?? 1),
-        });
+        this.#cellGraphics
+          .poly(cell.polygon.flatMap((point) => [point.x, point.y]))
+          .fill({
+            color: fill.color,
+            alpha:
+              fill.alpha *
+              (override?.fillOpacity ?? 1) *
+              (cellLayer?.opacity ?? 1),
+          });
+        if (override?.label !== undefined) {
+          const style = sharedCellLabelStyle(state.grid.cellSize);
+          this.#cellLabels.addChild(
+            createPixiText(
+              cell.center,
+              override.label,
+              {
+                ...style,
+                opacity: style.opacity * (cellLayer?.opacity ?? 1),
+              },
+              null,
+            ),
+          );
+        }
       }
       if (gridLayer?.visible !== false) {
-        path.stroke({
-          color: gridColor.color,
-          alpha: state.style.gridOpacity * (gridLayer?.opacity ?? 1),
-          width: state.style.gridWidth,
-        });
+        this.#gridGraphics
+          .poly(cell.polygon.flatMap((point) => [point.x, point.y]))
+          .stroke({
+            color: gridColor.color,
+            alpha: state.style.gridOpacity * (gridLayer?.opacity ?? 1),
+            width: state.style.gridWidth,
+          });
       }
     }
     if (edgeLayer?.visible === false) return;
-    for (const edge of state.edges.values()) {
+    for (const edge of [...state.edges.values()].sort((left, right) =>
+      left.edgeId < right.edgeId ? -1 : left.edgeId > right.edgeId ? 1 : 0,
+    )) {
+      if (edge.persistence !== "explicit-style") continue;
       const segment = edgeSegment(
         state.grid,
         edge.edgeId,
         edge.adjacentCellIds,
       );
       if (segment === undefined) continue;
-      const stroke = colorValue(edge.strokeColor);
-      this.#graphics
-        .moveTo(segment[0].x, segment[0].y)
-        .lineTo(segment[1].x, segment[1].y)
-        .stroke({
-          color: stroke.color,
-          alpha: stroke.alpha * edge.strokeOpacity * (edgeLayer?.opacity ?? 1),
+      drawPixiStroke(
+        this.#edgeGraphics,
+        segment[0],
+        segment[1],
+        segment[0],
+        segment[1],
+        {
+          color: edge.strokeColor,
           width: edge.strokeWidth,
-        });
+          opacity: edge.strokeOpacity * (edgeLayer?.opacity ?? 1),
+          lineStyle: edge.lineStyle,
+        },
+      );
     }
   }
 }

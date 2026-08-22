@@ -5,6 +5,7 @@ import { cellId } from "./geometry.js";
 import { EdgeManager } from "./edge-manager.js";
 import { createFixedLayerMap } from "./layers.js";
 import { OverlayManager } from "./overlay-manager.js";
+import { normalizeRotationDegrees } from "./rotation.js";
 import { SparseChunkStore } from "./sparse-chunk-store.js";
 import { ToolStateMachine } from "./tool-state-machine.js";
 import type {
@@ -72,7 +73,7 @@ function cloneEdge(edge: EdgeLike): EdgeOverride {
 export function createProject(input: NewProjectInput): ProjectState {
   assertGridCoordinate(input.grid, { row: 0, column: 0 });
   const now = new Date().toISOString();
-  return {
+  const state: ProjectState = {
     projectId: newUuid(),
     name: input.name,
     createdAt: now,
@@ -84,9 +85,22 @@ export function createProject(input: NewProjectInput): ProjectState {
     connections: new ConnectionManager(),
     overlays: new OverlayManager(),
     layers: createFixedLayerMap(),
+    formatSource: Object.freeze({
+      exportScope: "full",
+      isComplete: true,
+      lineage: null,
+      opaqueDocument: null,
+    }),
     revision: 0,
     lastTransactionId: null,
   };
+  Object.defineProperty(state, "formatSource", {
+    value: state.formatSource,
+    writable: false,
+    configurable: false,
+    enumerable: true,
+  });
+  return state;
 }
 
 export class EditorStore {
@@ -384,7 +398,7 @@ export class EditorStore {
       orderInLayer: 0,
       style: {
         fontSize: style.fontSize ?? this.#state.grid.cellSize * 0.5,
-        rotation: style.rotation ?? 0,
+        rotation: normalizeRotationDegrees(style.rotation ?? 0),
         opacity: 1,
         color: style.color ?? "#F4EFE4FF",
         fontWeight: style.fontWeight ?? ("normal" as const),
@@ -475,7 +489,7 @@ export class EditorStore {
             overlayType,
             style: {
               fontSize: style.fontSize ?? this.#state.grid.cellSize * 0.5,
-              rotation: style.rotation ?? 0,
+              rotation: normalizeRotationDegrees(style.rotation ?? 0),
               opacity: 1,
               color: style.color ?? "#F4EFE4FF",
               fontWeight: style.fontWeight ?? "normal",
@@ -556,9 +570,16 @@ export class EditorStore {
     const previous = this.#state.overlays.get(overlayId);
     if (previous === undefined || next.overlayId !== overlayId)
       throw new Error(`overlay-not-found:${overlayId}`);
+    const normalized = {
+      ...next,
+      style: {
+        ...next.style,
+        rotation: normalizeRotationDegrees(next.style.rotation),
+      },
+    } as OverlayData;
     this.#execute({
       managers: new Set(["overlays"]),
-      apply: () => void this.#state.overlays.replace(next),
+      apply: () => void this.#state.overlays.replace(normalized),
       revert: () => void this.#state.overlays.replace(previous),
     });
   }
