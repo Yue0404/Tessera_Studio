@@ -287,3 +287,36 @@ describe("EditorStore", () => {
     });
   });
 });
+
+describe("EditorStore 历史容量边界", () => {
+  function color(index: number): string {
+    return `#${index.toString(16).padStart(6, "0")}FF`;
+  }
+
+  it("保留完整 100 步并在边界停止撤销和重做", () => {
+    const store = new EditorStore(createProject(input));
+    for (let index = 1; index <= 100; index += 1) {
+      store.paintCell(0, 0, color(index));
+    }
+    for (let index = 0; index < 100; index += 1) store.undo();
+    expect(store.state.cells.size).toBe(0);
+    expect(store.canUndo).toBe(false);
+    for (let index = 0; index < 100; index += 1) store.redo();
+    expect(store.state.cells.get("cell:square:0:0")?.fillColor).toBe(
+      color(100),
+    );
+    expect(store.canRedo).toBe(false);
+  });
+
+  it("第 101 步仅淘汰最旧一步", () => {
+    const store = new EditorStore(createProject(input));
+    for (let index = 1; index <= 101; index += 1) {
+      store.paintCell(0, 0, color(index));
+    }
+    for (let index = 0; index < 100; index += 1) store.undo();
+    expect(store.state.cells.get("cell:square:0:0")?.fillColor).toBe(color(1));
+    expect(store.canUndo).toBe(false);
+    store.undo();
+    expect(store.state.cells.get("cell:square:0:0")?.fillColor).toBe(color(1));
+  });
+});

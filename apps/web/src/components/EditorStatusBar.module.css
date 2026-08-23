@@ -25,7 +25,7 @@
 }
 
 .zoom button {
-  width: 26px;
+  min-width: 26px;
   height: 26px;
   padding: 0;
   color: var(--color-text);
@@ -33,6 +33,10 @@
   border: 1px solid var(--color-border);
   border-radius: 5px;
   cursor: pointer;
+}
+
+.zoom button:not(:first-child):not(:nth-child(3)) {
+  padding: 0 7px;
 }
 
 .zoom button:disabled {

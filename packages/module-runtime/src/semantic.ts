@@ -182,6 +182,24 @@ function assertNamespaced(value: string, moduleId: string, path: string): void {
   }
 }
 
+function assertLayerNamespaced(
+  value: string,
+  moduleId: string,
+  path: string,
+): void {
+  const expectedPrefix = `${moduleId}.`;
+  if (
+    !value.startsWith(expectedPrefix) ||
+    value.length === expectedPrefix.length
+  ) {
+    runtimeError("package-id-namespace-invalid", path, {
+      value,
+      moduleId,
+      expectedPrefix,
+    });
+  }
+}
+
 function assertDefault(
   schema: AttributePropertySchema,
   value: unknown,
@@ -534,6 +552,13 @@ export function validateModuleSemantics(
   assertUnique(
     manifest.dependencies.map((dependency) => dependency.moduleId),
     "module.json/dependencies",
+  );
+  manifest.layers.forEach((layer, index) =>
+    assertLayerNamespaced(
+      layer.layerId,
+      manifest.moduleId,
+      `module.json/layers/${index}/layerId`,
+    ),
   );
   assertUnique(
     manifest.layers.map((layer) => layer.layerId),

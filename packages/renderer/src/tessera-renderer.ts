@@ -39,6 +39,13 @@ import {
   isEditableShortcutTarget,
   PanInteractionState,
 } from "./pan-interaction-state.js";
+import {
+  centerBoundsPlan,
+  fitBoundsPlan,
+  gridMapBounds,
+  projectContentBounds,
+  type ViewNavigationPlan,
+} from "./viewport-navigation.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
 export interface OverlayPlacement {
@@ -62,6 +69,13 @@ export type RendererInteractionRejection =
   | "connection-self-not-allowed"
   | "connection-rebind-target-invalid"
   | "connection-commit-failed";
+
+export interface PointerLogicalStatus {
+  readonly row: number;
+  readonly column: number;
+  readonly cellId: string;
+  readonly objectKind: SelectedObject["kind"] | "cell";
+}
 
 export interface EdgePlacementTarget {
   edgeId: string;
@@ -104,6 +118,7 @@ export interface RendererInteraction {
   cancelTool(): void;
   contextStatusChanged?(status: RendererContextStatus): void;
   zoomChanged?(zoom: number): void;
+  pointerStatusChanged?(status: PointerLogicalStatus | null): void;
 }
 
 export interface RendererPerformanceStats {
@@ -186,6 +201,10 @@ export class TesseraRenderer {
     this.#application.canvas.addEventListener(
       "pointermove",
       this.#onPointerMove,
+    );
+    this.#application.canvas.addEventListener(
+      "pointerleave",
+      this.#onPointerLeave,
     );
     this.#application.canvas.addEventListener(
       "contextmenu",
@@ -272,6 +291,10 @@ export class TesseraRenderer {
       this.#onPointerMove,
     );
     this.#application.canvas.removeEventListener(
+      "pointerleave",
+      this.#onPointerLeave,
+    );
+    this.#application.canvas.removeEventListener(
       "contextmenu",
       this.#onContextMenu,
     );
@@ -314,6 +337,46 @@ export class TesseraRenderer {
   zoomByStep(direction: -1 | 1): number {
     const next = Math.round((this.#zoom + direction * ZOOM_STEP) * 100) / 100;
     return this.setZoom(next);
+  }
+
+  centerMap(): ViewNavigationPlan {
+    return this.#applyViewPlan(
+      centerBoundsPlan(
+        gridMapBounds(this.#state.grid),
+        this.#host.clientWidth,
+        this.#host.clientHeight,
+        this.#zoom,
+      ),
+    );
+  }
+
+  fitMap(): ViewNavigationPlan {
+    return this.#applyViewPlan(
+      fitBoundsPlan(
+        gridMapBounds(this.#state.grid),
+        this.#host.clientWidth,
+        this.#host.clientHeight,
+      ),
+    );
+  }
+
+  fitContent(): ViewNavigationPlan {
+    return this.#applyViewPlan(
+      fitBoundsPlan(
+        projectContentBounds(this.#state),
+        this.#host.clientWidth,
+        this.#host.clientHeight,
+      ),
+    );
+  }
+
+  #applyViewPlan(plan: ViewNavigationPlan): ViewNavigationPlan {
+    if (plan.status !== "applied") return plan;
+    this.#camera = { ...plan.camera };
+    this.#zoom = plan.zoom;
+    this.render(this.#state);
+    this.#interaction.zoomChanged?.(this.#zoom);
+    return plan;
   }
 
   getPerformanceStats(): RendererPerformanceStats {
@@ -617,6 +680,7 @@ export class TesseraRenderer {
   readonly #onPointerMove = (event: PointerEvent): void => {
     if (this.#contextLost) return;
     const screen = this.#screenPoint(event);
+    this.#reportPointerStatus(screen);
     const panDelta = this.#pan.move(event.pointerId, event.buttons, screen);
     if (panDelta !== null) {
       this.#camera.x += panDelta.x;
@@ -629,6 +693,26 @@ export class TesseraRenderer {
     if (this.#painting) this.#paintAt(point);
     this.render(this.#state);
   };
+
+  readonly #onPointerLeave = (): void => {
+    this.#interaction.pointerStatusChanged?.(null);
+  };
+
+  #reportPointerStatus(screen: MapPoint): void {
+    const point = this.#mapPoint(screen);
+    const cell = this.#target(point);
+    if (cell === undefined) {
+      this.#interaction.pointerStatusChanged?.(null);
+      return;
+    }
+    const hit = hitTestProjectObject(this.#state, point, cell);
+    this.#interaction.pointerStatusChanged?.({
+      row: cell.row,
+      column: cell.column,
+      cellId: cell.cellId,
+      objectKind: hit?.kind ?? "cell",
+    });
+  }
 
   readonly #onPointerUp = (event: PointerEvent): void => {
     if (this.#contextLost) return;

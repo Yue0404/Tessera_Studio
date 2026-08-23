@@ -357,6 +357,33 @@ function firstRecord(values: Readonly<Record<string, unknown>>, path: string) {
 }
 
 describe("Module Format v1 结构与本地化", () => {
+  it("图层 ID 必须使用所属模块的点分命名空间", () => {
+    const moduleId = "example.layer-owner";
+    expect(parseModule(moduleId).manifest.layers[0]?.layerId).toBe(
+      `${moduleId}.marker`,
+    );
+
+    const invalid = moduleValues(moduleId);
+    const manifest = invalid["module.json"] as ModuleManifest;
+    const layer = manifest.layers[0] as { layerId: string };
+    layer.layerId = "example.other.marker";
+    try {
+      parsePackageFileSetForTests(jsonFiles(invalid));
+      throw new Error("expected ModuleRuntimeError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ModuleRuntimeError);
+      expect(error).toMatchObject({
+        code: "package-id-namespace-invalid",
+        path: "module.json/layers/0/layerId",
+        details: {
+          value: "example.other.marker",
+          moduleId,
+          expectedPrefix: `${moduleId}.`,
+        },
+      });
+    }
+  });
+
   it("内置模块与空白预设通过同一解析器且基础模块不可停用", () => {
     expect(BASIC_MODULE_PACKAGE.artifactId).toBe("tessera.basic");
     expect(BLANK_PRESET_PACKAGE.manifest.modules).toEqual([

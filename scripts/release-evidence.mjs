@@ -1,5 +1,5 @@
-import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { lstat } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const REQUIREMENT_ID = /^[A-Z][A-Z0-9]*-[0-9]{3}$/u;
 const VALID_STATUSES = new Set(["covered", "conditional", "blocked"]);
@@ -83,6 +83,45 @@ export function validateTraceabilityDocument(document) {
   for (const id of coveredIds) {
     if (!baselineSet.has(id)) issues.push(`映射了非基线 P0 ID：${id}`);
   }
+  const p1Baseline = pushArrayIssues(
+    issues,
+    document?.p1RequirementIds,
+    "p1RequirementIds",
+  );
+  const p1Entries = Array.isArray(document?.trackedP1Evidence)
+    ? document.trackedP1Evidence
+    : [];
+  if (p1Entries.length === 0) issues.push("trackedP1Evidence 必须是非空数组");
+  const p1Mapped = [];
+  for (const [index, entry] of p1Entries.entries()) {
+    const path = `trackedP1Evidence[${index}]`;
+    const ids = pushArrayIssues(
+      issues,
+      entry?.requirementIds,
+      `${path}.requirementIds`,
+    );
+    p1Mapped.push(...ids);
+    if (!VALID_STATUSES.has(entry?.status)) issues.push(`${path}.status 无效`);
+    for (const key of ["implementation", "automatedTests", "humanEvidence"]) {
+      pushArrayIssues(issues, entry?.[key], `${path}.${key}`);
+    }
+    if (
+      (entry?.status === "conditional" || entry?.status === "blocked") &&
+      (typeof entry?.blocker !== "string" || entry.blocker.length === 0)
+    ) {
+      issues.push(`${path} 必须说明 conditional/blocked 原因`);
+    }
+  }
+  for (const id of duplicateValues(p1Baseline))
+    issues.push(`P1 基线存在重复 ID：${id}`);
+  for (const id of duplicateValues(p1Mapped))
+    issues.push(`P1 ID 被重复映射：${id}`);
+  const p1Set = new Set(p1Baseline);
+  const p1MappedSet = new Set(p1Mapped);
+  for (const id of p1Baseline)
+    if (!p1MappedSet.has(id)) issues.push(`P1 ID 未映射：${id}`);
+  for (const id of p1Mapped)
+    if (!p1Set.has(id)) issues.push(`映射了非基线 P1 ID：${id}`);
   return issues;
 }
 
@@ -135,7 +174,11 @@ export function validateVisualEvidenceDocument(document) {
 export async function missingRepositoryPaths(root, documents) {
   const paths = new Set();
   for (const document of documents) {
-    for (const entry of document.entries ?? []) {
+    const evidenceEntries = [
+      ...(document.entries ?? []),
+      ...(document.trackedP1Evidence ?? []),
+    ];
+    for (const entry of evidenceEntries) {
       if (typeof entry.path === "string") paths.add(entry.path);
       for (const key of ["implementation", "automatedTests", "humanEvidence"]) {
         for (const value of entry[key] ?? []) {
@@ -147,9 +190,26 @@ export async function missingRepositoryPaths(root, documents) {
     }
   }
   const missing = [];
+  const repositoryRoot = resolve(root);
   for (const path of [...paths].sort()) {
+    const target = resolve(repositoryRoot, path);
+    const repositoryRelative = relative(repositoryRoot, target);
+    const outsideRepository =
+      repositoryRelative === "" ||
+      repositoryRelative === ".." ||
+      repositoryRelative.startsWith(".." + sep) ||
+      isAbsolute(repositoryRelative);
+    if (
+      isAbsolute(path) ||
+      /^[A-Za-z]:[\\/]/u.test(path) ||
+      path.startsWith("\\\\") ||
+      outsideRepository
+    ) {
+      missing.push(path);
+      continue;
+    }
     try {
-      await stat(resolve(root, path));
+      if (!(await lstat(target)).isFile()) missing.push(path);
     } catch {
       missing.push(path);
     }

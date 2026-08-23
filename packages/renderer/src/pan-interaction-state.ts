@@ -76,9 +76,13 @@ export class PanInteractionState {
 }
 
 export function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
   return (
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
-    (target instanceof HTMLElement && target.isContentEditable === true)
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable) ||
+    target.closest('[contenteditable="true"]') !== null ||
+    target.closest('[role="dialog"]') !== null
   );
 }

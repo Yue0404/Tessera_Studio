@@ -1,5 +1,11 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   BackgroundTaskError,
@@ -14,10 +20,17 @@ import {
   type ConnectionPlacement,
   type ConnectionRebindTarget,
   type OverlayPlacement,
+  type PointerLogicalStatus,
   type RendererInteractionRejection,
 } from "@tessera/renderer";
 import type { ProjectSaveTarget } from "../project-file-workflow.js";
 import { createFillRegionWorker } from "../fill-region-worker-adapter.js";
+import { dispatchEditorShortcut } from "../editor-shortcuts.js";
+import {
+  downloadSaveRecoveryProject,
+  saveFailureTranslationKey,
+  type SaveFailureKey,
+} from "../save-recovery.js";
 import { AppCommandBar } from "./AppCommandBar.js";
 import { CanvasToolRail } from "./CanvasToolRail.js";
 import { ContextPanel } from "./ContextPanel.js";
@@ -104,11 +117,16 @@ export function EditorView({
   >(null);
   const [saveStatusKey, setSaveStatusKey] =
     useState<SaveStatusKey>("status.saved");
+  const [saveFailureKey, setSaveFailureKey] = useState<SaveFailureKey | null>(
+    null,
+  );
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [fillBusy, setFillBusy] = useState(false);
   const [fillProgress, setFillProgress] = useState(0);
   const [rendererContextLost, setRendererContextLost] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [pointerStatus, setPointerStatus] =
+    useState<PointerLogicalStatus | null>(null);
   const [connectionRebind, setConnectionRebind] =
     useState<ConnectionRebindTarget | null>(null);
   const connectionRebindRef = useRef<ConnectionRebindTarget | null>(null);
@@ -293,6 +311,9 @@ export function EditorView({
         zoomChanged: (value) => {
           if (!cancelled) setZoom(value);
         },
+        pointerStatusChanged: (value) => {
+          if (!cancelled) setPointerStatus(value);
+        },
       },
       t("canvas.label"),
     );
@@ -337,27 +358,68 @@ export function EditorView({
       void repository
         .save(store.state)
         .then(() => {
+          setSaveFailureKey(null);
           setSaveStatusKey(
             store.version === savingVersion ? "status.saved" : "status.unsaved",
           );
         })
-        .catch(() => setSaveStatusKey("status.saveFailed"));
+        .catch((error: unknown) => {
+          setSaveStatusKey("status.saveFailed");
+          setSaveFailureKey(saveFailureTranslationKey(error));
+        });
     }, 300);
     return () => window.clearTimeout(timeout);
   }, [repository, store, version]);
 
-  const save = async () => {
+  const save = useCallback(async () => {
     const savingVersion = store.version;
     setSaveStatusKey("status.saving");
     try {
       await repository.save(store.state);
+      setSaveFailureKey(null);
       setSaveStatusKey(
         store.version === savingVersion ? "status.saved" : "status.unsaved",
       );
-    } catch {
+    } catch (error) {
       setSaveStatusKey("status.saveFailed");
+      setSaveFailureKey(saveFailureTranslationKey(error));
     }
-  };
+  }, [repository, store]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      dispatchEditorShortcut(event, {
+        select: () => store.setTool("select"),
+        pan: () => store.setTool("pan"),
+        brush: () => {
+          setBrushMode("paint");
+          store.setTool("brush");
+        },
+        fill: () => {
+          setBrushMode("fill");
+          store.setTool("brush");
+        },
+        erase: () => {
+          setBrushMode("erase");
+          store.setTool("brush");
+        },
+        text: () => {
+          setOverlay((value) => ({ ...value, type: "text" }));
+          store.setTool("marker");
+        },
+        undo: () => store.undo(),
+        redo: () => store.redo(),
+        save: () => void save(),
+        deleteSelection: () => store.deleteSelection(),
+        cancel: () => {
+          setConnectionRebind(null);
+          store.cancelTool();
+        },
+      });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [save, store]);
 
   const openExportDialog = async () => {
     dialogPreviousFocus.current =
@@ -539,8 +601,22 @@ export function EditorView({
         <EditorStatusBar
           state={state}
           zoom={zoom}
+          saveStatusKey={saveStatusKey}
+          pointerStatus={pointerStatus}
           onZoomOut={() => renderer.current?.zoomByStep(-1)}
           onZoomIn={() => renderer.current?.zoomByStep(1)}
+          onResetZoom={() => renderer.current?.setZoom(1)}
+          onCenterMap={() => renderer.current?.centerMap()}
+          onFitMap={() => {
+            const result = renderer.current?.fitMap();
+            if (result?.status === "limited")
+              setErrorKey("error.fitMapLimited");
+          }}
+          onFitContent={() => {
+            const result = renderer.current?.fitContent();
+            if (result?.status === "empty")
+              setErrorKey("error.fitContentEmpty");
+          }}
         />
         {fillBusy && (
           <div className={styles.fillTask} role="status">
@@ -576,6 +652,25 @@ export function EditorView({
               : t(errorKey ?? externalErrorKey ?? "error.invalidProject")}
           </div>
         )}
+        {saveFailureKey !== null ? (
+          <div
+            className={styles.error}
+            role="alert"
+            data-testid="save-recovery"
+          >
+            <span>{t(saveFailureKey)}</span>
+            <button
+              type="button"
+              onClick={() =>
+                void downloadSaveRecoveryProject(store.state).catch(() =>
+                  setErrorKey("error.dataExportFailed"),
+                )
+              }
+            >
+              {t("action.exportRecoveryProject")}
+            </button>
+          </div>
+        ) : null}
         {exportDialog !== null && (
           <ExportHubDialog
             state={state}

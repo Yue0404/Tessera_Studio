@@ -161,6 +161,30 @@
     "PERF-009",
     "PERF-010"
   ],
+  "p1RequirementIds": [
+    "APP-004",
+    "VIEW-005",
+    "VIEW-006",
+    "EDIT-002",
+    "LINK-007",
+    "MOD-007",
+    "MOD-008",
+    "LAYER-004",
+    "HIST-004",
+    "SAVE-005",
+    "DATA-006",
+    "EXPORT-006",
+    "UX-002",
+    "UX-006",
+    "UX-007",
+    "A11Y-001",
+    "A11Y-002",
+    "A11Y-003",
+    "A11Y-004",
+    "PERF-002",
+    "PERF-003",
+    "PERF-004"
+  ],
   "entries": [
     {
       "area": "创建与应用壳",
@@ -214,8 +238,8 @@
       ],
       "status": "covered",
       "implementation": [
-        "packages/core/src",
-        "packages/renderer/src",
+        "packages/core/src/geometry.ts",
+        "packages/renderer/src/grid-renderer.ts",
         "apps/web/src/components/EditorView.tsx"
       ],
       "automatedTests": [
@@ -284,8 +308,8 @@
       ],
       "status": "covered",
       "implementation": [
-        "packages/core/src",
-        "packages/renderer/src",
+        "packages/core/src/editor-store.ts",
+        "packages/renderer/src/connection-renderer.ts",
         "apps/web/src/components/EditorView.tsx"
       ],
       "automatedTests": [
@@ -320,7 +344,7 @@
       ],
       "status": "covered",
       "implementation": [
-        "packages/module-runtime/src",
+        "packages/module-runtime/src/registry.ts",
         "apps/web/src/local-package-workflow.ts",
         "apps/web/src/package-project-runtime.ts",
         "packages/formats/src/project-format.ts"
@@ -354,12 +378,12 @@
       ],
       "status": "conditional",
       "implementation": [
-        "tools/civ6-extractor",
+        "tools/civ6-extractor/src/Tessera.Civ6.Extractor.Core/Civ6ExtractionService.cs",
         "apps/web/src/components/PackageSettingsDialog.tsx",
         "apps/web/public/extractor-releases.json"
       ],
       "automatedTests": [
-        "tools/civ6-extractor/tests",
+        "tools/civ6-extractor/tests/Tessera.Civ6.Extractor.Core.Tests/ExtractionServiceTests.cs",
         "tests/e2e/package-install-smoke.spec.ts",
         ".github/workflows/civ6-extractor-windows.yml"
       ],
@@ -383,8 +407,8 @@
       ],
       "status": "covered",
       "implementation": [
-        "packages/core/src",
-        "packages/renderer/src",
+        "packages/core/src/editor-store.ts",
+        "packages/renderer/src/render-layer-order.ts",
         "apps/web/src/components/EditorView.tsx"
       ],
       "automatedTests": [
@@ -426,14 +450,14 @@
       ],
       "status": "covered",
       "implementation": [
-        "packages/formats/src",
-        "packages/storage/src",
+        "packages/formats/src/project-format.ts",
+        "packages/storage/src/project-repository.ts",
         "apps/web/src/project-file-workflow.ts",
         "apps/web/src/fragment-file-workflow.ts"
       ],
       "automatedTests": [
-        "packages/formats/src",
-        "packages/storage/src",
+        "packages/formats/src/project-format.test.ts",
+        "packages/storage/src/project-repository.test.ts",
         "apps/web/src/project-file-workflow.test.ts",
         "apps/web/src/fragment-file-workflow.test.ts",
         "tests/e2e/data-workflows.spec.ts",
@@ -454,12 +478,12 @@
       ],
       "status": "covered",
       "implementation": [
-        "packages/renderer/src/visual-export",
+        "packages/renderer/src/visual-export/canvas-renderer.ts",
         "apps/web/src/components/VisualExportDialog.tsx",
         "apps/web/src/components/DataExportDialog.tsx"
       ],
       "automatedTests": [
-        "packages/renderer/src/visual-export",
+        "packages/renderer/src/visual-export/visual-export.test.ts",
         "tests/e2e/visual-export-smoke.spec.ts",
         "tests/e2e/visual-export-ui.spec.ts",
         "tests/e2e/data-workflows.spec.ts"
@@ -478,12 +502,12 @@
       ],
       "status": "covered",
       "implementation": [
-        "apps/web/src/components",
+        "apps/web/src/components/NewProjectDialog.tsx",
         "apps/web/src/i18n.ts",
-        "apps/web/src/styles"
+        "apps/web/src/styles/global.css"
       ],
       "automatedTests": [
-        "apps/web/src",
+        "apps/web/src/components/NewProjectDialog.test.tsx",
         "tests/e2e/browser-safety-a11y.spec.ts",
         "tests/e2e/vertical-slice.spec.ts"
       ],
@@ -511,7 +535,7 @@
       "implementation": [
         "packages/core/src/background-task.ts",
         "apps/web/src/fill-region-worker.ts",
-        "packages/renderer/src/visual-export"
+        "packages/renderer/src/visual-export/task.ts"
       ],
       "automatedTests": [
         "packages/core/src/runtime-performance.test.ts",
@@ -555,9 +579,64 @@
   ],
   "trackedP1Evidence": [
     {
+      "requirementIds": [
+        "APP-004",
+        "VIEW-005",
+        "VIEW-006",
+        "MOD-007",
+        "HIST-004",
+        "SAVE-005",
+        "UX-002"
+      ],
+      "implementation": [
+        "apps/web/src/components/ProjectGridPreview.tsx",
+        "apps/web/src/components/EditorStatusBar.tsx",
+        "apps/web/src/editor-shortcuts.ts",
+        "apps/web/src/project-module-references.ts",
+        "apps/web/src/save-recovery.ts",
+        "packages/renderer/src/viewport-navigation.ts"
+      ],
+      "automatedTests": [
+        "apps/web/src/components/ProjectGridPreview.test.tsx",
+        "apps/web/src/editor-shortcuts.test.ts",
+        "apps/web/src/project-module-references.test.ts",
+        "apps/web/src/save-recovery.test.ts",
+        "packages/core/src/editor-store.test.ts",
+        "packages/renderer/src/viewport-navigation.test.ts",
+        "tests/production-e2e/m6-user-flows.spec.ts"
+      ],
+      "humanEvidence": ["manual/REQUIREMENTS_TRACEABILITY.md"],
+      "status": "covered"
+    },
+    {
+      "requirementIds": [
+        "EDIT-002",
+        "LINK-007",
+        "MOD-008",
+        "LAYER-004",
+        "DATA-006",
+        "EXPORT-006",
+        "UX-006",
+        "UX-007"
+      ],
+      "implementation": [
+        "apps/web/src/components/ElementCatalog.tsx",
+        "packages/formats/src/project-format.ts",
+        "packages/module-runtime/src/registry.ts"
+      ],
+      "automatedTests": [
+        "tests/e2e/vertical-slice.spec.ts",
+        "tests/e2e/visual-export-ui.spec.ts",
+        "packages/module-runtime/src/module-runtime.test.ts"
+      ],
+      "humanEvidence": ["manual/visual-evidence.json"],
+      "status": "conditional",
+      "blocker": "已有实现与自动化证据存在，但本次 M6-B 未逐项重新执行全部人工视觉与边界组合，保留条件状态。"
+    },
+    {
       "requirementIds": ["A11Y-001", "A11Y-002", "A11Y-003", "A11Y-004"],
       "implementation": [
-        "apps/web/src/components",
+        "apps/web/src/components/ElementCatalog.tsx",
         "apps/web/src/styles/global.css"
       ],
       "automatedTests": ["tests/e2e/browser-safety-a11y.spec.ts"],
@@ -567,7 +646,7 @@
     {
       "requirementIds": ["PERF-003", "PERF-004"],
       "implementation": [
-        "packages/renderer/src",
+        "packages/renderer/src/tessera-renderer.ts",
         "apps/web/src/components/EditorView.tsx"
       ],
       "automatedTests": [
@@ -581,7 +660,7 @@
     {
       "requirementIds": ["PERF-002"],
       "implementation": [
-        "packages/renderer/src",
+        "packages/renderer/src/tessera-renderer.ts",
         "apps/web/src/components/EditorView.tsx"
       ],
       "automatedTests": [

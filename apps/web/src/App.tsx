@@ -13,6 +13,7 @@ import { SameProjectConflictDialog } from "./components/SameProjectConflictDialo
 import type {
   FragmentModuleResolver,
   FragmentTranslation,
+  ProjectV1Document,
 } from "@tessera/formats";
 import type {
   LocalPackageRegistration,
@@ -40,6 +41,8 @@ import type {
   ExtractorRelease,
   ExtractorReleaseCatalog,
 } from "./extractor-release-catalog.js";
+import { countProjectModuleObjectReferences } from "./project-module-references.js";
+import { ProjectSaveCoordinator } from "./project-save-coordinator.js";
 
 interface AppRepository extends ProjectSaveTarget {
   loadLatest(): Promise<ProjectState | null>;
@@ -169,27 +172,42 @@ function packageIdentityKey(item: ParsedExtensionPackage): string {
   return `${item.kind}:${item.artifactId}@${item.version}`;
 }
 
-function projectModuleIdentityKeys(
+interface ProjectModuleReference {
+  readonly moduleId: string;
+  readonly version: string;
+  readonly packageSourceKind: "built-in" | "user-file" | "generated-local";
+}
+
+function projectModules(
   state: ProjectState | null,
-): ReadonlySet<string> {
+): readonly ProjectModuleReference[] {
   const document = state?.formatSource.opaqueDocument;
-  if (typeof document !== "object" || document === null) return new Set();
+  if (typeof document !== "object" || document === null) return [];
   const modules = (document as { readonly modules?: unknown }).modules;
-  if (!Array.isArray(modules)) return new Set();
-  return new Set(
-    modules.flatMap((item) => {
-      if (
-        typeof item !== "object" ||
-        item === null ||
-        typeof (item as { moduleId?: unknown }).moduleId !== "string" ||
-        typeof (item as { version?: unknown }).version !== "string"
-      )
-        return [];
-      return [
-        `module:${(item as { moduleId: string }).moduleId}@${(item as { version: string }).version}`,
-      ];
-    }),
-  );
+  if (!Array.isArray(modules)) return [];
+  return modules.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const module = item as {
+      readonly moduleId?: unknown;
+      readonly version?: unknown;
+      readonly packageSourceKind?: unknown;
+    };
+    if (
+      typeof module.moduleId !== "string" ||
+      typeof module.version !== "string" ||
+      (module.packageSourceKind !== "built-in" &&
+        module.packageSourceKind !== "user-file" &&
+        module.packageSourceKind !== "generated-local")
+    )
+      return [];
+    return [
+      {
+        moduleId: module.moduleId,
+        version: module.version,
+        packageSourceKind: module.packageSourceKind,
+      },
+    ];
+  });
 }
 
 export function App({
@@ -213,6 +231,10 @@ export function App({
     return { repository: owned, owned };
   }, [repositoryFactory, suppliedRepository]);
   const repository = repositoryHolder.repository;
+  const saveTarget = useMemo(
+    () => new ProjectSaveCoordinator(repository),
+    [repository],
+  );
   const [store, setStore] = useState<EditorStore | null>(null);
   const [loading, setLoading] = useState(true);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -245,6 +267,8 @@ export function App({
     presetAvailability: new Map(),
   });
   const [packageSettingsOpen, setPackageSettingsOpen] = useState(false);
+  const [packageReferenceDocument, setPackageReferenceDocument] =
+    useState<ProjectV1Document | null>(null);
   const [packageBusy, setPackageBusy] = useState(false);
   const [packageErrorKey, setPackageErrorKey] = useState<string | null>(null);
   const [extractorCatalog, setExtractorCatalog] = useState<{
@@ -419,6 +443,25 @@ export function App({
     return () => controller.abort();
   }, [extractorCatalogLoader, packageCatalog.entries, packageSettingsOpen]);
 
+  useEffect(() => {
+    if (!packageSettingsOpen || store === null) {
+      setPackageReferenceDocument(null);
+      return;
+    }
+    setPackageReferenceDocument(null);
+    let current = true;
+    void import("@tessera/formats").then(({ toProjectV1 }) => {
+      if (current && mounted.current) {
+        setPackageReferenceDocument(
+          toProjectV1(store.state, { mode: "preserve" }),
+        );
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [packageSettingsOpen, store]);
+
   const create = async (
     project: ProjectState,
     packageSelection?: {
@@ -427,6 +470,7 @@ export function App({
     },
   ) => {
     if (createInFlight.current) return;
+    const previousState = store?.state ?? null;
     createInFlight.current = true;
     setCreateBusy(true);
     let configured = project;
@@ -480,7 +524,13 @@ export function App({
     setNewProjectOpen(false);
     setStartupErrorKey(null);
     setFileErrorKey(null);
-    void repository
+    const createSaveTarget =
+      previousState === null
+        ? saveTarget
+        : saveTarget.replacementTarget(previousState, {
+            candidateIncludesPrevious: false,
+          });
+    void createSaveTarget
       .save(next.state)
       .catch(() => {
         if (!mounted.current) return;
@@ -538,6 +588,47 @@ export function App({
     }
   };
 
+  const changeProjectModule = async (
+    registration: LocalPackageRegistration,
+    enabled: boolean,
+  ) => {
+    if (
+      store === null ||
+      packageBusy ||
+      registration.identity.kind !== "module"
+    )
+      return;
+    setPackageBusy(true);
+    setPackageErrorKey(null);
+    try {
+      const workflow = await import("./project-module-settings-workflow.js");
+      const nextStore = await workflow.commitProjectModuleChange(
+        store.state,
+        packageCatalog.packages,
+        {
+          moduleId: registration.identity.artifactId,
+          version: registration.identity.version,
+          enabled,
+        },
+        TESSERA_APP_VERSION,
+        saveTarget.replacementTarget(store.state, {
+          candidateIncludesPrevious: true,
+        }),
+      );
+      if (mounted.current) setStore(nextStore);
+    } catch {
+      if (mounted.current) {
+        setPackageErrorKey(
+          enabled
+            ? "package.error.moduleEnable"
+            : "package.error.moduleDisable",
+        );
+      }
+    } finally {
+      if (mounted.current) setPackageBusy(false);
+    }
+  };
+
   const openFile = async (file: File) => {
     const operation = fileOperation.current + 1;
     fileOperation.current = operation;
@@ -555,7 +646,12 @@ export function App({
         {
           file,
           currentProjectId: store?.state.projectId ?? null,
-          repository,
+          repository:
+            store === null
+              ? saveTarget
+              : saveTarget.replacementTarget(store.state, {
+                  candidateIncludesPrevious: false,
+                }),
           decideSameProjectId: decideSameProjectId ?? requestSameIdDecision,
           ...(moduleResolverRef.current === undefined
             ? {}
@@ -700,7 +796,7 @@ export function App({
   };
 
   const confirmFragmentMerge = async () => {
-    if (fragmentMerge === null) return;
+    if (fragmentMerge === null || store === null) return;
     const operation = fileOperation.current;
     setFragmentBusy(true);
     setFragmentErrorKey(null);
@@ -708,7 +804,9 @@ export function App({
       const workflow = await fragmentWorkflowLoader();
       const nextStore = await workflow.commitFragmentMerge(
         fragmentMerge,
-        repository,
+        saveTarget.replacementTarget(store.state, {
+          candidateIncludesPrevious: true,
+        }),
         moduleResolverRef.current,
       );
       if (!mounted.current || fileOperation.current !== operation) return;
@@ -730,8 +828,60 @@ export function App({
     }
   };
 
-  const currentDependencies = projectModuleIdentityKeys(store?.state ?? null);
-  const packageDialogItems = packageCatalog.entries.map((entry) => {
+  const currentModules = projectModules(store?.state ?? null);
+  const currentDependencies = new Set(
+    currentModules.map(
+      (module) => `module:${module.moduleId}@${module.version}`,
+    ),
+  );
+  const registeredIdentities = new Set(
+    packageCatalog.entries.map(
+      (entry) =>
+        `${entry.registration.identity.kind}:${entry.registration.identity.artifactId}@${entry.registration.identity.version}`,
+    ),
+  );
+  const missingEntries: (PackageCatalogState["entries"][number] & {
+    readonly canDeleteLocalPackage: boolean;
+    readonly missingPlaceholder: boolean;
+  })[] = currentModules
+    .filter(
+      (module) =>
+        module.moduleId !== "tessera.basic" &&
+        !registeredIdentities.has(
+          `module:${module.moduleId}@${module.version}`,
+        ),
+    )
+    .map((module) => ({
+      registration: {
+        identity: {
+          kind: "module",
+          artifactId: module.moduleId,
+          version: module.version,
+        },
+        sourceKind:
+          module.packageSourceKind === "user-file"
+            ? "user-file"
+            : "generated-local",
+        package: null,
+        status: "corrupted",
+        reasonCode: null,
+      },
+      parsed: null,
+      statusKey: "package.status.missing",
+      displayName: module.moduleId,
+      sourceDetails: [],
+      canDeleteLocalPackage: false,
+      missingPlaceholder: true,
+    }));
+  const packageDialogEntries = [
+    ...packageCatalog.entries.map((entry) => ({
+      ...entry,
+      canDeleteLocalPackage: true,
+      missingPlaceholder: false,
+    })),
+    ...missingEntries,
+  ];
+  const packageDialogItems = packageDialogEntries.map((entry) => {
     const gridSupported =
       store === null ||
       entry.parsed === null ||
@@ -739,16 +889,35 @@ export function App({
         ? entry.parsed.manifest.supportedGrids
         : entry.parsed.manifest.grid.supportedGrids
       ).includes(store.state.grid.type);
+    const projectEnabled = currentDependencies.has(
+      `module:${entry.registration.identity.artifactId}@${entry.registration.identity.version}`,
+    );
     return {
       ...entry,
       statusKey: gridSupported
         ? entry.statusKey
         : "package.status.incompatible",
-      currentDependency: currentDependencies.has(
-        `module:${entry.registration.identity.artifactId}@${entry.registration.identity.version}`,
-      ),
-      reasonKey:
-        entry.registration.reasonCode === "local-package-not-ready"
+      projectEnabled,
+      canDeleteLocalPackage: entry.canDeleteLocalPackage,
+      canToggleProjectModule:
+        entry.registration.identity.kind === "module" &&
+        (projectEnabled
+          ? packageReferenceDocument !== null
+          : entry.parsed?.kind === "module" &&
+            gridSupported &&
+            entry.statusKey === "package.status.ready"),
+      referenceCount:
+        packageReferenceDocument === null ||
+        entry.registration.identity.kind !== "module"
+          ? 0
+          : countProjectModuleObjectReferences(
+              packageReferenceDocument,
+              entry.registration.identity.artifactId,
+              entry.registration.identity.version,
+            ),
+      reasonKey: entry.missingPlaceholder
+        ? "package.reason.missing"
+        : entry.registration.reasonCode === "local-package-not-ready"
           ? "package.reason.notReady"
           : entry.registration.reasonCode === "local-package-storage-corrupted"
             ? "package.reason.storageCorrupted"
@@ -757,6 +926,7 @@ export function App({
   });
   const civ6Items = packageDialogItems.filter(
     (item) =>
+      item.canDeleteLocalPackage &&
       item.registration.identity.kind === "module" &&
       item.registration.identity.artifactId === "tessera.civ6",
   );
@@ -857,6 +1027,12 @@ export function App({
             release: extractorCatalog.release,
           }}
           onImport={(file) => void importPackage(file)}
+          onEnableModule={(registration) =>
+            void changeProjectModule(registration, true)
+          }
+          onDisableModule={(registration) =>
+            void changeProjectModule(registration, false)
+          }
           onDelete={(registration) => void deletePackage(registration)}
           onClose={() => {
             extractorCatalogOperation.current += 1;
@@ -896,7 +1072,7 @@ export function App({
     <>
       <LazyEditorView
         store={store}
-        repository={repository}
+        repository={saveTarget}
         onNew={() => setNewProjectOpen(true)}
         onOpenFile={openFile}
         onOpenFragmentFile={openFragmentFile}

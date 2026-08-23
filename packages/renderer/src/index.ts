@@ -10,3 +10,4 @@ export * from "./tessera-renderer.js";
 export * from "./webgl-context-lifecycle.js";
 export * from "./camera-transform.js";
 export * from "./pan-interaction-state.js";
+export * from "./viewport-navigation.js";

@@ -22,6 +22,12 @@ export const zhCN = {
     "status.saved": "已保存",
     "status.saving": "正在保存",
     "status.saveFailed": "保存失败",
+    "error.saveStorageUnavailable":
+      "本地存储不可用。请立即导出完整工程，避免关闭页面后丢失修改。",
+    "error.saveQuotaExceeded":
+      "本地存储空间不足。请立即导出完整工程并清理浏览器存储空间。",
+    "action.exportRecoveryProject": "立即导出完整工程",
+    "object.domain-group": "领域对象组",
     "status.unsaved": "有未保存修改",
     "new.title": "新建地图",
     "new.subtitle": "一次完成地图参数、基础样式与可选扩展包设置",
@@ -38,6 +44,8 @@ export const zhCN = {
     "grid.square": "正方形",
     "grid.hexPointy": "尖顶六边形",
     "new.sizeHint": "宽度是一行格数，高度是一列格数，范围均为 1–40000。",
+    "new.previewLabel": "{{grid}}预览，地图尺寸 {{width}} × {{height}}",
+    "new.previewCaption": "交错网格与基础样式预览",
     "new.packages": "扩展包与预设",
     "new.baseStyle": "基础样式",
     "new.ready": "参数将在创建时统一校验",
@@ -73,6 +81,8 @@ export const zhCN = {
     "package.action.configure": "设置",
     "package.action.back": "返回表单",
     "package.action.import": "导入模块或预设包",
+    "package.action.enableForProject": "在当前工程启用",
+    "package.action.disableForProject": "在当前工程停用",
     "package.action.delete": "删除本地包",
     "package.action.confirmDelete": "确认删除并转为只读占位",
     "package.settings.title": "包设置",
@@ -81,7 +91,9 @@ export const zhCN = {
     "package.settings.empty": "尚未安装任何可选包。",
     "package.settings.open": "管理模块与预设包",
     "package.settings.deleteDependency":
-      "当前工程精确依赖此包。删除后数据仍保留，但相关图层会变为只读占位，重新安装精确版本后可恢复。",
+      "当前工程有 {{count}} 个对象引用此模块。删除后数据仍保留，但相关图层会变为只读占位，重新安装精确版本后可恢复。确认继续？",
+    "package.settings.disableBlocked":
+      "当前工程有 {{count}} 个对象引用此模块，必须先删除或迁移这些对象后才能停用。",
     "package.source.user-file": "用户文件",
     "package.source.generated-local": "本地生成",
     "package.source.publisher": "发布者",
@@ -92,10 +104,15 @@ export const zhCN = {
     "package.status.ready": "已就绪",
     "package.status.pending": "等待恢复",
     "package.status.corrupted": "本地数据损坏",
+    "package.status.missing": "本地包缺失",
     "package.status.incompatible": "与当前应用或网格不兼容",
+    "package.project.enabled": "当前工程已启用",
+    "package.project.disabled": "仅本地安装，当前工程未启用",
     "package.reason.notReady": "安装事务尚未完成，重启后将继续恢复。",
     "package.reason.storageCorrupted":
       "本地包文件缺失或长度不一致，需要重新导入。",
+    "package.reason.missing":
+      "本地包已删除或缺失；零引用时仍可从当前工程停用。",
     "package.preset.select": "新建预设",
     "package.preset.none": "不使用预设",
     "package.preset.requiredUnavailable": "必需模块缺失或没有匹配版本",
@@ -104,6 +121,10 @@ export const zhCN = {
     "package.error.versionReuse":
       "同一版本号对应了不同内容，请让包作者发布新版本后再导入。",
     "package.error.delete": "本地包删除失败，请重试。",
+    "package.error.moduleEnable":
+      "模块无法在当前工程启用，请检查精确版本、应用版本、网格和依赖。",
+    "package.error.moduleDisable":
+      "模块无法从当前工程停用；当前工程及本地安装均未改变。",
     "package.error.recovery": "本地包恢复失败；工程仍可用只读占位方式打开。",
     "package.error.presetCreate":
       "所选模块或预设缺失、不兼容或版本不明确，未创建工程。",
@@ -124,6 +145,7 @@ export const zhCN = {
     "catalog.category.overlay": "文字与标记",
     "catalog.category.connection": "连线与箭头",
     "catalog.results": "元素搜索结果",
+    "catalog.activateElement": "使用目录元素 {{id}}",
     "catalog.noResults": "没有匹配的已载入元素。",
     "catalog.expand": "展开元素目录",
     "catalog.collapse": "收起元素目录",
@@ -237,6 +259,15 @@ export const zhCN = {
     "zoom.controls": "地图缩放",
     "zoom.in": "放大地图",
     "zoom.out": "缩小地图",
+    "zoom.reset": "100%",
+    "zoom.center": "居中",
+    "zoom.fitMap": "适应地图",
+    "zoom.fitContent": "适应已有内容",
+    "status.pointerEmpty": "指针：地图外",
+    "status.pointer": "指针：行 {{row}}，列 {{column}} · {{kind}}",
+    "error.fitMapLimited":
+      "地图边界低于 25% 安全缩放下限，请改用“适应已有内容”或框选范围。",
+    "error.fitContentEmpty": "当前工程没有可适应的已有内容。",
     "zoom.shortcutHint": "快捷键：加号放大、减号缩小、0 恢复 100%",
     "canvas.label": "地图编辑画布",
     "toolbar.project": "工程命令",

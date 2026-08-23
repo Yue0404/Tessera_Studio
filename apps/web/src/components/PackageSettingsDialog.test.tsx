@@ -51,6 +51,8 @@ describe("PackageSettingsDialog", () => {
           errorKey={null}
           civ6={emptyCiv6}
           onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={vi.fn()}
           onDelete={vi.fn()}
           onClose={vi.fn()}
         />
@@ -72,6 +74,8 @@ describe("PackageSettingsDialog", () => {
           errorKey={null}
           civ6={emptyCiv6}
           onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={vi.fn()}
           onDelete={vi.fn()}
           onClose={vi.fn()}
         />
@@ -96,7 +100,10 @@ describe("PackageSettingsDialog", () => {
               registration,
               displayName: "天气图层",
               statusKey: "package.status.corrupted",
-              currentDependency: false,
+              projectEnabled: false,
+              canToggleProjectModule: false,
+              canDeleteLocalPackage: true,
+              referenceCount: 0,
               reasonKey: "package.reason.storageCorrupted",
               sourceDetails: [
                 { labelKey: "package.source.publisher", value: "示例作者" },
@@ -111,6 +118,8 @@ describe("PackageSettingsDialog", () => {
           errorKey={null}
           civ6={emptyCiv6}
           onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={vi.fn()}
           onDelete={vi.fn()}
           onClose={vi.fn()}
         />
@@ -127,8 +136,163 @@ describe("PackageSettingsDialog", () => {
     ).toBeDefined();
   });
 
-  it("当前工程依赖包必须二次确认后才请求删除", async () => {
+  it("有精确引用时拒绝停用，取消与关闭均不触发工程操作", async () => {
     const user = userEvent.setup();
+    const onDelete = vi.fn();
+    const onDisableModule = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <PackageSettingsDialog
+          registrations={[
+            {
+              registration,
+              displayName: "天气图层",
+              statusKey: "package.status.ready",
+              projectEnabled: true,
+              canToggleProjectModule: true,
+              canDeleteLocalPackage: true,
+              referenceCount: 7,
+              reasonKey: null,
+              sourceDetails: [],
+            },
+          ]}
+          busy={false}
+          errorKey={null}
+          civ6={emptyCiv6}
+          onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={onDisableModule}
+          onDelete={onDelete}
+          onClose={onClose}
+        />
+      </I18nextProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "在当前工程停用" }));
+    expect(onDisableModule).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "当前工程有 7 个对象引用此模块，必须先删除或迁移这些对象后才能停用。",
+      ),
+    ).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByText(/必须先删除或迁移/)).toBeNull();
+    expect(onDisableModule).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "在当前工程停用" }));
+    await user.click(screen.getByRole("button", { name: "关闭" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDisableModule).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("引用文档加载期间禁用停用入口，就绪后显示精确引用数", async () => {
+    const user = userEvent.setup();
+    const onDisableModule = vi.fn();
+    const renderDialog = (
+      canToggleProjectModule: boolean,
+      referenceCount: number,
+    ) => (
+      <I18nextProvider i18n={i18n}>
+        <PackageSettingsDialog
+          registrations={[
+            {
+              registration,
+              displayName: "天气图层",
+              statusKey: "package.status.ready",
+              projectEnabled: true,
+              canToggleProjectModule,
+              canDeleteLocalPackage: true,
+              referenceCount,
+              reasonKey: null,
+              sourceDetails: [],
+            },
+          ]}
+          busy={false}
+          errorKey={null}
+          civ6={emptyCiv6}
+          onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={onDisableModule}
+          onDelete={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>
+    );
+    const view = render(renderDialog(false, 0));
+    const loadingButton = screen.getByRole("button", {
+      name: "在当前工程停用",
+    });
+    expect(loadingButton.hasAttribute("disabled")).toBe(true);
+    await user.click(loadingButton);
+    expect(onDisableModule).not.toHaveBeenCalled();
+
+    view.rerender(renderDialog(true, 7));
+    await user.click(screen.getByRole("button", { name: "在当前工程停用" }));
+    expect(onDisableModule).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "当前工程有 7 个对象引用此模块，必须先删除或迁移这些对象后才能停用。",
+      ),
+    ).toBeDefined();
+  });
+
+  it("缺包占位无删除入口，有引用拒绝且零引用时可停用", async () => {
+    const user = userEvent.setup();
+    const onDisableModule = vi.fn();
+    const onDelete = vi.fn();
+    const renderMissing = (referenceCount: number) => (
+      <I18nextProvider i18n={i18n}>
+        <PackageSettingsDialog
+          registrations={[
+            {
+              registration,
+              displayName: "example.weather",
+              statusKey: "package.status.missing",
+              projectEnabled: true,
+              canToggleProjectModule: true,
+              canDeleteLocalPackage: false,
+              referenceCount,
+              reasonKey: "package.reason.missing",
+              sourceDetails: [],
+            },
+          ]}
+          busy={false}
+          errorKey={null}
+          civ6={emptyCiv6}
+          onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={onDisableModule}
+          onDelete={onDelete}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>
+    );
+    const view = render(renderMissing(3));
+    expect(screen.getByText("本地包缺失")).toBeDefined();
+    expect(
+      screen.getByText("本地包已删除或缺失；零引用时仍可从当前工程停用。"),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "删除本地包" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "在当前工程启用" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "在当前工程停用" }));
+    expect(onDisableModule).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "当前工程有 3 个对象引用此模块，必须先删除或迁移这些对象后才能停用。",
+      ),
+    ).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "取消" }));
+
+    view.rerender(renderMissing(0));
+    await user.click(screen.getByRole("button", { name: "在当前工程停用" }));
+    expect(onDisableModule).toHaveBeenCalledWith(registration);
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("零引用模块可停用，工程停用与本地删除使用独立回调", async () => {
+    const user = userEvent.setup();
+    const onDisableModule = vi.fn();
     const onDelete = vi.fn();
     render(
       <I18nextProvider i18n={i18n}>
@@ -138,7 +302,10 @@ describe("PackageSettingsDialog", () => {
               registration,
               displayName: "天气图层",
               statusKey: "package.status.ready",
-              currentDependency: true,
+              projectEnabled: true,
+              canToggleProjectModule: true,
+              canDeleteLocalPackage: true,
+              referenceCount: 0,
               reasonKey: null,
               sourceDetails: [],
             },
@@ -147,22 +314,92 @@ describe("PackageSettingsDialog", () => {
           errorKey={null}
           civ6={emptyCiv6}
           onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={onDisableModule}
           onDelete={onDelete}
           onClose={vi.fn()}
         />
       </I18nextProvider>,
     );
-    await user.click(screen.getByRole("button", { name: "删除本地包" }));
+    await user.click(screen.getByRole("button", { name: "在当前工程停用" }));
+    expect(onDisableModule).toHaveBeenCalledWith(registration);
     expect(onDelete).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(
-        "当前工程精确依赖此包。删除后数据仍保留，但相关图层会变为只读占位，重新安装精确版本后可恢复。",
-      ),
-    ).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "删除本地包" }));
     await user.click(
       screen.getByRole("button", { name: "确认删除并转为只读占位" }),
     );
     expect(onDelete).toHaveBeenCalledWith(registration);
+  });
+
+  it("未启用模块按精确注册版本启用，basic 不提供停用入口", async () => {
+    const user = userEvent.setup();
+    const onEnableModule = vi.fn();
+    const view = render(
+      <I18nextProvider i18n={i18n}>
+        <PackageSettingsDialog
+          registrations={[
+            {
+              registration,
+              displayName: "天气图层",
+              statusKey: "package.status.ready",
+              projectEnabled: false,
+              canToggleProjectModule: true,
+              canDeleteLocalPackage: true,
+              referenceCount: 0,
+              reasonKey: null,
+              sourceDetails: [],
+            },
+          ]}
+          busy={false}
+          errorKey={null}
+          civ6={emptyCiv6}
+          onImport={vi.fn()}
+          onEnableModule={onEnableModule}
+          onDisableModule={vi.fn()}
+          onDelete={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "在当前工程启用" }));
+    expect(onEnableModule).toHaveBeenCalledWith(registration);
+
+    view.rerender(
+      <I18nextProvider i18n={i18n}>
+        <PackageSettingsDialog
+          registrations={[
+            {
+              registration: {
+                ...registration,
+                identity: {
+                  kind: "module",
+                  artifactId: "tessera.basic",
+                  version: "1.0.0",
+                },
+              },
+              displayName: "基础模块",
+              statusKey: "package.status.ready",
+              projectEnabled: true,
+              canToggleProjectModule: false,
+              canDeleteLocalPackage: true,
+              referenceCount: 0,
+              reasonKey: null,
+              sourceDetails: [],
+            },
+          ]}
+          busy={false}
+          errorKey={null}
+          civ6={emptyCiv6}
+          onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={vi.fn()}
+          onDelete={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "在当前工程停用" })).toBeNull();
+    expect(screen.getByText("始终启用")).toBeDefined();
   });
 
   it("展示匹配提取器的完整事实并只提供安全外部 HTTPS 链接", () => {
@@ -179,6 +416,8 @@ describe("PackageSettingsDialog", () => {
             release: extractorRelease,
           }}
           onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={vi.fn()}
           onDelete={vi.fn()}
           onClose={vi.fn()}
         />
@@ -211,6 +450,8 @@ describe("PackageSettingsDialog", () => {
           errorKey={null}
           civ6={{ ...emptyCiv6, catalogStatus: "error" }}
           onImport={onImport}
+          onEnableModule={vi.fn()}
+          onDisableModule={vi.fn()}
           onDelete={vi.fn()}
           onClose={vi.fn()}
         />
@@ -248,6 +489,8 @@ describe("PackageSettingsDialog", () => {
           errorKey={null}
           civ6={{ ...emptyCiv6, statusKey }}
           onImport={vi.fn()}
+          onEnableModule={vi.fn()}
+          onDisableModule={vi.fn()}
           onDelete={vi.fn()}
           onClose={vi.fn()}
         />

@@ -68,4 +68,20 @@ describe("PanInteractionState", () => {
       false,
     );
   });
+
+  it("下拉框、contenteditable 后代和对话框内控件隔离画布快捷键", () => {
+    const editable = document.createElement("div");
+    editable.setAttribute("contenteditable", "true");
+    const child = document.createElement("span");
+    editable.append(child);
+    const dialog = document.createElement("section");
+    dialog.setAttribute("role", "dialog");
+    const button = document.createElement("button");
+    dialog.append(button);
+    expect(isEditableShortcutTarget(document.createElement("select"))).toBe(
+      true,
+    );
+    expect(isEditableShortcutTarget(child)).toBe(true);
+    expect(isEditableShortcutTarget(button)).toBe(true);
+  });
 });

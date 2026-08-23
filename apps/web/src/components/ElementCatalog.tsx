@@ -206,13 +206,23 @@ export function ElementCatalog(props: Props) {
           <ul aria-label={t("catalog.results")}>
             {filteredElements.map((entry) => (
               <li key={entry.elementId}>
-                <button
-                  type="button"
-                  onClick={() => props.onElementSelect?.(entry.elementId)}
-                >
-                  <span>{entry.displayName}</span>
-                  <small>{entry.elementId}</small>
-                </button>
+                {props.onElementSelect === undefined ? (
+                  <div>
+                    <span>{entry.displayName}</span>
+                    <small>{entry.elementId}</small>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    aria-label={t("catalog.activateElement", {
+                      id: entry.elementId,
+                    })}
+                    onClick={() => props.onElementSelect?.(entry.elementId)}
+                  >
+                    <span>{entry.displayName}</span>
+                    <small>{entry.elementId}</small>
+                  </button>
+                )}
               </li>
             ))}
           </ul>

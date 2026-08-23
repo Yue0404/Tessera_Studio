@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { describe, expect, it, vi } from "vitest";
 import i18n from "../i18n.js";
@@ -99,7 +99,11 @@ describe("ElementCatalog", () => {
     const search = screen.getByRole("searchbox", { name: "搜索元素" });
     fireEvent.change(search, { target: { value: "箭头" } });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /箭头/ })).toBeDefined();
+    expect(
+      within(screen.getByRole("list", { name: "元素搜索结果" })).getByText(
+        "箭头",
+      ),
+    ).toBeDefined();
     fireEvent.change(search, { target: { value: "" } });
     expect(screen.getAllByRole("listitem")).toHaveLength(6);
     fireEvent.change(screen.getByLabelText("分类"), {
@@ -117,7 +121,26 @@ describe("ElementCatalog", () => {
     fireEvent.change(search, { target: { value: "标 记" } });
     expect(document.activeElement).toBe(search);
     fireEvent.change(search, { target: { value: "标记" } });
-    fireEvent.click(screen.getByRole("button", { name: /标记/ }));
+    const elementButton = screen.getByRole("button", {
+      name: "使用目录元素 tessera.basic:marker",
+    });
+    expect(elementButton.getAttribute("aria-label")).not.toMatch(
+      /选择|标记|边/u,
+    );
+    fireEvent.click(elementButton);
     expect(onElementSelect).toHaveBeenCalledWith("tessera.basic:marker");
+  });
+
+  it("没有选择回调时目录项保持可读但不伪装成按钮", () => {
+    renderCatalog();
+    expect(screen.getAllByRole("listitem")).toHaveLength(6);
+    expect(
+      screen.queryByRole("button", { name: /tessera\.basic:marker/u }),
+    ).toBeNull();
+    expect(
+      within(screen.getByRole("list", { name: "元素搜索结果" })).getByText(
+        "标记",
+      ),
+    ).toBeDefined();
   });
 });
