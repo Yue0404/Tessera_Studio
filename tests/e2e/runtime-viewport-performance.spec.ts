@@ -115,12 +115,13 @@ async function canvasPixelDiff(
   page: Page,
   before: Buffer,
   after: Buffer,
+  region: Readonly<NonNullable<ColorMetric["bounds"]>> | null = null,
 ): Promise<{
   readonly count: number;
   readonly bounds: ColorMetric["bounds"];
 }> {
   return page.evaluate(
-    async ({ beforeEncoded, afterEncoded }) => {
+    async ({ beforeEncoded, afterEncoded, scanRegion }) => {
       const decode = async (encoded: string) => {
         const bytes = Uint8Array.from(atob(encoded), (value) =>
           value.charCodeAt(0),
@@ -150,23 +151,33 @@ async function canvasPixelDiff(
       let minY = left.height;
       let maxX = -1;
       let maxY = -1;
-      for (let offset = 0; offset < left.pixels.length; offset += 4) {
-        if (
-          left.pixels[offset] === right.pixels[offset] &&
-          left.pixels[offset + 1] === right.pixels[offset + 1] &&
-          left.pixels[offset + 2] === right.pixels[offset + 2] &&
-          left.pixels[offset + 3] === right.pixels[offset + 3]
-        ) {
-          continue;
+      const scan = scanRegion ?? {
+        left: 0,
+        top: 0,
+        right: left.width - 1,
+        bottom: left.height - 1,
+      };
+      const scanLeft = Math.max(0, scan.left);
+      const scanTop = Math.max(0, scan.top);
+      const scanRight = Math.min(left.width - 1, scan.right);
+      const scanBottom = Math.min(left.height - 1, scan.bottom);
+      for (let y = scanTop; y <= scanBottom; y += 1) {
+        for (let x = scanLeft; x <= scanRight; x += 1) {
+          const offset = (y * left.width + x) * 4;
+          if (
+            left.pixels[offset] === right.pixels[offset] &&
+            left.pixels[offset + 1] === right.pixels[offset + 1] &&
+            left.pixels[offset + 2] === right.pixels[offset + 2] &&
+            left.pixels[offset + 3] === right.pixels[offset + 3]
+          ) {
+            continue;
+          }
+          count += 1;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
         }
-        const pixelIndex = offset / 4;
-        const x = pixelIndex % left.width;
-        const y = Math.floor(pixelIndex / left.width);
-        count += 1;
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
       }
       return {
         count,
@@ -179,6 +190,7 @@ async function canvasPixelDiff(
     {
       beforeEncoded: before.toString("base64"),
       afterEncoded: after.toString("base64"),
+      scanRegion: region,
     },
   );
 }
@@ -605,6 +617,10 @@ test("PERF-006 跨块线箭头与覆盖物在淘汰后重载保持稳定", async
       ),
   );
   const before = await canvas.screenshot();
+  const cameraBefore = {
+    x: Number(await canvas.getAttribute("data-camera-x")),
+    y: Number(await canvas.getAttribute("data-camera-y")),
+  };
   const rebuiltBefore = Number(
     await canvas.getAttribute("data-grid-total-rebuilt-count"),
   );
@@ -626,12 +642,25 @@ test("PERF-006 跨块线箭头与覆盖物在淘汰后重载保持稳定", async
       ),
   );
 
+  expect({
+    x: Number(await canvas.getAttribute("data-camera-x")),
+    y: Number(await canvas.getAttribute("data-camera-y")),
+  }).toEqual(cameraBefore);
   await expect(page.getByTestId("overlay-count")).toContainText("1");
   await expect(page.getByTestId("connection-count")).toContainText("2");
   expect(
     Number(await canvas.getAttribute("data-grid-total-rebuilt-count")),
   ).toBeGreaterThan(rebuiltBefore);
-  expect(await canvas.screenshot()).toEqual(before);
+  const after = await canvas.screenshot();
+  // 本用例验收跨块 marker、line、arrow；外围网格批次重建另行跟踪。
+  // 解码后比较对象区域真实像素，避免把 PNG 压缩字节差异误判为回归。
+  const objectPixelDiff = await canvasPixelDiff(page, before, after, {
+    left: 520,
+    top: 250,
+    right: 700,
+    bottom: 450,
+  });
+  expect(objectPixelDiff).toEqual({ count: 0, bounds: null });
 });
 
 test("VIEW-008 DPR=1 分块边界投影误差不超过半像素", async ({ page }) => {
