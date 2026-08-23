@@ -196,6 +196,14 @@ describe("运行时视口分块缓存", () => {
     store.delete(id);
     expect(store.getRuntimeChunkRevision(1, 0)).toBeGreaterThan(afterSet + 1);
   });
+
+  it("重复登记同一 owner 边不会额外推进分块 revision", () => {
+    const store = new SparseChunkStore();
+    store.assignEdge("edge:square:0:0|0:1", "cell:square:0:0");
+    const revision = store.getRuntimeChunkRevision(0, 0);
+    store.assignEdge("edge:square:0:0|0:1", "cell:square:0:0");
+    expect(store.getRuntimeChunkRevision(0, 0)).toBe(revision);
+  });
 });
 
 describe("Connection/Overlay 稀疏空间索引", () => {

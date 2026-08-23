@@ -351,11 +351,15 @@ export class EditorStore {
     const previous = this.#state.edges.get(edgeId);
     if (previous === undefined) throw new Error(`edge-not-found:${edgeId}`);
     const before = cloneEdge(previous);
+    const ownerCellId = before.adjacentCellIds[0];
+    if (ownerCellId === undefined) throw new Error("edge-owner-missing");
     this.#execute({
-      managers: new Set(["edges"]),
+      managers: new Set(["edges", "chunks"]),
       apply: () => {
         this.#state.edges.updateStyle(edgeId, style);
         this.#state.edges.setPersistence(edgeId, "explicit-style");
+        // 边几何由 owner 分块批次绘制，样式变化必须精准推进该分块 revision。
+        this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
       },
       revert: () => {
         this.#state.edges.updateStyle(edgeId, before);
@@ -363,6 +367,7 @@ export class EditorStore {
           edgeId,
           before.persistence ?? "explicit-style",
         );
+        this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
       },
     });
   }

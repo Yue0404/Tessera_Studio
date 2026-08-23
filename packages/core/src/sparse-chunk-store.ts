@@ -89,6 +89,7 @@ export class SparseChunkStore implements SparseCellStoreContract {
   assignEdge(edgeId: string, ownerCellId: string): void {
     const owner = parseCellId(ownerCellId);
     const bucket = this.#ensureBucket(owner.row, owner.column);
+    if (bucket.ownedEdgeIds.has(edgeId)) return;
     bucket.ownedEdgeIds.add(edgeId);
     bucket.dirty = true;
     this.#bumpRuntimeChunk(owner.row, owner.column);
