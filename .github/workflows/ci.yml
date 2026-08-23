@@ -14,24 +14,42 @@ jobs:
         run: |
           set -euo pipefail
           node_major="$(node --version | sed -E 's/^v([0-9]+).*/\1/')"
-          pnpm_version="$(pnpm --version)"
+          node_platform="$(node -p 'process.platform')"
+          pnpm_entrypoint="$HOME/.local/share/pnpm/v11.4.0/dist/pnpm.mjs"
+          windows_pnpm="$(type -a -p pnpm | grep -E '^/mnt/[a-z]/' | head -n 1 || true)"
+          pnpm_store="$(dirname "$(dirname "$windows_pnpm")")/store/v11"
           if [[ "$node_major" != "24" ]]; then
             echo "::error::自托管运行器需要 Node 24，实际为 $(node --version)"
             exit 1
           fi
+          if [[ "$node_platform" != "linux" ]]; then
+            echo "::error::自托管 WSL 运行器必须使用 Linux Node，实际平台为 $node_platform"
+            exit 1
+          fi
+          if [[ ! -f "$pnpm_entrypoint" ]]; then
+            echo "::error::未找到预装的 Linux pnpm 11.4.0：$pnpm_entrypoint"
+            exit 1
+          fi
+          if [[ -z "$windows_pnpm" || ! -d "$pnpm_store/files" ]]; then
+            echo "::error::未找到自托管运行器预热的 pnpm v11 离线缓存"
+            exit 1
+          fi
+          pnpm_version="$(node "$pnpm_entrypoint" --version)"
           if [[ "$pnpm_version" != "11.4.0" ]]; then
             echo "::error::自托管运行器需要 pnpm 11.4.0，实际为 $pnpm_version"
             exit 1
           fi
-          echo "Node $(node --version) / pnpm $pnpm_version"
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm format:check
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
-      - run: pnpm exec playwright install chromium
-      - run: pnpm e2e --workers=1
+          echo "PNPM_ENTRYPOINT=$pnpm_entrypoint" >> "$GITHUB_ENV"
+          echo "PNPM_STORE_DIR=$pnpm_store" >> "$GITHUB_ENV"
+          echo "Node $(node --version) ($node_platform) / pnpm $pnpm_version"
+      - run: node "$PNPM_ENTRYPOINT" install --frozen-lockfile --offline --store-dir "$PNPM_STORE_DIR"
+      - run: node "$PNPM_ENTRYPOINT" format:check
+      - run: node "$PNPM_ENTRYPOINT" lint
+      - run: node "$PNPM_ENTRYPOINT" typecheck
+      - run: node "$PNPM_ENTRYPOINT" test
+      - run: node "$PNPM_ENTRYPOINT" build
+      - run: node "$PNPM_ENTRYPOINT" exec playwright install chromium
+      - run: node "$PNPM_ENTRYPOINT" e2e --workers=1
       - name: 上传 Playwright 失败诊断制品
         if: failure()
         uses: actions/upload-artifact@v4
