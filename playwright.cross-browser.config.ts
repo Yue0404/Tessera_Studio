@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 const configuredChromePath =
   process.env.TESSERA_CHROME_EXECUTABLE_PATH?.trim() || undefined;
+const configuredFirefoxPath =
+  process.env.TESSERA_FIREFOX_EXECUTABLE_PATH?.trim() || undefined;
 
 /** 跨浏览器验证独立于默认 e2e，避免改变本地与 CI 的既有入口。 */
 export default defineConfig({
@@ -40,7 +42,12 @@ export default defineConfig({
     },
     {
       name: "firefox-playwright",
-      use: { ...devices["Desktop Firefox"] },
+      use: configuredFirefoxPath
+        ? {
+            ...devices["Desktop Firefox"],
+            launchOptions: { executablePath: configuredFirefoxPath },
+          }
+        : { ...devices["Desktop Firefox"] },
     },
   ],
 });

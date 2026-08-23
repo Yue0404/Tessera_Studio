@@ -1,0 +1,76 @@
+# M4-C 浏览器真实性能与稳定性证据
+
+本文记录可复跑的候选证据，不提交 benchmark JSON 运行产物，也不把非参考机器结果冒充 PERF-010 参考档。
+
+## 复跑入口
+
+```powershell
+pnpm benchmark:browser --output local-modules/.review/browser-benchmark.json
+pnpm e2e --workers=1 tests/e2e/runtime-viewport-performance.spec.ts
+pnpm browser:support:matrix --output local-modules/.review/browser-support.json
+```
+
+基准输出必须通过 [benchmark-profile-v1 schema](../tests/benchmarks/benchmark-profile-v1.schema.json)。性能 runner 使用生产构建、生产工程导入/恢复、生产 renderer 和真实填充 Worker；输出目录被 Git 忽略。
+
+## 2026-08-23 实机环境
+
+- OS：Windows `10.0.26200 x64`；
+- CPU：Intel Core i9-12900H，20 个逻辑处理器；
+- 可用内存：约 39.6 GB；
+- 浏览器：Microsoft Edge / Chromium `151.0.4129.101`；
+- 视口：`1440×900`，DPR=1；
+- headless 会话未提供可识别的硬件 GPU renderer，`hardwareAccelerated=false`；
+- 与 PERF-010 的 4 核/8 线程、8 GiB 可用内存、硬件加速参考档不等价，因此 `comparable=false`。
+
+## 正式 20 次冷启动
+
+| 场景                                       |         P50 |         P95 | 门禁           |
+| ------------------------------------------ | ----------: | ----------: | -------------- |
+| 100×100、2,000 内容格 Project 导入至可交互 | 1,866.89 ms | 1,907.59 ms | P95 ≤ 3,000 ms |
+| 同工程本地保存后刷新恢复至可交互           |   944.09 ms |   952.17 ms | P95 ≤ 3,000 ms |
+
+这些数值证明当前实机路径通过，但不替代 PERF-001/010 的冻结参考硬件结果。
+
+## 交互、分块与内存
+
+- 25%、100%、400% 的平移/缩放样本 P05 FPS 均不低于 116.28，最长停顿 41.60 ms；
+- 连续画刷 PointerEvent 至下一次 rAF 的 P95 为 19.00 ms；
+- 40,000×40,000 稀疏工程长距离平移 P95 为 0.80 ms，缺帧 0；
+- 运行时 LRU 在第 190 次长距离访问达到 256 个分块，继续 64 次后仍为 256；
+- GPU batch 在饱和点为 83，后续 64 次最大仍为 83；
+- Chromium CDP `HeapProfiler.collectGarbage` 在首次饱和与后续 64 次后分别采样。修复子 `GraphicsContext` 未释放后，三轮饱和后驻留堆增量为 19,286,248、19,771,229、19,803,402 字节；相对饱和前单位访问线性外推比为 0.07896、0.08103、0.08114，均低于 0.25 门禁；
+- DPR=1 的真实 canvas 像素测量连续两轮均检测 194/194 个无遮挡、非水平交点采样行；半设备像素描边对齐后，Edge 的最大误差为 0 CSS px，Firefox 的最大误差为 0.05 CSS px，均不超过 0.5 CSS px；
+- PERF-006 回归在跨 64×64 分块边界创建标记、线和箭头，访问至 LRU 淘汰后返回；连续两轮均发生原区域批次重建，领域计数不变，前后 canvas PNG 逐字节一致。
+
+强制 GC 指标只适用于 Chromium/Edge；Firefox 通过缓存数量、状态和视觉回归验证，不宣称拥有等价 CDP 堆采样。
+
+## 250,000 后台任务
+
+生产 500×500 连通填充创建真实同源 Worker。测试保留真实进度消息、在最终结果发布前由生产 UI 取消并调用真实 `terminate`：
+
+- 正式运行观测进度 29%；
+- 取消可观察耗时 31.09 ms；
+- 取消后工程对象数不变，没有部分提交。
+
+## 当前浏览器与无障碍
+
+同一套 39 项核心流程矩阵事实，产品浏览器与 Playwright engine 分开记录：
+
+- 系统 Microsoft Edge `151.0.4129.101`：39/39；
+- Google 官方 Chrome for Testing Stable `152.0.7977.54`：39/39；
+- Google 官方 Chrome for Testing 上一主版本 `151.0.7922.138`：39/39；
+- Playwright Firefox `153.0`：39/39；
+- 与 Playwright 1.62.1 匹配的官方 Firefox Beta `152.0b1`（revision `1526`）：39/39；
+- Playwright Chromium `151.0.7922.34`：39/39，仅作为 Chromium engine 补充证据，不冒充 Chrome 产品。
+
+Chrome 版本来自 Google Chrome for Testing 的 `last-known-good-versions-with-downloads.json` 与 `known-good-versions-with-downloads.json`；Firefox 152 来自 Playwright 1.62.1 `browsers.json` 指向的官方 CDN 构建。Firefox 品牌版不能直接由 Playwright 的 patched Firefox 协议驱动，因此不把 Mozilla branded binary 冒充这套 39 项结果。
+
+矩阵覆盖新建、绘制、撤销、保存/刷新、Project/Fragment、包安装、Worker 填充、CSP、WebGL context lost/restored、axe WCAG 2.2 AA、键盘焦点、tooltip 与 reduced-motion。
+
+Microsoft 官方 Edge Enterprise API 提供上一主版本 `150.0.4078.144` 的 x64 MSI。该 MSI 下载成功，`msiexec /a` 返回成功，但行政映像只生成重新打包的 MSI，没有可并行启动的 `msedge.exe`；内嵌载荷是 Edge Update Setup。为避免覆盖系统 Edge 或改变默认浏览器，本轮没有执行安装器，因此 Edge 150 保持 blocked。这一结论只说明当前安全自动化边界，不代表 Edge 150 产品不兼容。
+
+## 仍未闭合
+
+- PERF-001、PERF-002、PERF-010 的冻结参考硬件/硬件加速档；
+- Microsoft Edge 前一个主要版本的安全并行运行证据；
+- 普通 Windows 10 22H2 支持口径与项目许可证决策。

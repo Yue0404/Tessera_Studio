@@ -26,6 +26,15 @@ import {
   WebGlContextLifecycle,
   type RendererContextStatus,
 } from "./webgl-context-lifecycle.js";
+import {
+  ZOOM_STEP,
+  clampZoom,
+  mapToScreen,
+  screenToMap,
+  strokeAlignmentOffsetMapUnits,
+  zoomCameraAt,
+} from "./camera-transform.js";
+import type { GridRendererStats } from "./grid-renderer.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
 export interface OverlayPlacement {
@@ -72,6 +81,15 @@ export interface RendererInteraction {
   select(objects: readonly SelectedObject[], additive: boolean): void;
   cancelTool(): void;
   contextStatusChanged?(status: RendererContextStatus): void;
+  zoomChanged?(zoom: number): void;
+}
+
+export interface RendererPerformanceStats {
+  readonly zoom: number;
+  readonly visibleCellCount: number;
+  readonly loadedChunkCount: number;
+  readonly grid: GridRendererStats;
+  readonly renderDurationMs: number;
 }
 
 export class TesseraRenderer {
@@ -92,10 +110,12 @@ export class TesseraRenderer {
   #connectionStart: ConnectionEndpoint | null = null;
   #connectionEdges: EdgePlacementTarget[] = [];
   #camera = { x: 0, y: 0 };
+  #zoom = 1;
   #lastScreenPoint: MapPoint | null = null;
   #resizeObserver: ResizeObserver | undefined;
   #contextLifecycle: WebGlContextLifecycle | undefined;
   #contextLost = false;
+  #renderDurationMs = 0;
 
   constructor(
     host: HTMLElement,
@@ -148,6 +168,9 @@ export class TesseraRenderer {
       "contextmenu",
       this.#onContextMenu,
     );
+    this.#application.canvas.addEventListener("wheel", this.#onWheel, {
+      passive: false,
+    });
     window.addEventListener("pointerup", this.#onPointerUp);
     window.addEventListener("keydown", this.#onKeyDown);
     this.#resizeObserver = new ResizeObserver(() => this.render(this.#state));
@@ -156,11 +179,12 @@ export class TesseraRenderer {
   }
 
   render(state: Readonly<ProjectState>): void {
+    const startedAt = performance.now();
     this.#state = state;
     if (this.#contextLost) return;
     const width = Math.max(1, this.#host.clientWidth);
     const height = Math.max(1, this.#host.clientHeight);
-    this.#ranges.updateViewport(this.#camera, width, height);
+    this.#ranges.updateViewport(this.#camera, width, height, this.#zoom);
     const viewport = this.#ranges.getViewportBounds();
     this.#visible = visibleCellsInRect(
       state.grid,
@@ -177,10 +201,36 @@ export class TesseraRenderer {
     this.#application.renderer.background.color = background.color;
     this.#application.renderer.background.alpha = background.alpha;
     this.#content.position.set(this.#camera.x, this.#camera.y);
-    this.#gridRenderer.render(state, this.#visible);
+    this.#content.scale.set(this.#zoom);
+    this.#gridRenderer.render(
+      state,
+      this.#visible,
+      strokeAlignmentOffsetMapUnits(
+        this.#zoom,
+        this.#application.renderer.resolution,
+      ),
+    );
     this.#connectionRenderer.render(state, viewport);
     this.#overlayRenderer.render(state, viewport);
     this.#renderPreview();
+    this.#renderDurationMs = performance.now() - startedAt;
+    const stats = this.getPerformanceStats();
+    const canvas = this.#application.canvas;
+    canvas.dataset.zoom = String(this.#zoom);
+    canvas.dataset.cameraX = String(this.#camera.x);
+    canvas.dataset.cameraY = String(this.#camera.y);
+    canvas.dataset.gridCellSize = String(state.grid.cellSize);
+    canvas.dataset.loadedChunkCount = String(stats.loadedChunkCount);
+    canvas.dataset.gridBatchCount = String(stats.grid.batchCount);
+    canvas.dataset.gridRebuiltCount = String(stats.grid.rebuiltCount);
+    canvas.dataset.gridTotalRebuiltCount = String(stats.grid.totalRebuiltCount);
+    canvas.dataset.gridBuildDurationMs = String(stats.grid.buildDurationMs);
+    if (stats.grid.rebuiltCount > 0) {
+      canvas.dataset.gridLastRebuildDurationMs = String(
+        stats.grid.buildDurationMs,
+      );
+    }
+    canvas.dataset.renderDurationMs = String(this.#renderDurationMs);
   }
 
   destroy(): void {
@@ -199,6 +249,7 @@ export class TesseraRenderer {
       "contextmenu",
       this.#onContextMenu,
     );
+    this.#application.canvas.removeEventListener("wheel", this.#onWheel);
     window.removeEventListener("pointerup", this.#onPointerUp);
     window.removeEventListener("keydown", this.#onKeyDown);
     this.#application.destroy({ removeView: true }, { children: true });
@@ -212,13 +263,47 @@ export class TesseraRenderer {
     return this.#ranges.getSelectionBounds();
   }
 
+  getZoom(): number {
+    return this.#zoom;
+  }
+
+  setZoom(value: number, screenAnchor?: Readonly<MapPoint>): number {
+    const bounds = this.#application.canvas.getBoundingClientRect();
+    const anchor = screenAnchor ?? {
+      x: bounds.width / 2,
+      y: bounds.height / 2,
+    };
+    const next = zoomCameraAt(this.#camera, this.#zoom, value, anchor);
+    if (next.zoom === this.#zoom) return this.#zoom;
+    this.#zoom = next.zoom;
+    this.#camera = next.camera;
+    this.render(this.#state);
+    this.#interaction.zoomChanged?.(this.#zoom);
+    return this.#zoom;
+  }
+
+  zoomByStep(direction: -1 | 1): number {
+    const next = Math.round((this.#zoom + direction * ZOOM_STEP) * 100) / 100;
+    return this.setZoom(next);
+  }
+
+  getPerformanceStats(): RendererPerformanceStats {
+    return {
+      zoom: this.#zoom,
+      visibleCellCount: this.#visible.length,
+      loadedChunkCount: this.#state.cells.loadedChunkKeys.length,
+      grid: this.#gridRenderer.stats,
+      renderDurationMs: this.#renderDurationMs,
+    };
+  }
+
   #screenPoint(event: PointerEvent): MapPoint {
     const bounds = this.#application.canvas.getBoundingClientRect();
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
   #mapPoint(screen: MapPoint): MapPoint {
-    return { x: screen.x - this.#camera.x, y: screen.y - this.#camera.y };
+    return screenToMap(screen, this.#camera, this.#zoom);
   }
 
   #target(point: MapPoint): VisibleCell | undefined {
@@ -359,26 +444,27 @@ export class TesseraRenderer {
       ) {
         const left = Math.min(state.startPoint.x, state.previewPoint.x);
         const top = Math.min(state.startPoint.y, state.previewPoint.y);
+        const start = mapToScreen(
+          { x: left, y: top },
+          this.#camera,
+          this.#zoom,
+        );
         this.#preview
           .rect(
-            left + this.#camera.x,
-            top + this.#camera.y,
-            Math.abs(state.previewPoint.x - state.startPoint.x),
-            Math.abs(state.previewPoint.y - state.startPoint.y),
+            start.x,
+            start.y,
+            Math.abs(state.previewPoint.x - state.startPoint.x) * this.#zoom,
+            Math.abs(state.previewPoint.y - state.startPoint.y) * this.#zoom,
           )
           .stroke({ color: 0x73b7c8, alpha: 0.9, width: 1 });
       }
       return;
     }
+    const start = mapToScreen(state.startPoint, this.#camera, this.#zoom);
+    const end = mapToScreen(state.previewPoint, this.#camera, this.#zoom);
     this.#preview
-      .moveTo(
-        state.startPoint.x + this.#camera.x,
-        state.startPoint.y + this.#camera.y,
-      )
-      .lineTo(
-        state.previewPoint.x + this.#camera.x,
-        state.previewPoint.y + this.#camera.y,
-      )
+      .moveTo(start.x, start.y)
+      .lineTo(end.x, end.y)
       .stroke({ color: 0x73b7c8, alpha: 0.9, width: 2 });
   }
 
@@ -499,6 +585,18 @@ export class TesseraRenderer {
     this.render(this.#state);
   };
 
+  readonly #onWheel = (event: WheelEvent): void => {
+    if (this.#contextLost) return;
+    event.preventDefault();
+    const bounds = this.#application.canvas.getBoundingClientRect();
+    const anchor = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    const factor = Math.exp(-event.deltaY * 0.0015);
+    this.setZoom(clampZoom(this.#zoom * factor), anchor);
+  };
+
   readonly #onKeyDown = (event: KeyboardEvent): void => {
     if (this.#contextLost) return;
     const target = event.target;
@@ -507,6 +605,21 @@ export class TesseraRenderer {
       target instanceof HTMLTextAreaElement ||
       (target instanceof HTMLElement && target.isContentEditable)
     ) {
+      return;
+    }
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      this.zoomByStep(1);
+      return;
+    }
+    if (event.key === "-") {
+      event.preventDefault();
+      this.zoomByStep(-1);
+      return;
+    }
+    if (event.key === "0") {
+      event.preventDefault();
+      this.setZoom(1);
       return;
     }
     if (event.key !== "Escape") return;
@@ -548,6 +661,7 @@ export class TesseraRenderer {
     this.#application.canvas.dataset.rendererStatus = "available";
     this.#application.canvas.removeAttribute("aria-disabled");
     // Pixi 的 contextChange 已重建底层 GPU 系统；重新生成全部场景指令和可见缓存。
+    this.#gridRenderer.invalidateAll();
     this.render(this.#state);
     this.#application.start();
     this.#interaction.contextStatusChanged?.("available");

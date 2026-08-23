@@ -39,6 +39,14 @@ function option(name) {
     ?.slice(prefix.length);
 }
 
+function versionScope() {
+  const value = option("version-scope") ?? "current";
+  if (!["current", "previous", "supplemental"].includes(value)) {
+    throw new Error(`unknown-version-scope:${value}`);
+  }
+  return value;
+}
+
 function selectedTargets() {
   const requested = option("targets");
   if (requested === undefined) return Object.keys(TARGETS);
@@ -145,12 +153,24 @@ async function detect(target) {
           };
     }
   }
+  if (target === "firefox-playwright") {
+    const configured = process.env.TESSERA_FIREFOX_EXECUTABLE_PATH?.trim();
+    if (configured !== undefined && configured.length > 0) {
+      return (await fileExists(configured))
+        ? { available: true, reason: configured }
+        : {
+            available: false,
+            reason: `configured-path-not-found:${configured}`,
+          };
+    }
+  }
   return definition.installedBrowser === null
     ? detectSystemChannel(definition.channel)
     : detectPlaywrightBrowser(definition.installedBrowser);
 }
 
 const runs = [];
+const selectedVersionScope = versionScope();
 for (const target of selectedTargets()) {
   const definition = TARGETS[target];
   const capability = await detect(target);
@@ -195,6 +215,7 @@ for (const target of selectedTargets()) {
 
 const matrix = {
   profile: "support-matrix-v1",
+  versionScope: selectedVersionScope,
   generatedAt: new Date().toISOString(),
   environment: {
     os: `${os.platform()} ${os.release()}`,
@@ -203,13 +224,20 @@ const matrix = {
   },
   coverage: CORE_COVERAGE,
   runs,
-  previousMajor: {
-    status: "not-tested",
-    reason:
-      "本机与 Playwright 缓存没有受控的前一主版本浏览器，不能据当前版本外推。",
-    automation:
-      "M6 在隔离 runner 中固定上一主版本浏览器镜像，并使用本脚本相同完整流程生成证据。",
-  },
+  previousMajor:
+    selectedVersionScope === "previous"
+      ? {
+          status: "tested",
+          reason:
+            "本次输出由调用方显式固定前一主版本浏览器，并记录真实 browser.version。",
+          automation: "使用同一完整流程和 --version-scope=previous 复跑。",
+        }
+      : {
+          status: "not-tested",
+          reason: "本次输出不属于前一主版本证据，不能据当前版本外推。",
+          automation:
+            "固定前一主版本浏览器后以 --version-scope=previous 复跑。",
+        },
 };
 
 const schema = JSON.parse(

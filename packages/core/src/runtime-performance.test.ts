@@ -175,6 +175,27 @@ describe("运行时视口分块缓存", () => {
       }),
     ).toThrow("runtime-chunk-prefetch-invalid");
   });
+
+  it("仅在所属分块内容改变时递增渲染修订号", () => {
+    const store = new SparseChunkStore();
+    const id = "cell:square:65:2";
+    expect(store.getRuntimeChunkRevision(1, 0)).toBe(0);
+    store.set(id, {
+      instanceId: "cell-revision",
+      cellId: id,
+      row: 65,
+      column: 2,
+      fillColor: "#FFFFFFFF",
+      fillOpacity: 1,
+    });
+    const afterSet = store.getRuntimeChunkRevision(1, 0);
+    expect(afterSet).toBeGreaterThan(0);
+    expect(store.getRuntimeChunkRevision(0, 0)).toBe(0);
+    store.invalidateRuntimeChunkForCell(id);
+    expect(store.getRuntimeChunkRevision(1, 0)).toBeGreaterThan(afterSet);
+    store.delete(id);
+    expect(store.getRuntimeChunkRevision(1, 0)).toBeGreaterThan(afterSet + 1);
+  });
 });
 
 describe("Connection/Overlay 稀疏空间索引", () => {

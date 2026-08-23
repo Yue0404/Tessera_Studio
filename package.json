@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark:runtime": "node scripts/run-runtime-benchmark.mjs",
+    "benchmark:browser": "node scripts/run-browser-benchmark.mjs",
     "e2e": "playwright test",
     "e2e:production": "playwright test --config=playwright.production.config.ts",
     "e2e:pages": "playwright test --config=playwright.pages.config.ts",

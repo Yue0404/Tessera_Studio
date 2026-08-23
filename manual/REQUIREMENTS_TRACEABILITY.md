@@ -12,17 +12,19 @@
 
 ## 当前汇总
 
-| 范围                         | 状态        | 主要证据                                             |
-| ---------------------------- | ----------- | ---------------------------------------------------- |
-| 创建、几何、编辑、图层、历史 | covered     | core/renderer/web 单元测试与 vertical-slice E2E      |
-| 保存、Project、Fragment      | covered     | formats/storage 测试与真实浏览器下载、载入、刷新恢复 |
-| PNG/SVG                      | covered     | visual-export 单元测试及 Chromium/Edge 真 Blob 验证  |
-| 通用模块包                   | covered     | module-runtime、OPFS、Worker、真实浏览器导入         |
-| Civilization VI              | conditional | Issue #14；无包时核心网站必须独立通过                |
-| VIEW-008 与发布性能          | blocked     | Issue #12；正式 P50/P95、缺帧、内存证据未闭合        |
-| 当前及前一主要浏览器版本     | blocked     | Issue #12；当前版本有证据，前一主要版本不全          |
-| 普通 Windows 10 22H2         | blocked     | Microsoft 支持口径与当前 build-only 守卫冲突         |
-| 项目许可证                   | blocked     | 仓库所有者尚未作出授权决定                           |
+| 范围                         | 状态        | 主要证据                                                          |
+| ---------------------------- | ----------- | ----------------------------------------------------------------- |
+| 创建、几何、编辑、图层、历史 | covered     | core/renderer/web 单元测试与 vertical-slice E2E                   |
+| 保存、Project、Fragment      | covered     | formats/storage 测试与真实浏览器下载、载入、刷新恢复              |
+| PNG/SVG                      | covered     | visual-export 单元测试及 Chromium/Edge 真 Blob 验证               |
+| 通用模块包                   | covered     | module-runtime、OPFS、Worker、真实浏览器导入                      |
+| Civilization VI              | conditional | Issue #14；无包时核心网站必须独立通过                             |
+| VIEW-008                     | covered     | 真实分块 P95、缺帧、接缝与跨块淘汰回归                            |
+| 最大地图内存与跨块稳定       | covered     | 强制 GC、LRU 饱和及线/箭头/覆盖物往返                             |
+| PERF-010 参考档性能          | blocked     | Issue #12；当前实机不等同冻结参考硬件                             |
+| 当前及前一主要浏览器版本     | blocked     | Issue #12；Chrome/Firefox 已闭合，Edge 前一版缺少安全并行运行证据 |
+| 普通 Windows 10 22H2         | blocked     | Microsoft 支持口径与当前 build-only 守卫冲突                      |
+| 项目许可证                   | blocked     | 仓库所有者尚未作出授权决定                                        |
 
 ## 更新规则
 

@@ -8,3 +8,4 @@ export * from "./render-utils.js";
 export * from "./render-layer-order.js";
 export * from "./tessera-renderer.js";
 export * from "./webgl-context-lifecycle.js";
+export * from "./camera-transform.js";

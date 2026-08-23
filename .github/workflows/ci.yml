@@ -9,13 +9,21 @@ jobs:
     runs-on: [self-hosted, linux, x64, wsl]
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.4.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
+      - name: 校验自托管运行器 Node 与 pnpm
+        shell: bash
+        run: |
+          set -euo pipefail
+          node_major="$(node --version | sed -E 's/^v([0-9]+).*/\1/')"
+          pnpm_version="$(pnpm --version)"
+          if [[ "$node_major" != "24" ]]; then
+            echo "::error::自托管运行器需要 Node 24，实际为 $(node --version)"
+            exit 1
+          fi
+          if [[ "$pnpm_version" != "11.4.0" ]]; then
+            echo "::error::自托管运行器需要 pnpm 11.4.0，实际为 $pnpm_version"
+            exit 1
+          fi
+          echo "Node $(node --version) / pnpm $pnpm_version"
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm lint

@@ -105,6 +105,7 @@ export function EditorView({
   const [fillBusy, setFillBusy] = useState(false);
   const [fillProgress, setFillProgress] = useState(0);
   const [rendererContextLost, setRendererContextLost] = useState(false);
+  const [zoom, setZoom] = useState(1);
 
   placementRef.current = {
     brushColor,
@@ -254,6 +255,9 @@ export function EditorView({
         contextStatusChanged: (status) => {
           if (status === "lost") fillTaskRef.current?.cancel();
           if (!cancelled) setRendererContextLost(status === "lost");
+        },
+        zoomChanged: (value) => {
+          if (!cancelled) setZoom(value);
         },
       },
       t("canvas.label"),
@@ -450,7 +454,12 @@ export function EditorView({
             onClose={() => setContextPanel(null)}
           />
         )}
-        <EditorStatusBar state={state} />
+        <EditorStatusBar
+          state={state}
+          zoom={zoom}
+          onZoomOut={() => renderer.current?.zoomByStep(-1)}
+          onZoomIn={() => renderer.current?.zoomByStep(1)}
+        />
         {fillBusy && (
           <div className={styles.fillTask} role="status">
             <span>

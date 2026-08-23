@@ -228,6 +228,10 @@ export interface SparseCellStoreContract {
     visibleCells: readonly CellCoordinate[],
     options?: RuntimeChunkCacheOptions,
   ): RuntimeChunkCacheStats;
+  /** 返回分块内容修订号，供渲染批次判断是否需要重建。 */
+  getRuntimeChunkRevision(chunkRow: number, chunkColumn: number): number;
+  /** 已有对象的样式改变时，显式使其所属分块失效。 */
+  invalidateRuntimeChunkForCell(cellId: string): void;
   markAllClean(): void;
   readonly loadedChunkKeys: readonly string[];
 }

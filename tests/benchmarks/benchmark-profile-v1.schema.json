@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tessera.local/schemas/benchmark-profile-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "generatedAt",
+    "configuration",
+    "environment",
+    "scenarios"
+  ],
+  "properties": {
+    "profile": { "const": "benchmark-profile-v1" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coldIterations",
+        "projectDimension",
+        "projectContentCount",
+        "fillCount"
+      ],
+      "properties": {
+        "coldIterations": { "type": "integer", "minimum": 1 },
+        "projectDimension": { "type": "integer", "minimum": 1 },
+        "projectContentCount": { "type": "integer", "minimum": 1 },
+        "fillCount": { "type": "integer", "const": 250000 }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "os",
+        "cpu",
+        "logicalCpuCount",
+        "availableMemoryBytes",
+        "browserName",
+        "browserVersion",
+        "viewport",
+        "dpr",
+        "hardwareAccelerated",
+        "comparable",
+        "comparisonReason"
+      ],
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "cpu": { "type": "string", "minLength": 1 },
+        "logicalCpuCount": { "type": "integer", "minimum": 1 },
+        "availableMemoryBytes": { "type": "integer", "minimum": 0 },
+        "browserName": { "type": "string", "minLength": 1 },
+        "browserVersion": { "type": "string", "minLength": 1 },
+        "viewport": {
+          "type": "object",
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "integer", "const": 1440 },
+            "height": { "type": "integer", "const": 900 }
+          }
+        },
+        "dpr": { "type": "number", "const": 1 },
+        "hardwareAccelerated": { "type": "boolean" },
+        "comparable": { "type": "boolean" },
+        "comparisonReason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "scope", "unit", "samples", "p50", "p95", "passed"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "scope": { "type": "string", "minLength": 1 },
+          "unit": { "type": "string", "minLength": 1 },
+          "samples": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "number", "minimum": 0 }
+          },
+          "p50": { "type": "number", "minimum": 0 },
+          "p95": { "type": "number", "minimum": 0 },
+          "passed": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

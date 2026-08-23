@@ -229,14 +229,17 @@
     {
       "area": "视口性能硬门禁",
       "requirementIds": ["VIEW-008"],
-      "status": "blocked",
+      "status": "covered",
       "implementation": [
+        "packages/core/src/sparse-chunk-store.ts",
         "packages/renderer/src/grid-renderer.ts",
-        "tests/benchmarks"
+        "packages/renderer/src/camera-transform.ts"
       ],
-      "automatedTests": ["tests/benchmarks/runtime-performance.test.ts"],
-      "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/12"],
-      "blocker": "M4-C 浏览器真实性能验收所需的正式 P95、缺帧与接缝证据尚未在合并提交中闭合。"
+      "automatedTests": [
+        "tests/benchmarks/browser-runtime-performance.spec.ts",
+        "tests/e2e/runtime-viewport-performance.spec.ts"
+      ],
+      "humanEvidence": ["manual/M4_BROWSER_EVIDENCE.zh-CN.md"]
     },
     {
       "area": "编辑、覆盖物、连接与边",
@@ -499,7 +502,7 @@
         "tests/browser-support/support-matrix-v1.schema.json"
       ],
       "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/12"],
-      "blocker": "当前稳定版已有自动化证据；Chrome、Edge、Firefox 的前一个主要版本尚未全部取得真实运行证据。"
+      "blocker": "当前 Edge、Chrome、Firefox 及 Chrome/Firefox 前一主版本均有39项自动化证据；Microsoft 官方 Edge 150 MSI 无法经行政解包得到可并行启动二进制，不能在不覆盖系统 Edge 的前提下完成上一主版本运行证据。"
     },
     {
       "area": "运行时性能与后台任务",
@@ -518,16 +521,36 @@
       "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/12"]
     },
     {
-      "area": "发布性能基准",
-      "requirementIds": ["PERF-001", "PERF-005", "PERF-006", "PERF-010"],
+      "area": "最大地图内存与跨块稳定",
+      "requirementIds": ["PERF-005", "PERF-006"],
+      "status": "covered",
+      "implementation": [
+        "packages/core/src/sparse-chunk-store.ts",
+        "packages/renderer/src/grid-renderer.ts"
+      ],
+      "automatedTests": [
+        "tests/benchmarks/browser-runtime-performance.spec.ts",
+        "tests/e2e/runtime-viewport-performance.spec.ts"
+      ],
+      "humanEvidence": ["manual/M4_BROWSER_EVIDENCE.zh-CN.md"]
+    },
+    {
+      "area": "参考档发布性能基准",
+      "requirementIds": ["PERF-001", "PERF-010"],
       "status": "blocked",
       "implementation": [
-        "scripts/run-runtime-benchmark.mjs",
-        "tests/benchmarks"
+        "scripts/run-browser-benchmark.mjs",
+        "playwright.benchmark.config.ts"
       ],
-      "automatedTests": ["tests/benchmarks/runtime-performance.test.ts"],
-      "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/12"],
-      "blocker": "参考硬件的20次冷启动、最大地图长距离访问及最终 P50/P95 证据尚未在合并提交中闭合。"
+      "automatedTests": [
+        "tests/benchmarks/benchmark-profile-v1.schema.json",
+        "tests/benchmarks/browser-runtime-performance.spec.ts"
+      ],
+      "humanEvidence": [
+        "manual/M4_BROWSER_EVIDENCE.zh-CN.md",
+        "https://github.com/Yue0404/Tessera_Studio/issues/12"
+      ],
+      "blocker": "当前20次冷启动实机证据通过，但机器为20逻辑处理器、约39.6 GiB可用内存且headless GPU不可识别，不等同PERF-010冻结参考档。"
     }
   ],
   "trackedP1Evidence": [
@@ -542,15 +565,34 @@
       "status": "covered"
     },
     {
-      "requirementIds": ["PERF-002", "PERF-003", "PERF-004"],
+      "requirementIds": ["PERF-003", "PERF-004"],
       "implementation": [
         "packages/renderer/src",
         "apps/web/src/components/EditorView.tsx"
       ],
-      "automatedTests": ["tests/benchmarks/runtime-performance.test.ts"],
-      "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/12"],
+      "automatedTests": [
+        "tests/benchmarks/browser-runtime-performance.spec.ts",
+        "tests/e2e/vertical-slice.spec.ts",
+        "tests/e2e/visual-export-ui.spec.ts"
+      ],
+      "humanEvidence": ["manual/M4_BROWSER_EVIDENCE.zh-CN.md"],
+      "status": "covered"
+    },
+    {
+      "requirementIds": ["PERF-002"],
+      "implementation": [
+        "packages/renderer/src",
+        "apps/web/src/components/EditorView.tsx"
+      ],
+      "automatedTests": [
+        "tests/benchmarks/browser-runtime-performance.spec.ts"
+      ],
+      "humanEvidence": [
+        "manual/M4_BROWSER_EVIDENCE.zh-CN.md",
+        "https://github.com/Yue0404/Tessera_Studio/issues/12"
+      ],
       "status": "blocked",
-      "blocker": "真实性能采样仍由 M4 Issue #12 收口。"
+      "blocker": "当前1440×900、DPR=1实机数据通过，但硬件和GPU条件不等同PERF-010冻结参考档。"
     }
   ]
 }

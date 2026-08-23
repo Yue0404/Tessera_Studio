@@ -38,6 +38,7 @@ test("Schema 约束 passed 与 unavailable 的身份字段", async () => {
   const validate = ajv.compile(schema);
   const base = {
     profile: "support-matrix-v1",
+    versionScope: "current",
     generatedAt: "2026-08-22T00:00:00.000Z",
     environment: { os: "test", arch: "x64", nodeVersion: "v24" },
     coverage: Array.from({ length: 6 }, (_, index) => ({
@@ -100,5 +101,28 @@ test("Schema 约束 passed 与 unavailable 的身份字段", async () => {
       ],
     }),
     false,
+  );
+  assert.equal(
+    validate({
+      ...base,
+      versionScope: "previous",
+      previousMajor: {
+        status: "tested",
+        reason: "固定前一主版本并完成测试",
+        automation: "使用相同矩阵复跑",
+      },
+      runs: [
+        {
+          target: "firefox-playwright",
+          status: "passed",
+          channel: "firefox",
+          browserName: "firefox",
+          browserVersion: "152.0b1",
+          exitCode: 0,
+          durationMs: 1,
+        },
+      ],
+    }),
+    true,
   );
 });
