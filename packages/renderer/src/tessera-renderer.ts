@@ -35,11 +35,16 @@ import {
   zoomCameraAt,
 } from "./camera-transform.js";
 import type { GridRendererStats } from "./grid-renderer.js";
+import {
+  isEditableShortcutTarget,
+  PanInteractionState,
+} from "./pan-interaction-state.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
 export interface OverlayPlacement {
   type: "marker" | "text";
   anchor: "cell" | "edge" | "map-point";
+  markerShape: "circle" | "diamond" | "pin";
 }
 export interface ConnectionPlacement {
   kind: "line" | "arrow";
@@ -47,6 +52,16 @@ export interface ConnectionPlacement {
   arrowMode: "end" | "both";
   label: string;
 }
+
+export interface ConnectionRebindTarget {
+  readonly connectionId: string;
+  readonly endpoint: "start" | "end";
+}
+
+export type RendererInteractionRejection =
+  | "connection-self-not-allowed"
+  | "connection-rebind-target-invalid"
+  | "connection-commit-failed";
 
 export interface EdgePlacementTarget {
   edgeId: string;
@@ -77,7 +92,14 @@ export interface RendererInteraction {
     start: ConnectionEndpoint,
     end: ConnectionEndpoint,
     edgeReferences: readonly EdgePlacementTarget[],
-  ): void;
+  ): boolean;
+  getConnectionRebind(): ConnectionRebindTarget | null;
+  commitConnectionRebind(
+    target: ConnectionRebindTarget,
+    cellId: string,
+  ): boolean;
+  cancelConnectionRebind(): void;
+  operationRejected(code: RendererInteractionRejection): void;
   select(objects: readonly SelectedObject[], additive: boolean): void;
   cancelTool(): void;
   contextStatusChanged?(status: RendererContextStatus): void;
@@ -104,6 +126,7 @@ export class TesseraRenderer {
   readonly #overlayRenderer: OverlayRenderer;
   readonly #canvasLabel: string;
   readonly #ranges = new InteractionRangeState();
+  readonly #pan = new PanInteractionState();
   #state: Readonly<ProjectState>;
   #visible: VisibleCell[] = [];
   #painting = false;
@@ -111,7 +134,7 @@ export class TesseraRenderer {
   #connectionEdges: EdgePlacementTarget[] = [];
   #camera = { x: 0, y: 0 };
   #zoom = 1;
-  #lastScreenPoint: MapPoint | null = null;
+  #spacePressed = false;
   #resizeObserver: ResizeObserver | undefined;
   #contextLifecycle: WebGlContextLifecycle | undefined;
   #contextLost = false;
@@ -172,7 +195,10 @@ export class TesseraRenderer {
       passive: false,
     });
     window.addEventListener("pointerup", this.#onPointerUp);
+    window.addEventListener("pointercancel", this.#onPointerCancel);
     window.addEventListener("keydown", this.#onKeyDown);
+    window.addEventListener("keyup", this.#onKeyUp);
+    window.addEventListener("blur", this.#onWindowBlur);
     this.#resizeObserver = new ResizeObserver(() => this.render(this.#state));
     this.#resizeObserver.observe(this.#host);
     this.render(this.#state);
@@ -251,7 +277,10 @@ export class TesseraRenderer {
     );
     this.#application.canvas.removeEventListener("wheel", this.#onWheel);
     window.removeEventListener("pointerup", this.#onPointerUp);
+    window.removeEventListener("pointercancel", this.#onPointerCancel);
     window.removeEventListener("keydown", this.#onKeyDown);
+    window.removeEventListener("keyup", this.#onKeyUp);
+    window.removeEventListener("blur", this.#onWindowBlur);
     this.#application.destroy({ removeView: true }, { children: true });
   }
 
@@ -470,12 +499,46 @@ export class TesseraRenderer {
 
   readonly #onPointerDown = (event: PointerEvent): void => {
     if (this.#contextLost) return;
-    if (event.button !== 0) return;
     const screen = this.#screenPoint(event);
+    const toolBefore = this.#interaction.getToolState();
+    if (
+      this.#pan.begin({
+        pointerId: event.pointerId,
+        button: event.button,
+        screenPoint: screen,
+        tool: toolBefore.tool,
+        spacePressed: this.#spacePressed,
+      })
+    ) {
+      event.preventDefault();
+      this.#application.canvas.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (event.button !== 0) return;
     const point = this.#mapPoint(screen);
     const cell = this.#target(point);
-    const toolBefore = this.#interaction.getToolState();
-    this.#lastScreenPoint = screen;
+    const rebind = this.#interaction.getConnectionRebind();
+    if (rebind !== null) {
+      event.preventDefault();
+      if (cell === undefined) {
+        this.#interaction.operationRejected("connection-rebind-target-invalid");
+        return;
+      }
+      try {
+        if (this.#interaction.commitConnectionRebind(rebind, cell.cellId)) {
+          this.#interaction.cancelConnectionRebind();
+        }
+      } catch (error) {
+        this.#interaction.operationRejected(
+          error instanceof Error &&
+            error.message === "connection-self-not-allowed"
+            ? "connection-self-not-allowed"
+            : "connection-commit-failed",
+        );
+      }
+      this.render(this.#state);
+      return;
+    }
     if (toolBefore.tool === "brush" || toolBefore.tool === "edge") {
       this.#painting = true;
       this.#interaction.beginStroke();
@@ -492,7 +555,18 @@ export class TesseraRenderer {
           : connectionTarget?.endpoint.kind === "cell-center"
             ? connectionTarget.endpoint.cellId
             : (cell?.cellId ?? null);
-    this.#interaction.pointerDown(point, targetToken);
+    try {
+      this.#interaction.pointerDown(point, targetToken);
+    } catch (error) {
+      this.#interaction.operationRejected(
+        error instanceof Error &&
+          error.message === "connection-self-not-allowed"
+          ? "connection-self-not-allowed"
+          : "connection-commit-failed",
+      );
+      this.render(this.#state);
+      return;
+    }
     if (toolBefore.tool === "brush" || toolBefore.tool === "edge")
       this.#paintAt(point);
     else if (toolBefore.tool === "marker") {
@@ -519,16 +593,22 @@ export class TesseraRenderer {
       connectionTarget !== null &&
       this.#connectionStart !== null
     ) {
-      this.#interaction.commitConnection(
-        this.#connectionStart,
-        connectionTarget.endpoint,
-        [
-          ...this.#connectionEdges,
-          ...(connectionTarget.edge ? [connectionTarget.edge] : []),
-        ],
-      );
-      this.#connectionStart = null;
-      this.#connectionEdges = [];
+      try {
+        const committed = this.#interaction.commitConnection(
+          this.#connectionStart,
+          connectionTarget.endpoint,
+          [
+            ...this.#connectionEdges,
+            ...(connectionTarget.edge ? [connectionTarget.edge] : []),
+          ],
+        );
+        if (committed) {
+          this.#connectionStart = null;
+          this.#connectionEdges = [];
+        }
+      } catch {
+        this.#interaction.operationRejected("connection-commit-failed");
+      }
     }
     this.#application.canvas.setPointerCapture(event.pointerId);
     this.render(this.#state);
@@ -537,25 +617,25 @@ export class TesseraRenderer {
   readonly #onPointerMove = (event: PointerEvent): void => {
     if (this.#contextLost) return;
     const screen = this.#screenPoint(event);
-    const point = this.#mapPoint(screen);
-    const tool = this.#interaction.getToolState().tool;
-    if (
-      tool === "pan" &&
-      this.#lastScreenPoint !== null &&
-      (event.buttons & 1) === 1
-    ) {
-      this.#camera.x += screen.x - this.#lastScreenPoint.x;
-      this.#camera.y += screen.y - this.#lastScreenPoint.y;
-      this.#lastScreenPoint = screen;
-    } else {
-      this.#interaction.pointerMove(point);
-      if (this.#painting) this.#paintAt(point);
+    const panDelta = this.#pan.move(event.pointerId, event.buttons, screen);
+    if (panDelta !== null) {
+      this.#camera.x += panDelta.x;
+      this.#camera.y += panDelta.y;
+      this.render(this.#state);
+      return;
     }
+    const point = this.#mapPoint(screen);
+    this.#interaction.pointerMove(point);
+    if (this.#painting) this.#paintAt(point);
     this.render(this.#state);
   };
 
   readonly #onPointerUp = (event: PointerEvent): void => {
     if (this.#contextLost) return;
+    if (this.#pan.end(event.pointerId)) {
+      this.render(this.#state);
+      return;
+    }
     const screen = this.#screenPoint(event);
     const point = this.#mapPoint(screen);
     const toolState = this.#interaction.getToolState();
@@ -570,8 +650,15 @@ export class TesseraRenderer {
         event.shiftKey,
       );
     }
-    this.#lastScreenPoint = null;
     this.render(this.#state);
+  };
+
+  readonly #onPointerCancel = (event: PointerEvent): void => {
+    if (this.#pan.end(event.pointerId)) {
+      this.render(this.#state);
+      return;
+    }
+    this.#cancelTransientInteraction();
   };
 
   readonly #onContextMenu = (event: MouseEvent): void => {
@@ -599,12 +686,10 @@ export class TesseraRenderer {
 
   readonly #onKeyDown = (event: KeyboardEvent): void => {
     if (this.#contextLost) return;
-    const target = event.target;
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      (target instanceof HTMLElement && target.isContentEditable)
-    ) {
+    if (isEditableShortcutTarget(event.target)) return;
+    if (event.code === "Space") {
+      event.preventDefault();
+      this.#spacePressed = true;
       return;
     }
     if (event.key === "+" || event.key === "=") {
@@ -627,9 +712,33 @@ export class TesseraRenderer {
     this.#painting = false;
     this.#connectionStart = null;
     this.#connectionEdges = [];
+    this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.render(this.#state);
   };
+
+  readonly #onKeyUp = (event: KeyboardEvent): void => {
+    if (event.code !== "Space" || !this.#spacePressed) return;
+    event.preventDefault();
+    this.#spacePressed = false;
+    if (this.#pan.releaseSpace()) this.render(this.#state);
+  };
+
+  readonly #onWindowBlur = (): void => {
+    this.#spacePressed = false;
+    this.#pan.cancel();
+    this.#cancelTransientInteraction();
+  };
+
+  #cancelTransientInteraction(): void {
+    if (this.#painting) this.#interaction.cancelStroke();
+    this.#painting = false;
+    this.#connectionStart = null;
+    this.#connectionEdges = [];
+    this.#interaction.cancelConnectionRebind();
+    this.#interaction.cancelTool();
+    this.render(this.#state);
+  }
 
   #colorValue(color: string): { color: number; alpha: number } {
     const normalized = color.replace("#", "");
@@ -649,7 +758,9 @@ export class TesseraRenderer {
     this.#painting = false;
     this.#connectionStart = null;
     this.#connectionEdges = [];
-    this.#lastScreenPoint = null;
+    this.#spacePressed = false;
+    this.#pan.cancel();
+    this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.#application.canvas.dataset.rendererStatus = "context-lost";
     this.#application.canvas.setAttribute("aria-disabled", "true");

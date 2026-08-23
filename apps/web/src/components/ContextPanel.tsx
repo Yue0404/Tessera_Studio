@@ -11,6 +11,7 @@ import {
 } from "@tessera/core";
 import styles from "./ContextPanel.module.css";
 import { SelectionInspector } from "./SelectionInspector.js";
+import type { ConnectionRebindTarget } from "@tessera/renderer";
 
 interface Props {
   panel: "properties" | "layers" | "modules" | "map";
@@ -20,6 +21,10 @@ interface Props {
   onEdgeStyle(edgeId: string, style: EdgeStyle): void;
   onOverlay(overlayId: string, overlay: OverlayData): void;
   onConnection(connectionId: string, connection: ConnectionData): void;
+  connectionRebind: ConnectionRebindTarget | null;
+  onReverseConnection(connectionId: string): void;
+  onBeginConnectionRebind(target: ConnectionRebindTarget): void;
+  onCancelConnectionRebind(): void;
   onDeleteSelection(): void;
   onLayerState(
     layerId: string,
@@ -36,6 +41,10 @@ export function ContextPanel({
   onEdgeStyle,
   onOverlay,
   onConnection,
+  connectionRebind,
+  onReverseConnection,
+  onBeginConnectionRebind,
+  onCancelConnectionRebind,
   onDeleteSelection,
   onLayerState,
   onClose,
@@ -70,6 +79,10 @@ export function ContextPanel({
           onEdgeStyle={onEdgeStyle}
           onOverlay={onOverlay}
           onConnection={onConnection}
+          connectionRebind={connectionRebind}
+          onReverseConnection={onReverseConnection}
+          onBeginConnectionRebind={onBeginConnectionRebind}
+          onCancelConnectionRebind={onCancelConnectionRebind}
           onDelete={onDeleteSelection}
         />
       )}

@@ -25,6 +25,13 @@ function project() {
   });
 }
 
+const connectionActions = {
+  connectionRebind: null,
+  onReverseConnection: vi.fn(),
+  onBeginConnectionRebind: vi.fn(),
+  onCancelConnectionRebind: vi.fn(),
+};
+
 describe("ContextPanel", () => {
   it("固定图层按高度排序并提供显隐、锁定和透明度控制", async () => {
     const user = userEvent.setup();
@@ -32,6 +39,7 @@ describe("ContextPanel", () => {
     render(
       <I18nextProvider i18n={i18n}>
         <ContextPanel
+          {...connectionActions}
           panel="layers"
           state={project()}
           selection={[]}
@@ -66,6 +74,7 @@ describe("ContextPanel", () => {
     render(
       <I18nextProvider i18n={i18n}>
         <ContextPanel
+          {...connectionActions}
           panel="properties"
           state={project()}
           selection={[{ kind: "cell", id: "cell:square:1:1" }]}
@@ -96,6 +105,7 @@ describe("ContextPanel", () => {
     render(
       <I18nextProvider i18n={i18n}>
         <ContextPanel
+          {...connectionActions}
           panel="properties"
           state={store.state}
           selection={[{ kind: "overlay", id: overlayId }]}
@@ -133,6 +143,7 @@ describe("ContextPanel", () => {
     render(
       <I18nextProvider i18n={i18n}>
         <ContextPanel
+          {...connectionActions}
           panel="layers"
           state={state}
           selection={[]}
@@ -154,5 +165,77 @@ describe("ContextPanel", () => {
     if (item === null) throw new Error("缺少占位层列表项");
     const unlock = within(item).getByRole("checkbox", { name: "锁定" });
     expect((unlock as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("标记属性面板暴露形状、尺寸、旋转、透明度和颜色", () => {
+    const store = new EditorStore(project());
+    const markerId = store.placeMarker(
+      { kind: "cell", cellId: "cell:square:1:1" },
+      "#123456FF",
+      "circle",
+    );
+    const onOverlay = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          {...connectionActions}
+          panel="properties"
+          state={store.state}
+          selection={[{ kind: "overlay", id: markerId }]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={onOverlay}
+          onConnection={vi.fn()}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    fireEvent.change(screen.getByLabelText("标记形状"), {
+      target: { value: "diamond" },
+    });
+    expect(onOverlay.mock.calls[0]?.[1].style.markerShape).toBe("diamond");
+    expect(screen.getByLabelText("标记尺寸")).toBeDefined();
+    expect(screen.getByLabelText("旋转（度）")).toBeDefined();
+    expect(screen.getByLabelText("透明度")).toBeDefined();
+    expect(screen.getByLabelText("标记颜色")).toBeDefined();
+  });
+
+  it("箭头提供反转与端点重绑定状态和取消入口", () => {
+    const store = new EditorStore(project());
+    const connectionId = store.createConnection(
+      { kind: "cell-center", cellId: "cell:square:1:1" },
+      { kind: "cell-center", cellId: "cell:square:1:2" },
+      { kind: "arrow", arrowMode: "end" },
+    );
+    const onReverseConnection = vi.fn();
+    const onBeginConnectionRebind = vi.fn();
+    const onCancelConnectionRebind = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          panel="properties"
+          state={store.state}
+          selection={[{ kind: "connection", id: connectionId }]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={vi.fn()}
+          onConnection={vi.fn()}
+          connectionRebind={{ connectionId, endpoint: "start" }}
+          onReverseConnection={onReverseConnection}
+          onBeginConnectionRebind={onBeginConnectionRebind}
+          onCancelConnectionRebind={onCancelConnectionRebind}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "反转方向" }));
+    expect(onReverseConnection).toHaveBeenCalledWith(connectionId);
+    expect(screen.getByText(/正在重新绑定起点/)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(onCancelConnectionRebind).toHaveBeenCalledOnce();
   });
 });

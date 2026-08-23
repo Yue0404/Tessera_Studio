@@ -8,6 +8,7 @@ import type {
   SelectedObject,
 } from "@tessera/core";
 import styles from "./ContextPanel.module.css";
+import type { ConnectionRebindTarget } from "@tessera/renderer";
 
 interface Props {
   state: Readonly<ProjectState>;
@@ -16,6 +17,10 @@ interface Props {
   onEdgeStyle(edgeId: string, style: EdgeStyle): void;
   onOverlay(overlayId: string, overlay: OverlayData): void;
   onConnection(connectionId: string, connection: ConnectionData): void;
+  connectionRebind: ConnectionRebindTarget | null;
+  onReverseConnection(connectionId: string): void;
+  onBeginConnectionRebind(target: ConnectionRebindTarget): void;
+  onCancelConnectionRebind(): void;
   onDelete(): void;
 }
 
@@ -210,18 +215,77 @@ export function SelectionInspector(props: Props) {
         </div>
       )}
       {overlay?.overlayType === "marker" && (
-        <label>
-          <span>{t("inspector.markerSize")}</span>
-          <input
-            type="number"
-            min="8"
-            max="256"
-            value={overlay.style.size}
-            onChange={(event) =>
-              updateOverlay({ size: Number(event.target.value) })
-            }
-          />
-        </label>
+        <div className={styles.fieldGrid}>
+          <label>
+            <span>{t("inspector.markerShape")}</span>
+            <select
+              value={overlay.style.markerShape}
+              onChange={(event) =>
+                updateOverlay({
+                  markerShape: event.target.value as
+                    "circle" | "diamond" | "pin",
+                })
+              }
+            >
+              {(["circle", "diamond", "pin"] as const).map((shape) => (
+                <option key={shape} value={shape}>
+                  {t(`markerShape.${shape}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t("inspector.markerSize")}</span>
+            <input
+              type="number"
+              min="8"
+              max="256"
+              value={overlay.style.size}
+              onChange={(event) =>
+                updateOverlay({ size: Number(event.target.value) })
+              }
+            />
+          </label>
+          <label>
+            <span>{t("inspector.rotation")}</span>
+            <input
+              type="number"
+              min="-360"
+              max="360"
+              value={overlay.style.rotation}
+              onChange={(event) =>
+                updateOverlay({
+                  rotation: normalizeRotationDegrees(
+                    Number(event.target.value),
+                  ),
+                })
+              }
+            />
+          </label>
+          <label>
+            <span>{t("inspector.opacity")}</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={overlay.style.opacity}
+              onChange={(event) =>
+                updateOverlay({ opacity: Number(event.target.value) })
+              }
+            />
+          </label>
+          <label>
+            <span>{t("inspector.markerColor")}</span>
+            <input
+              type="color"
+              value={colorWithoutAlpha(overlay.style.color)}
+              onChange={(event) =>
+                updateOverlay({ color: `${event.target.value}FF` })
+              }
+            />
+          </label>
+        </div>
       )}
       {connection !== undefined && (
         <div className={styles.fieldGrid}>
@@ -292,19 +356,75 @@ export function SelectionInspector(props: Props) {
             </select>
           </label>
           {connection.kind === "arrow" && (
-            <label>
-              <input
-                type="checkbox"
-                checked={connection.arrowStart}
-                onChange={(event) =>
-                  props.onConnection(connection.connectionId, {
-                    ...connection,
-                    arrowStart: event.target.checked,
-                  })
+            <>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={connection.arrowStart}
+                  onChange={(event) =>
+                    props.onConnection(connection.connectionId, {
+                      ...connection,
+                      arrowStart: event.target.checked,
+                    })
+                  }
+                />
+                {t("inspector.arrowBoth")}
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  props.onReverseConnection(connection.connectionId)
                 }
-              />
-              {t("inspector.arrowBoth")}
-            </label>
+              >
+                {t("inspector.reverseConnection")}
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            aria-pressed={
+              props.connectionRebind?.connectionId ===
+                connection.connectionId &&
+              props.connectionRebind.endpoint === "start"
+            }
+            onClick={() =>
+              props.onBeginConnectionRebind({
+                connectionId: connection.connectionId,
+                endpoint: "start",
+              })
+            }
+          >
+            {t("inspector.rebindStart")}
+          </button>
+          <button
+            type="button"
+            aria-pressed={
+              props.connectionRebind?.connectionId ===
+                connection.connectionId &&
+              props.connectionRebind.endpoint === "end"
+            }
+            onClick={() =>
+              props.onBeginConnectionRebind({
+                connectionId: connection.connectionId,
+                endpoint: "end",
+              })
+            }
+          >
+            {t("inspector.rebindEnd")}
+          </button>
+          {props.connectionRebind?.connectionId === connection.connectionId && (
+            <div className={styles.rebindStatus} role="status">
+              <span>
+                {t(
+                  props.connectionRebind.endpoint === "start"
+                    ? "inspector.rebindingStart"
+                    : "inspector.rebindingEnd",
+                )}
+              </span>
+              <button type="button" onClick={props.onCancelConnectionRebind}>
+                {t("action.cancel")}
+              </button>
+            </div>
           )}
         </div>
       )}

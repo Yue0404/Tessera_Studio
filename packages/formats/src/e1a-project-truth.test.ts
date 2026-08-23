@@ -391,11 +391,14 @@ describe("E1a Project v1 格式真相", () => {
     if (currentText === undefined || currentText.overlayType !== "text") {
       throw new Error("text-missing");
     }
+    // 隐藏图层拒绝编辑；本测试只验证格式保真，因此编辑时临时显示并在导出前恢复。
+    restoredStore.setLayerState("tessera.basic.annotation", { visible: true });
     restoredStore.updateOverlay(textId, {
       ...currentText,
       text: "新文字",
       style: { ...currentText.style, rotation: 90 },
     });
+    restoredStore.setLayerState("tessera.basic.annotation", { visible: false });
     const currentConnection = [...restoredStore.state.connections.values()][0];
     if (currentConnection === undefined) throw new Error("connection-missing");
     restoredStore.updateConnection(currentConnection.connectionId, {

@@ -24,6 +24,7 @@ import type {
   EditorTool,
   FixedLayerState,
   MapPoint,
+  MarkerStyle,
   NewProjectInput,
   OverlayAnchor,
   OverlayData,
@@ -43,6 +44,15 @@ export interface ConnectionPlacementOptions {
   kind: "line" | "arrow";
   arrowMode: "end" | "both";
   label: string | null;
+}
+
+export interface EditorOperationRejection {
+  readonly code:
+    | "layer-locked"
+    | "layer-hidden"
+    | "layer-module-missing"
+    | "layer-unavailable";
+  readonly layerId: string;
 }
 
 type Listener = () => void;
@@ -119,6 +129,7 @@ export class EditorStore {
   #state: ProjectState;
   #version = 0;
   #batch: { transactionId: string; changes: Change[] } | undefined;
+  #operationRejection: EditorOperationRejection | null = null;
 
   constructor(state: ProjectState) {
     this.#state = state;
@@ -146,6 +157,16 @@ export class EditorStore {
 
   get selection(): readonly SelectedObject[] {
     return [...this.#selection.values()];
+  }
+
+  get operationRejection(): EditorOperationRejection | null {
+    return this.#operationRejection;
+  }
+
+  clearOperationRejection(): void {
+    if (this.#operationRejection === null) return;
+    this.#operationRejection = null;
+    this.#publish(false);
   }
 
   subscribe = (listener: Listener): (() => void) => {
@@ -194,7 +215,7 @@ export class EditorStore {
       this.cancelBatch();
       throw error;
     }
-    if (this.#layerLocked("tessera.basic.cell-style")) return;
+    if (this.#rejectBlockedLayer("tessera.basic.cell-style")) return;
     const id = cellId(this.#state.grid.type, row, column);
     const previous = this.#state.cells.get(id);
     if (previous?.fillColor === fillColor) return;
@@ -220,8 +241,8 @@ export class EditorStore {
   eraseCell(row: number, column: number): void {
     const id = cellId(this.#state.grid.type, row, column);
     const previous = this.#state.cells.get(id);
-    if (previous === undefined || this.#layerLocked("tessera.basic.cell-style"))
-      return;
+    if (this.#rejectBlockedLayer("tessera.basic.cell-style")) return;
+    if (previous === undefined) return;
     this.#execute({
       managers: new Set(["cells", "chunks"]),
       apply: () => void this.#state.cells.delete(id),
@@ -236,7 +257,7 @@ export class EditorStore {
     limit = 10_000,
   ): number {
     assertGridCoordinate(this.#state.grid, { row, column });
-    if (this.#layerLocked("tessera.basic.cell-style")) return 0;
+    if (this.#rejectBlockedLayer("tessera.basic.cell-style")) return 0;
     const matched = planFillRegion(this.#state, row, column, fillColor, limit);
     this.#commitFillPlan(matched, fillColor);
     return matched.length;
@@ -249,7 +270,7 @@ export class EditorStore {
     options: FillRegionTaskOptions = {},
   ): BackgroundTask<number> {
     assertGridCoordinate(this.#state.grid, { row, column });
-    if (this.#layerLocked("tessera.basic.cell-style")) {
+    if (this.#rejectBlockedLayer("tessera.basic.cell-style")) {
       const empty = startFillRegionTask(
         this.#state,
         row,
@@ -295,7 +316,7 @@ export class EditorStore {
     adjacentCellIds: readonly string[],
     strokeColor: string,
   ): void {
-    if (this.#layerLocked("tessera.basic.edge-style")) return;
+    if (this.#rejectBlockedLayer("tessera.basic.edge-style")) return;
     const previous = this.#state.edges.get(edgeId);
     if (
       previous?.strokeColor === strokeColor &&
@@ -350,6 +371,7 @@ export class EditorStore {
   updateEdgeStyle(edgeId: string, style: EdgeStyle): void {
     const previous = this.#state.edges.get(edgeId);
     if (previous === undefined) throw new Error(`edge-not-found:${edgeId}`);
+    if (this.#rejectBlockedLayer("tessera.basic.edge-style")) return;
     const before = cloneEdge(previous);
     const ownerCellId = before.adjacentCellIds[0];
     if (ownerCellId === undefined) throw new Error("edge-owner-missing");
@@ -372,8 +394,12 @@ export class EditorStore {
     });
   }
 
-  placeMarker(anchor: OverlayAnchor | MapPoint, color = "#D9B866FF"): string {
-    if (this.#layerLocked("tessera.basic.placed-object")) return "";
+  placeMarker(
+    anchor: OverlayAnchor | MapPoint,
+    color = "#D9B866FF",
+    markerShape: MarkerStyle["markerShape"] = "pin",
+  ): string {
+    if (this.#rejectBlockedLayer("tessera.basic.placed-object")) return "";
     const overlayId = newUuid();
     const overlay: OverlayData =
       "kind" in anchor
@@ -390,7 +416,7 @@ export class EditorStore {
               rotation: 0,
               opacity: 1,
               color,
-              markerShape: "pin",
+              markerShape,
             },
             text: null,
           }
@@ -407,7 +433,7 @@ export class EditorStore {
               rotation: 0,
               opacity: 1,
               color,
-              markerShape: "pin",
+              markerShape,
             },
             text: null,
           };
@@ -441,6 +467,7 @@ export class EditorStore {
     text: string,
     style: Partial<TextPlacementStyle> = {},
   ): string {
+    if (this.#rejectBlockedLayer("tessera.basic.annotation")) return "";
     const overlayId = newUuid();
     const base = {
       overlayId,
@@ -496,16 +523,29 @@ export class EditorStore {
     return this.#placeEdgeOverlay(edge, "text", text, style);
   }
 
-  placeEdgeMarker(edge: EdgeOverride, color = "#D9B866FF"): string {
-    return this.#placeEdgeOverlay(edge, "marker", null, { color });
+  placeEdgeMarker(
+    edge: EdgeOverride,
+    color = "#D9B866FF",
+    markerShape: MarkerStyle["markerShape"] = "diamond",
+  ): string {
+    return this.#placeEdgeOverlay(edge, "marker", null, {
+      color,
+      markerShape,
+    });
   }
 
   #placeEdgeOverlay(
     edge: EdgeOverride,
     overlayType: "marker" | "text",
     text: string | null,
-    style: Partial<TextPlacementStyle>,
+    style: Partial<TextPlacementStyle> &
+      Partial<Pick<MarkerStyle, "color" | "markerShape">>,
   ): string {
+    const layerId =
+      overlayType === "marker"
+        ? "tessera.basic.placed-object"
+        : "tessera.basic.annotation";
+    if (this.#rejectBlockedLayer(layerId)) return "";
     const existing = this.#state.edges.get(edge.edgeId);
     const edgeData: EdgeOverride = {
       ...edge,
@@ -530,7 +570,7 @@ export class EditorStore {
               rotation: 0,
               opacity: 1,
               color: style.color ?? "#D9B866FF",
-              markerShape: "diamond",
+              markerShape: style.markerShape ?? "diamond",
             },
             text: null,
           }
@@ -584,6 +624,7 @@ export class EditorStore {
     end: ConnectionEndpoint,
     options: Partial<ConnectionPlacementOptions> | "line" | "arrow" = {},
   ): string {
+    if (this.#rejectBlockedLayer("tessera.basic.connection")) return "";
     const placement = typeof options === "string" ? { kind: options } : options;
     const connectionId = newUuid();
     const base = {
@@ -622,6 +663,7 @@ export class EditorStore {
     const previous = this.#state.overlays.get(overlayId);
     if (previous === undefined || next.overlayId !== overlayId)
       throw new Error(`overlay-not-found:${overlayId}`);
+    if (this.#rejectBlockedLayer(previous.layerId)) return;
     const normalized = {
       ...next,
       style: {
@@ -640,6 +682,7 @@ export class EditorStore {
     const previous = this.#state.connections.get(connectionId);
     if (previous === undefined || next.connectionId !== connectionId)
       throw new Error(`connection-not-found:${connectionId}`);
+    if (this.#rejectBlockedLayer(previous.layerId)) return;
     this.#execute({
       managers: new Set(["connections"]),
       apply: () => void this.#state.connections.replace(next),
@@ -647,7 +690,69 @@ export class EditorStore {
     });
   }
 
+  reverseConnection(connectionId: string): boolean {
+    const previous = this.#state.connections.get(connectionId);
+    if (previous === undefined)
+      throw new Error(`connection-not-found:${connectionId}`);
+    if (this.#rejectBlockedLayer(previous.layerId)) return false;
+    const next: ConnectionData =
+      previous.kind === "arrow"
+        ? {
+            ...previous,
+            start: previous.end,
+            end: previous.start,
+            arrowStart: previous.arrowEnd,
+            arrowEnd: previous.arrowStart,
+          }
+        : { ...previous, start: previous.end, end: previous.start };
+    this.#execute({
+      managers: new Set(["connections"]),
+      apply: () => void this.#state.connections.replace(next),
+      revert: () => void this.#state.connections.replace(previous),
+    });
+    return true;
+  }
+
+  rebindConnectionCellEndpoint(
+    connectionId: string,
+    endpoint: "start" | "end",
+    targetCellId: string,
+  ): boolean {
+    const previous = this.#state.connections.get(connectionId);
+    if (previous === undefined)
+      throw new Error(`connection-not-found:${connectionId}`);
+    if (this.#rejectBlockedLayer(previous.layerId)) return false;
+    const coordinate = parseCellId(targetCellId);
+    if (coordinate.gridType !== this.#state.grid.type) {
+      throw new RangeError("connection-cell-grid-mismatch");
+    }
+    assertGridCoordinate(this.#state.grid, coordinate);
+    const replacement = { kind: "cell-center" as const, cellId: targetCellId };
+    const other = endpoint === "start" ? previous.end : previous.start;
+    if (other.kind === "cell-center" && other.cellId === targetCellId) {
+      throw new Error("connection-self-not-allowed");
+    }
+    const next = { ...previous, [endpoint]: replacement } as ConnectionData;
+    this.#execute({
+      managers: new Set(["connections"]),
+      apply: () => void this.#state.connections.replace(next),
+      revert: () => void this.#state.connections.replace(previous),
+    });
+    return true;
+  }
+
   deleteSelection(): void {
+    for (const selected of this.#selection.values()) {
+      const layerId =
+        selected.kind === "cell"
+          ? "tessera.basic.cell-style"
+          : selected.kind === "edge"
+            ? "tessera.basic.edge-style"
+            : selected.kind === "connection"
+              ? "tessera.basic.connection"
+              : this.#state.overlays.get(selected.id)?.layerId;
+      if (layerId !== undefined && this.#rejectBlockedLayer(layerId)) return;
+    }
     this.beginBatch();
     try {
       for (const selected of [...this.#selection.values()]) {
@@ -878,6 +983,11 @@ export class EditorStore {
     if (this.#toolMachine.state.phase !== "committing") {
       throw new Error("connection-not-ready-to-commit");
     }
+    if (this.#rejectBlockedLayer("tessera.basic.connection")) {
+      this.#toolMachine.commitFailed();
+      this.#publish(false);
+      return "";
+    }
     try {
       this.beginBatch();
       for (const edge of edgeReferences) {
@@ -961,6 +1071,17 @@ export class EditorStore {
   }
 
   updateSelectionColor(color: string): void {
+    for (const selected of this.#selection.values()) {
+      const layerId =
+        selected.kind === "cell"
+          ? "tessera.basic.cell-style"
+          : selected.kind === "edge"
+            ? "tessera.basic.edge-style"
+            : selected.kind === "connection"
+              ? "tessera.basic.connection"
+              : this.#state.overlays.get(selected.id)?.layerId;
+      if (layerId !== undefined && this.#rejectBlockedLayer(layerId)) return;
+    }
     this.beginBatch();
     try {
       for (const selected of this.#selection.values()) {
@@ -1057,6 +1178,7 @@ export class EditorStore {
   }
 
   #execute(change: Change): void {
+    this.#operationRejection = null;
     try {
       change.apply();
     } catch (error) {
@@ -1157,9 +1279,27 @@ export class EditorStore {
     });
   }
 
-  #layerLocked(layerId: string): boolean {
+  #rejectBlockedLayer(layerId: string): boolean {
     const layer = this.#state.layers.get(layerId);
-    return layer?.locked === true || layer?.visible === false;
+    const code: EditorOperationRejection["code"] | null =
+      layer === undefined
+        ? "layer-unavailable"
+        : layer.runtimeStatus === "missing"
+          ? "layer-module-missing"
+          : layer.locked
+            ? "layer-locked"
+            : !layer.visible
+              ? "layer-hidden"
+              : null;
+    if (code === null) return false;
+    if (
+      this.#operationRejection?.code !== code ||
+      this.#operationRejection.layerId !== layerId
+    ) {
+      this.#operationRejection = { code, layerId };
+      this.#publish(false);
+    }
+    return true;
   }
 
   #overlayOwnerCellId(anchor: OverlayAnchor): string {

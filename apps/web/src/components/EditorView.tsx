@@ -12,7 +12,9 @@ import {
   TesseraRenderer,
   type BrushMode,
   type ConnectionPlacement,
+  type ConnectionRebindTarget,
   type OverlayPlacement,
+  type RendererInteractionRejection,
 } from "@tessera/renderer";
 import type { ProjectSaveTarget } from "../project-file-workflow.js";
 import { createFillRegionWorker } from "../fill-region-worker-adapter.js";
@@ -72,6 +74,7 @@ export function EditorView({
   const [overlay, setOverlay] = useState<OverlayPlacement>({
     type: "marker",
     anchor: "cell",
+    markerShape: "pin",
   });
   const [textOptions, setTextOptions] = useState<TextPlacementOptions>({
     text: "",
@@ -106,6 +109,10 @@ export function EditorView({
   const [fillProgress, setFillProgress] = useState(0);
   const [rendererContextLost, setRendererContextLost] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [connectionRebind, setConnectionRebind] =
+    useState<ConnectionRebindTarget | null>(null);
+  const connectionRebindRef = useRef<ConnectionRebindTarget | null>(null);
+  connectionRebindRef.current = connectionRebind;
 
   placementRef.current = {
     brushColor,
@@ -226,29 +233,56 @@ export function EditorView({
             if (current.overlay.type === "text") {
               store.placeEdgeText(edgeData, current.textOptions.text, style);
             } else {
-              store.placeEdgeMarker(edgeData, alphaColor(current.brushColor));
+              store.placeEdgeMarker(
+                edgeData,
+                alphaColor(current.brushColor),
+                current.overlay.markerShape,
+              );
             }
           } else if (anchor !== null) {
             if (current.overlay.type === "text") {
               store.placeText(anchor, current.textOptions.text, style);
             } else {
-              store.placeMarker(anchor, alphaColor(current.brushColor));
+              store.placeMarker(
+                anchor,
+                alphaColor(current.brushColor),
+                current.overlay.markerShape,
+              );
             }
           }
         },
         getConnectionPlacement: () => placementRef.current.connection,
         commitConnection: (start, end, edgeReferences) => {
           const current = placementRef.current.connection;
-          void store.commitConnection(
-            start,
-            end,
-            {
-              kind: current.kind,
-              arrowMode: current.arrowMode,
-              label: current.label === "" ? null : current.label,
-            },
-            edgeReferences,
+          return (
+            store.commitConnection(
+              start,
+              end,
+              {
+                kind: current.kind,
+                arrowMode: current.arrowMode,
+                label: current.label === "" ? null : current.label,
+              },
+              edgeReferences,
+            ) !== ""
           );
+        },
+        getConnectionRebind: () => connectionRebindRef.current,
+        commitConnectionRebind: (target, cellId) =>
+          store.rebindConnectionCellEndpoint(
+            target.connectionId,
+            target.endpoint,
+            cellId,
+          ),
+        cancelConnectionRebind: () => setConnectionRebind(null),
+        operationRejected: (code: RendererInteractionRejection) => {
+          const keyByCode = {
+            "connection-self-not-allowed": "error.connectionSelf",
+            "connection-rebind-target-invalid":
+              "error.connectionRebindTargetInvalid",
+            "connection-commit-failed": "error.connectionCommitFailed",
+          } as const;
+          setErrorKey(keyByCode[code]);
         },
         select: (objects, additive) => store.select(objects, additive),
         cancelTool: () => store.cancelTool(),
@@ -276,6 +310,19 @@ export function EditorView({
       }
     };
   }, [store, t]);
+
+  useEffect(() => {
+    if (
+      connectionRebind !== null &&
+      !store.selection.some(
+        (selected) =>
+          selected.kind === "connection" &&
+          selected.id === connectionRebind.connectionId,
+      )
+    ) {
+      setConnectionRebind(null);
+    }
+  }, [connectionRebind, store, version]);
 
   useEffect(() => {
     renderer.current?.render(store.state);
@@ -421,11 +468,37 @@ export function EditorView({
           onOverlay={setOverlay}
           onTextOptions={setTextOptions}
           onConnection={setConnection}
+          onElementSelect={(elementId) => {
+            setConnectionRebind(null);
+            if (elementId === "tessera.basic:cell.color")
+              store.setTool("brush");
+            else if (elementId === "tessera.basic:edge.style")
+              store.setTool("edge");
+            else if (elementId === "tessera.basic:marker") {
+              setOverlay((value) => ({ ...value, type: "marker" }));
+              store.setTool("marker");
+            } else if (elementId === "tessera.basic:text") {
+              setOverlay((value) => ({ ...value, type: "text" }));
+              store.setTool("marker");
+            } else if (
+              elementId === "tessera.basic:connection.line" ||
+              elementId === "tessera.basic:connection.arrow"
+            ) {
+              setConnection((value) => ({
+                ...value,
+                kind: elementId.endsWith(".line") ? "line" : "arrow",
+              }));
+              store.setTool("connection");
+            }
+          }}
         />
         <CanvasToolRail
           tool={store.toolState.tool}
           catalogCollapsed={catalogCollapsed}
-          onTool={(nextTool) => store.setTool(nextTool)}
+          onTool={(nextTool) => {
+            setConnectionRebind(null);
+            store.setTool(nextTool);
+          }}
           onContext={(panel) =>
             setContextPanel((current) => (current === panel ? null : panel))
           }
@@ -447,6 +520,15 @@ export function EditorView({
             onConnection={(connectionId, next) =>
               store.updateConnection(connectionId, next)
             }
+            connectionRebind={connectionRebind}
+            onReverseConnection={(connectionId) =>
+              store.reverseConnection(connectionId)
+            }
+            onBeginConnectionRebind={(target) => {
+              setConnectionRebind(target);
+              setErrorKey(null);
+            }}
+            onCancelConnectionRebind={() => setConnectionRebind(null)}
             onDeleteSelection={() => store.deleteSelection()}
             onLayerState={(layerId, patch) =>
               store.setLayerState(layerId, patch)
@@ -472,16 +554,26 @@ export function EditorView({
             </button>
           </div>
         )}
-        {(errorKey ?? externalErrorKey) !== null && (
+        {(errorKey !== null ||
+          externalErrorKey !== null ||
+          store.operationRejection !== null) && (
           <div
             role="alert"
             className={styles.error}
             onClick={() => {
               setErrorKey(null);
+              store.clearOperationRejection();
               onDismissExternalError?.();
             }}
           >
-            {t(errorKey ?? externalErrorKey ?? "error.invalidProject")}
+            {store.operationRejection !== null
+              ? t(`operation.${store.operationRejection.code}`, {
+                  layer: t(
+                    `layer.${store.operationRejection.layerId}`,
+                    store.operationRejection.layerId,
+                  ),
+                })
+              : t(errorKey ?? externalErrorKey ?? "error.invalidProject")}
           </div>
         )}
         {exportDialog !== null && (
