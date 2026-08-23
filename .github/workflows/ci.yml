@@ -16,8 +16,8 @@ jobs:
           node_major="$(node --version | sed -E 's/^v([0-9]+).*/\1/')"
           node_platform="$(node -p 'process.platform')"
           pnpm_entrypoint="$HOME/.local/share/pnpm/v11.4.0/dist/pnpm.mjs"
-          windows_pnpm="$(type -a -p pnpm | grep -E '^/mnt/[a-z]/' | head -n 1 || true)"
-          pnpm_store="$(dirname "$(dirname "$windows_pnpm")")/store/v11"
+          pnpm_store="$HOME/.local/share/pnpm/store/v11"
+          pnpm_bin_dir="$RUNNER_TEMP/tessera-pnpm/bin"
           if [[ "$node_major" != "24" ]]; then
             echo "::error::自托管运行器需要 Node 24，实际为 $(node --version)"
             exit 1
@@ -30,8 +30,8 @@ jobs:
             echo "::error::未找到预装的 Linux pnpm 11.4.0：$pnpm_entrypoint"
             exit 1
           fi
-          if [[ -z "$windows_pnpm" || ! -d "$pnpm_store/files" ]]; then
-            echo "::error::未找到自托管运行器预热的 pnpm v11 离线缓存"
+          if [[ ! -d "$pnpm_store/files" || ! -f "$pnpm_store/index.db" ]]; then
+            echo "::error::未找到自托管运行器预热的 Linux pnpm v11 离线缓存：$pnpm_store"
             exit 1
           fi
           pnpm_version="$(node "$pnpm_entrypoint" --version)"
@@ -39,10 +39,42 @@ jobs:
             echo "::error::自托管运行器需要 pnpm 11.4.0，实际为 $pnpm_version"
             exit 1
           fi
+          mkdir -p "$pnpm_bin_dir"
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'set -euo pipefail' \
+            'exec /usr/local/bin/node "$PNPM_ENTRYPOINT" "$@"' \
+            > "$pnpm_bin_dir/pnpm"
+          chmod +x "$pnpm_bin_dir/pnpm"
+          export PATH="$pnpm_bin_dir:$PATH"
+          export PNPM_ENTRYPOINT="$pnpm_entrypoint"
+          export npm_config_store_dir="$pnpm_store"
+          if [[ "$(command -v pnpm)" != "$pnpm_bin_dir/pnpm" ]]; then
+            echo "::error::未优先使用 Linux pnpm shim：$(command -v pnpm)"
+            exit 1
+          fi
+          if [[ "$(pnpm --version)" != "11.4.0" ]]; then
+            echo "::error::Linux pnpm shim 版本校验失败"
+            exit 1
+          fi
+          echo "$pnpm_bin_dir" >> "$GITHUB_PATH"
           echo "PNPM_ENTRYPOINT=$pnpm_entrypoint" >> "$GITHUB_ENV"
           echo "PNPM_STORE_DIR=$pnpm_store" >> "$GITHUB_ENV"
-          echo "Node $(node --version) ($node_platform) / pnpm $pnpm_version"
+          echo "npm_config_store_dir=$pnpm_store" >> "$GITHUB_ENV"
+          echo "Node $(node --version) ($node_platform) / pnpm $pnpm_version ($(command -v pnpm))"
       - run: node "$PNPM_ENTRYPOINT" install --frozen-lockfile --offline --store-dir "$PNPM_STORE_DIR"
+      - name: 校验 Linux x64 原生依赖
+        shell: bash
+        run: |
+          set -euo pipefail
+          rolldown_binding="node_modules/.pnpm/@rolldown+binding-linux-x64-gnu@1.2.5/node_modules/@rolldown/binding-linux-x64-gnu/rolldown-binding.linux-x64-gnu.node"
+          lightningcss_binding="node_modules/.pnpm/lightningcss-linux-x64-gnu@1.33.0/node_modules/lightningcss-linux-x64-gnu/lightningcss.linux-x64-gnu.node"
+          for binding in "$rolldown_binding" "$lightningcss_binding"; do
+            if [[ ! -s "$binding" ]]; then
+              echo "::error::Linux x64 原生依赖缺失或为空：$binding"
+              exit 1
+            fi
+          done
       - run: node "$PNPM_ENTRYPOINT" format:check
       - run: node "$PNPM_ENTRYPOINT" lint
       - run: node "$PNPM_ENTRYPOINT" typecheck

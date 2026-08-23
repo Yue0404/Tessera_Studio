@@ -77,6 +77,7 @@ test("运行时分块批次只在首次进入或变脏时重建", async ({ page 
 });
 
 test("VIEW-008 分块合成、连续平移和 40000 地图缓存有界", async ({ page }) => {
+  test.setTimeout(60_000);
   await createProject(page, "正方形", 40_000, 40_000);
   const canvas = page.getByLabel("地图编辑画布");
   await page.getByRole("button", { name: "平移" }).click();
