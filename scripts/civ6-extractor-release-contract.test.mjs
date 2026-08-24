@@ -122,27 +122,97 @@ test("远端 Release 严格保持 ZIP、SHA-256、summary 三项闭包", () => {
     'Authorization = "Bearer $($env:GH_TOKEN)"',
   );
   assert.ok(apiHostGate >= 0 && apiHostGate < authorizedDownload);
-  assert.match(publishScript, /browser_download_url -cne \$expectedAssetUrl/u);
+  assert.match(
+    publishScript,
+    /\$Asset\.browser_download_url -cne \$ExpectedUrl/u,
+  );
   assert.match(publishScript, /Get-FileHash[\s\S]*?-Algorithm SHA256/u);
 });
 
-test("失败路径不发布，且 draft=false 只出现在全部远端复核之后", () => {
-  const createDraft = publishScript.indexOf("'draft=true'");
-  const remoteDigest = publishScript.indexOf("远端 Release 资产逐字节复核失败");
-  const finalClosure = publishScript.lastIndexOf("Assert-AssetClosure");
+test("draft 的 untagged URL 与发布后的 tag URL 分阶段严格验收", () => {
+  const draftValidator = publishScript.slice(
+    publishScript.indexOf("function Assert-DraftAssetBrowserUrl"),
+    publishScript.indexOf("function Assert-PublishedAssetBrowserUrl"),
+  );
+  const publishedValidator = publishScript.slice(
+    publishScript.indexOf("function Assert-PublishedAssetBrowserUrl"),
+    publishScript.indexOf("function Undo-FailedPublishedRelease"),
+  );
+  const createDraft = publishScript.indexOf("$release = Invoke-GhJson");
+  const draftUrlCheck = publishScript.indexOf(
+    "Assert-DraftAssetBrowserUrl -Asset",
+    createDraft,
+  );
   const publish = publishScript.indexOf("'draft=false'");
-  const catchBlock = publishScript.slice(publishScript.indexOf("catch {"));
+  const publishedReadback = publishScript.indexOf("$publishedRelease =");
+  const publishedUrlCheck = publishScript.indexOf(
+    "Assert-PublishedAssetBrowserUrl -Asset",
+    publishedReadback,
+  );
+
+  assert.match(draftValidator, /\/releases\/download\/untagged-/u);
+  assert.match(draftValidator, /\$browserUri\.Host -cne 'github\.com'/u);
+  assert.ok(
+    draftValidator.includes("$draftToken -cnotmatch '^[A-Za-z0-9.-]+$'"),
+  );
+  assert.doesNotMatch(draftValidator, /\$Tag/u);
+  assert.match(
+    publishedValidator,
+    /\$Asset\.browser_download_url -cne \$ExpectedUrl/u,
+  );
+  assert.match(
+    publishScript,
+    /\$expectedPublishedUrl = "https:\/\/github\.com\/\$Repository\/releases\/download\/\$Tag\/\$name"/u,
+  );
+  assert.ok(
+    createDraft >= 0 &&
+      createDraft < draftUrlCheck &&
+      draftUrlCheck < publish &&
+      publish < publishedReadback &&
+      publishedReadback < publishedUrlCheck,
+  );
+});
+
+test("失败路径不发布，发布后验收失败会显式回滚并保留诊断", () => {
+  const createDraft = publishScript.indexOf("$release = Invoke-GhJson");
+  const remoteDigest = publishScript.indexOf("远端 Release 资产逐字节复核失败");
+  const finalDraftClosure = publishScript.indexOf(
+    "$finalAssetsByName = Assert-AssetClosure",
+  );
+  const publish = publishScript.indexOf("'draft=false'");
+  const publishedReadback = publishScript.indexOf("$publishedRelease =");
+  const publishedClosure = publishScript.indexOf(
+    "$publishedAssetsByName = Assert-AssetClosure",
+  );
+  const publishedUrlCheck = publishScript.indexOf(
+    "Assert-PublishedAssetBrowserUrl -Asset",
+    publishedReadback,
+  );
+  const catalogWrite = publishScript.indexOf("[IO.File]::WriteAllText");
+  const catchBlock = publishScript.slice(
+    publishScript.indexOf("catch {\n    $failure = $_"),
+  );
   assert.ok(
     createDraft >= 0 &&
       createDraft < remoteDigest &&
-      remoteDigest < finalClosure &&
-      finalClosure < publish,
+      remoteDigest < finalDraftClosure &&
+      finalDraftClosure < publish &&
+      publish < publishedReadback &&
+      publishedReadback < publishedClosure &&
+      publishedClosure < publishedUrlCheck &&
+      publishedUrlCheck < catalogWrite,
   );
   assert.match(catchBlock, /保持 draft/u);
   assert.match(catchBlock, /\$releaseState\.draft/u);
   assert.match(catchBlock, /无法回读/u);
+  assert.match(catchBlock, /Undo-FailedPublishedRelease/u);
+  assert.match(catchBlock, /自动回滚不完整/u);
   assert.doesNotMatch(catchBlock, /'draft=false'/u);
   assert.equal(publishScript.match(/'draft=false'/gu)?.length, 1);
+  assert.match(
+    publishScript,
+    /'DELETE',[\s\S]*?releases\/\$ReleaseId[\s\S]*?'DELETE',[\s\S]*?git\/refs\/tags\/\$ReleaseTag/u,
+  );
 });
 
 test("构建审计拒绝游戏资产、生成模块、绝对游戏路径与凭据", () => {
