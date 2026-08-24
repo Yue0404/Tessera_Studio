@@ -394,8 +394,11 @@
         "packages/renderer/src/generic-module-renderer.test.ts",
         "tests/production-e2e/mod003-generic-module.spec.ts"
       ],
-      "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/14"],
-      "blocker": "正式提取器 Release、真实 catalog 回填及 Windows 11 24H2+ x64 精确目标机证据仍由 Issue #14 跟踪；无游戏或无包时不阻塞核心网站。"
+      "humanEvidence": [
+        "manual/CIV6_WINDOWS_EVIDENCE.zh-CN.md",
+        "https://github.com/Yue0404/Tessera_Studio/issues/14"
+      ],
+      "blocker": "正式提取器 Release 与真实 catalog 的 URL、体积和 SHA-256 回填仍由 Issue #14 跟踪；Windows 11 24H2+ x64 精确目标机证据已闭合，无游戏或无包时不阻塞核心网站。"
     },
     {
       "area": "图层与历史",

@@ -69,10 +69,11 @@ Chrome 版本来自 Google Chrome for Testing 的 `last-known-good-versions-with
 
 Microsoft 官方 Edge Enterprise API 提供上一主版本 `150.0.4078.144` 的 x64 MSI。该 MSI 下载成功，`msiexec /a` 返回成功，但行政映像只生成重新打包的 MSI，没有可并行启动的 `msedge.exe`；内嵌载荷是 Edge Update Setup。为避免覆盖系统 Edge 或改变默认浏览器，本轮没有执行安装器，因此 Edge 150 保持 blocked。这一结论只说明当前安全自动化边界，不代表 Edge 150 产品不兼容。
 
+可选 Civ6 提取器已在 Windows 11 专业工作站版 25H2 x64（build 26200.9168）完成无系统 `dotnet` 的自包含 GUI、ZIP 闭包和禁止资产审计；该结果满足 24H2+（build 26100+）目标机下限，完整记录见 [Civ6 Windows 目标机证据](./CIV6_WINDOWS_EVIDENCE.zh-CN.md)。它不替代仍未发布的正式 Release/catalog。
+
 ## 仍未闭合
 
 - PERF-001、PERF-002、PERF-010 的冻结参考硬件/硬件加速档；
 - Microsoft Edge 前一个主要版本的安全并行运行证据；
 - 核心静态网站继续面向 Windows 10+ 的支持矩阵内现代浏览器；它不包含需要单独操作系统发布的可执行程序；
-- 可选 Civ6 提取器的产品目标已固定为 Windows 11 24H2+ x64，但目标系统实机证据仍未闭合；
 - 项目许可证决策。
