@@ -1,5 +1,6 @@
 import type { SpatialIndexStats } from "./sparse-spatial-index.js";
 import type { MapRect } from "./viewport-clipping.js";
+import type { ModuleInstanceStoreContract } from "./module-instance-store.js";
 
 export type GridType = "square" | "hex-pointy";
 
@@ -213,6 +214,7 @@ export interface SparseCellStoreContract {
   readonly size: number;
   readonly bucketCount: number;
   get(cellId: string): CellOverride | undefined;
+  getByInstanceId(instanceId: string): CellOverride | undefined;
   set(cellId: string, value: CellOverride): this;
   delete(cellId: string): boolean;
   values(): IterableIterator<CellOverride>;
@@ -240,8 +242,10 @@ export interface EdgeManagerContract {
   readonly edgesById: ReadonlyMap<string, EdgeLike>;
   readonly size: number;
   get(edgeId: string): EdgeLike | undefined;
+  getByInstanceId(instanceId: string): EdgeLike | undefined;
   values(): IterableIterator<EdgeLike>;
   ensure(edge: EdgeOverride): EdgeLike;
+  replace(edge: EdgeOverride): EdgeLike;
   updateStyle(edgeId: string, style: EdgeStyle): EdgeLike;
   setPersistence(
     edgeId: string,
@@ -255,6 +259,7 @@ export interface ConnectionManagerContract {
   readonly size: number;
   get(connectionId: string): ConnectionData | undefined;
   values(): IterableIterator<ConnectionData>;
+  hasEdgeReference(edgeId: string, excludingConnectionId?: string): boolean;
   add(connection: ConnectionData): ConnectionData;
   replace(connection: ConnectionData): ConnectionData;
   delete(connectionId: string): boolean;
@@ -271,6 +276,7 @@ export interface OverlayManagerContract {
   readonly size: number;
   get(overlayId: string): OverlayData | undefined;
   values(): IterableIterator<OverlayData>;
+  hasEdgeReference(edgeId: string, excludingOverlayId?: string): boolean;
   add(overlay: OverlayData): OverlayData;
   replace(overlay: OverlayData): OverlayData;
   delete(overlayId: string): boolean;
@@ -293,6 +299,7 @@ export interface ProjectState {
   edges: EdgeManagerContract;
   connections: ConnectionManagerContract;
   overlays: OverlayManagerContract;
+  moduleInstances: ModuleInstanceStoreContract;
   layers: ReadonlyMap<string, FixedLayerState>;
   readonly formatSource: ProjectFormatSource;
   revision: number;
@@ -335,4 +342,5 @@ export type SelectedObject =
   | { kind: "cell"; id: string }
   | { kind: "edge"; id: string }
   | { kind: "overlay"; id: string }
-  | { kind: "connection"; id: string };
+  | { kind: "connection"; id: string }
+  | { kind: "module-instance"; id: string };

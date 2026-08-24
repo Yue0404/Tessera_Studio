@@ -21,6 +21,24 @@ import { describe, expect, it, vi } from "vitest";
 import i18n from "./i18n.js";
 import { App } from "./App.js";
 
+const resourceRuntimeInstances = vi.hoisted(
+  () =>
+    [] as {
+      readonly packages: readonly unknown[];
+      readonly dispose: ReturnType<typeof vi.fn>;
+    }[],
+);
+
+vi.mock("./project-module-resource-runtime.js", () => ({
+  ProjectModuleResourceRuntime: class {
+    readonly dispose = vi.fn();
+
+    constructor(readonly packages: readonly unknown[]) {
+      resourceRuntimeInstances.push(this);
+    }
+  },
+}));
+
 vi.mock("./components/EditorView.js", () => ({
   EditorView: ({
     store,
@@ -29,6 +47,7 @@ vi.mock("./components/EditorView.js", () => ({
     onOpenFile,
     onOpenFragmentFile,
     onOpenPackageSettings,
+    onNew,
   }: {
     store: EditorStore;
     repository: { save(state: Readonly<ProjectState>): Promise<unknown> };
@@ -36,6 +55,7 @@ vi.mock("./components/EditorView.js", () => ({
     onOpenFile(file: File): Promise<void>;
     onOpenFragmentFile(file: File): Promise<void>;
     onOpenPackageSettings?(): void;
+    onNew(): void;
   }) => (
     <div>
       <span data-testid="editor-project">{store.state.name}</span>
@@ -60,6 +80,9 @@ vi.mock("./components/EditorView.js", () => ({
       </button>
       <button type="button" onClick={onOpenPackageSettings}>
         测试打开包设置
+      </button>
+      <button type="button" onClick={onNew}>
+        测试新建工程
       </button>
       <input
         aria-label="编辑器打开工程"
@@ -232,6 +255,7 @@ describe("App recovery", () => {
   });
 
   it("StrictMode 模拟 cleanup 不关闭复用实例，真实卸载才关闭", async () => {
+    const resourceStart = resourceRuntimeInstances.length;
     const close = vi.fn();
     const owned = {
       loadLatest: vi.fn(async () => null),
@@ -250,8 +274,29 @@ describe("App recovery", () => {
     );
     await Promise.resolve();
     expect(close).not.toHaveBeenCalled();
+    const resourceRuntimes = resourceRuntimeInstances.slice(resourceStart);
+    expect(resourceRuntimes.length).toBeGreaterThan(0);
+    expect(
+      resourceRuntimes.reduce(
+        (count, runtime) => count + runtime.dispose.mock.calls.length,
+        0,
+      ),
+    ).toBe(0);
     view.unmount();
     await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        resourceRuntimes.reduce(
+          (count, runtime) => count + runtime.dispose.mock.calls.length,
+          0,
+        ),
+      ).toBe(1),
+    );
+    expect(
+      resourceRuntimes.every(
+        (runtime) => runtime.dispose.mock.calls.length <= 1,
+      ),
+    ).toBe(true);
   });
 
   it("初次保存失败被捕获并呈现，不产生未处理 Promise", async () => {
@@ -273,10 +318,12 @@ describe("App recovery", () => {
       target: { value: "初次保存失败" },
     });
     fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("editor-error").textContent).toBe(
-        "error.projectFileSaveFailed",
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("editor-error").textContent).toBe(
+          "error.projectFileSaveFailed",
+        ),
+      { timeout: 5_000 },
     );
   });
 
@@ -736,11 +783,85 @@ describe("App recovery", () => {
         new Event("submit", { bubbles: true, cancelable: true }),
       );
     });
-    expect(save).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     release();
     await waitFor(() =>
       expect(screen.getByTestId("editor-project")).toBeDefined(),
     );
+  });
+
+  it("新建校验模块加载失败时复位 guard 并允许再次创建", async () => {
+    const save = vi.fn(async () => undefined);
+    const validate = vi.fn();
+    const createValidationLoader = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("chunk-load-failed"))
+      .mockResolvedValueOnce({
+        validateActiveProjectModuleInstances: validate,
+      });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{ loadLatest: async () => null, save }}
+          createValidationLoader={createValidationLoader}
+        />
+      </I18nextProvider>,
+    );
+    const name = await screen.findByLabelText("工程名称");
+    fireEvent.change(name, { target: { value: "加载恢复" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "工程创建校验失败",
+      ),
+    );
+    expect(save).not.toHaveBeenCalled();
+    expect(
+      (screen.getByRole("button", { name: "创建工程" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("editor-project").textContent).toBe("加载恢复");
+  });
+
+  it("新建候选验证失败时不保存、不切换且保留已打开工程", async () => {
+    const current = project("已打开工程");
+    const save = vi.fn(async () => undefined);
+    const validate = vi.fn(() => {
+      throw new Error("candidate-invalid");
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{ loadLatest: async () => current, save }}
+          createValidationLoader={async () => ({
+            validateActiveProjectModuleInstances: validate,
+          })}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByTestId("editor-project");
+    fireEvent.click(screen.getByRole("button", { name: "测试新建工程" }));
+    const name = await screen.findByLabelText("工程名称");
+    fireEvent.change(name, { target: { value: "无效候选" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "工程创建校验失败",
+      ),
+    );
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(save).not.toHaveBeenCalled();
+    expect(
+      (screen.getByRole("button", { name: "创建工程" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.getByTestId("editor-project").textContent).toBe("已打开工程");
   });
 
   it("提取器目录只在打开包设置后加载，失败不影响基础新建流程", async () => {
@@ -814,7 +935,7 @@ describe("App recovery", () => {
             version: "0.1.0-preview.1",
             os: "windows",
             arch: "x64",
-            minOsBuild: 19045,
+            minOsBuild: 26100,
             artifactType: "portable-zip",
             entrypoint: "TesseraCiv6Extractor.exe",
             bytes: 51_549_893,

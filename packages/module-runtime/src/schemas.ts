@@ -720,7 +720,7 @@ const domainStyleSchema = {
   required: ["representation", "style"],
   properties: {
     representation: {
-      enum: ["cell-style", "edge-style", "marker", "text", "connection"],
+      enum: ["cell-style", "edge-style", "marker", "text"],
     },
     style: {
       oneOf: [
@@ -728,7 +728,6 @@ const domainStyleSchema = {
         edgeStyleSchema,
         markerStyleSchema,
         textStyleSchema,
-        connectionStyleSchema,
       ],
     },
   },
@@ -925,6 +924,16 @@ export const elementFileSchema = {
       },
       extensions: extensionsSchema,
     },
+    allOf: [
+      {
+        if: {
+          required: ["primitive"],
+          properties: { primitive: { const: "domain-object" } },
+        },
+        then: { required: ["group"] },
+        else: { not: { required: ["group"] } },
+      },
+    ],
   },
 } as const;
 

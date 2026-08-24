@@ -3,6 +3,22 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const REQUIREMENT_ID = /^[A-Z][A-Z0-9]*-[0-9]{3}$/u;
 const VALID_STATUSES = new Set(["covered", "conditional", "blocked"]);
+const REQUIRED_P1_STATUSES = new Map([
+  ["EDIT-002", "covered"],
+  ["LINK-007", "covered"],
+  ["MOD-008", "covered"],
+  ["LAYER-004", "covered"],
+  ["DATA-006", "covered"],
+  ["EXPORT-006", "covered"],
+  ["UX-006", "covered"],
+  ["UX-007", "covered"],
+  ["A11Y-001", "covered"],
+  ["A11Y-002", "covered"],
+  ["A11Y-003", "covered"],
+  ["A11Y-004", "covered"],
+  ["PERF-002", "blocked"],
+]);
+const RELEASE_SHA256 = /^[a-f0-9]{64}$/u;
 
 function duplicateValues(values) {
   const seen = new Set();
@@ -93,6 +109,7 @@ export function validateTraceabilityDocument(document) {
     : [];
   if (p1Entries.length === 0) issues.push("trackedP1Evidence 必须是非空数组");
   const p1Mapped = [];
+  const p1StatusById = new Map();
   for (const [index, entry] of p1Entries.entries()) {
     const path = `trackedP1Evidence[${index}]`;
     const ids = pushArrayIssues(
@@ -101,6 +118,7 @@ export function validateTraceabilityDocument(document) {
       `${path}.requirementIds`,
     );
     p1Mapped.push(...ids);
+    for (const id of ids) p1StatusById.set(id, entry?.status);
     if (!VALID_STATUSES.has(entry?.status)) issues.push(`${path}.status 无效`);
     for (const key of ["implementation", "automatedTests", "humanEvidence"]) {
       pushArrayIssues(issues, entry?.[key], `${path}.${key}`);
@@ -122,6 +140,49 @@ export function validateTraceabilityDocument(document) {
     if (!p1MappedSet.has(id)) issues.push(`P1 ID 未映射：${id}`);
   for (const id of p1Mapped)
     if (!p1Set.has(id)) issues.push(`映射了非基线 P1 ID：${id}`);
+  // 这些发布候选状态已经由直接实现、自动化及人工证据共同裁定，防止整组回退。
+  for (const [id, requiredStatus] of REQUIRED_P1_STATUSES) {
+    const actualStatus = p1StatusById.get(id);
+    if (actualStatus !== undefined && actualStatus !== requiredStatus) {
+      issues.push(
+        `P1 ${id} 必须保持 ${requiredStatus}，当前为 ${actualStatus}`,
+      );
+    }
+  }
+  return issues;
+}
+
+/** 候选检查只验证目录是可信的正式 GitHub Release 元数据，不要求已经发布。 */
+export function validateExtractorReleaseCatalogDocument(document) {
+  const issues = [];
+  if (document?.schemaVersion !== "1") {
+    issues.push("提取器 release catalog/schemaVersion 必须为 1");
+  }
+  if (!Array.isArray(document?.releases)) {
+    issues.push("提取器 release catalog 缺少 releases 数组");
+    return issues;
+  }
+  for (const [index, release] of document.releases.entries()) {
+    const prefix = `提取器 release catalog/releases[${index}]`;
+    if (
+      typeof release?.assetUrl !== "string" ||
+      !release.assetUrl.startsWith(
+        "https://github.com/Yue0404/Tessera_Studio/releases/download/",
+      )
+    ) {
+      issues.push(`${prefix} 含非正式 GitHub Release URL`);
+    }
+    if (
+      typeof release?.sha256 !== "string" ||
+      !RELEASE_SHA256.test(release.sha256) ||
+      /^0{64}$/u.test(release.sha256)
+    ) {
+      issues.push(`${prefix} 含占位或无效 SHA-256`);
+    }
+    if (!Number.isSafeInteger(release?.bytes) || release.bytes <= 0) {
+      issues.push(`${prefix} 的 bytes 必须是正安全整数`);
+    }
+  }
   return issues;
 }
 
@@ -155,6 +216,9 @@ export function validateVisualEvidenceDocument(document) {
       issues.push(`${path}.checks 必须是非空数组`);
     }
     if (entry?.kind === "browser") {
+      if (!/^\d{4}-\d{2}-\d{2}$/u.test(entry?.reviewedAt ?? "")) {
+        issues.push(`${path}.reviewedAt 必须记录 YYYY-MM-DD 人工复核日期`);
+      }
       const viewport = entry.viewport;
       if (
         !Number.isInteger(viewport?.width) ||

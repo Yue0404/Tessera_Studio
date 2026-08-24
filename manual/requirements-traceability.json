@@ -380,15 +380,22 @@
       "implementation": [
         "tools/civ6-extractor/src/Tessera.Civ6.Extractor.Core/Civ6ExtractionService.cs",
         "apps/web/src/components/PackageSettingsDialog.tsx",
-        "apps/web/public/extractor-releases.json"
+        "apps/web/public/extractor-releases.json",
+        "packages/core/src/domain-group.ts",
+        "apps/web/src/active-project-module-session.ts",
+        "packages/renderer/src/generic-module-renderer.ts"
       ],
       "automatedTests": [
         "tools/civ6-extractor/tests/Tessera.Civ6.Extractor.Core.Tests/ExtractionServiceTests.cs",
         "tests/e2e/package-install-smoke.spec.ts",
-        ".github/workflows/civ6-extractor-windows.yml"
+        ".github/workflows/civ6-extractor-windows.yml",
+        "packages/core/src/domain-group.test.ts",
+        "apps/web/src/active-project-module-session.test.ts",
+        "packages/renderer/src/generic-module-renderer.test.ts",
+        "tests/production-e2e/mod003-generic-module.spec.ts"
       ],
       "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/14"],
-      "blocker": "正式提取器 Release、真实 catalog 回填和 Windows 支持口径仍由 Issue #14 管理；无游戏或无包时不阻塞核心网站。"
+      "blocker": "正式提取器 Release、真实 catalog 回填及 Windows 11 24H2+ x64 精确目标机证据仍由 Issue #14 跟踪；无游戏或无包时不阻塞核心网站。"
     },
     {
       "area": "图层与历史",
@@ -621,26 +628,37 @@
       ],
       "implementation": [
         "apps/web/src/components/ElementCatalog.tsx",
+        "apps/web/src/components/ContextPanel.tsx",
+        "apps/web/src/components/SelectionInspector.tsx",
         "packages/formats/src/project-format.ts",
-        "packages/module-runtime/src/registry.ts"
+        "packages/formats/src/embedded-asset-validation.ts",
+        "packages/module-runtime/src/registry.ts",
+        "packages/renderer/src/visual-export/scene.ts"
       ],
       "automatedTests": [
+        "apps/web/src/components/ContextPanel.test.tsx",
+        "apps/web/src/components/ElementCatalog.test.tsx",
+        "packages/formats/src/project-content-safety.test.ts",
         "tests/e2e/vertical-slice.spec.ts",
         "tests/e2e/visual-export-ui.spec.ts",
+        "tests/e2e/browser-safety-a11y.spec.ts",
         "packages/module-runtime/src/module-runtime.test.ts"
       ],
       "humanEvidence": ["manual/visual-evidence.json"],
-      "status": "conditional",
-      "blocker": "已有实现与自动化证据存在，但本次 M6-B 未逐项重新执行全部人工视觉与边界组合，保留条件状态。"
+      "status": "covered"
     },
     {
       "requirementIds": ["A11Y-001", "A11Y-002", "A11Y-003", "A11Y-004"],
       "implementation": [
         "apps/web/src/components/ElementCatalog.tsx",
+        "apps/web/src/components/EditorView.tsx",
         "apps/web/src/styles/global.css"
       ],
       "automatedTests": ["tests/e2e/browser-safety-a11y.spec.ts"],
-      "humanEvidence": ["manual/visual-evidence.json"],
+      "humanEvidence": [
+        "manual/visual-evidence.json",
+        "manual/VISUAL_EVIDENCE.md"
+      ],
       "status": "covered"
     },
     {

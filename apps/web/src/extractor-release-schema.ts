@@ -35,7 +35,7 @@ export const extractorReleaseCatalogV1Schema = {
           version: { type: "string", pattern: SEMVER_PATTERN },
           os: { const: "windows" },
           arch: { const: "x64" },
-          minOsBuild: { type: "integer", minimum: 19045 },
+          minOsBuild: { type: "integer", minimum: 26100 },
           artifactType: { const: "portable-zip" },
           entrypoint: {
             const: "TesseraCiv6Extractor.exe",

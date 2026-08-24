@@ -19,7 +19,10 @@ import type {
   LocalPackageRegistration,
   LocalPackageRepository,
 } from "@tessera/storage";
-import type { ParsedExtensionPackage } from "@tessera/module-runtime";
+import type {
+  ParsedExtensionPackage,
+  ParsedModulePackage,
+} from "@tessera/module-runtime";
 import { PackageSettingsDialog } from "./components/PackageSettingsDialog.js";
 import type {
   PreparedFragmentMerge,
@@ -43,6 +46,8 @@ import type {
 } from "./extractor-release-catalog.js";
 import { countProjectModuleObjectReferences } from "./project-module-references.js";
 import { ProjectSaveCoordinator } from "./project-save-coordinator.js";
+import type { validateActiveProjectModuleInstances } from "./active-project-module-session.js";
+import { ProjectModuleResourceRuntime } from "./project-module-resource-runtime.js";
 
 interface AppRepository extends ProjectSaveTarget {
   loadLatest(): Promise<ProjectState | null>;
@@ -79,6 +84,13 @@ type ProjectWorkflowLoader = () => Promise<ProjectWorkflowModule>;
 const loadProjectWorkflowDefault: ProjectWorkflowLoader = () =>
   import("./project-file-workflow.js");
 
+type CreateValidationLoader = () => Promise<{
+  readonly validateActiveProjectModuleInstances: typeof validateActiveProjectModuleInstances;
+}>;
+
+const loadCreateValidationDefault: CreateValidationLoader = () =>
+  import("./active-project-module-session.js");
+
 type ExtractorCatalogLoader = (
   signal: AbortSignal,
   installedModuleVersions: ReadonlySet<string>,
@@ -110,6 +122,7 @@ interface Props {
   projectWorkflowLoader?: ProjectWorkflowLoader;
   packageRepository?: LocalPackageRepository;
   extractorCatalogLoader?: ExtractorCatalogLoader;
+  createValidationLoader?: CreateValidationLoader;
 }
 
 interface PackageCatalogState {
@@ -218,6 +231,7 @@ export function App({
   projectWorkflowLoader = loadProjectWorkflowDefault,
   packageRepository,
   extractorCatalogLoader = loadExtractorCatalogDefault,
+  createValidationLoader = loadCreateValidationDefault,
 }: Props = {}) {
   const { t } = useTranslation();
   const repositoryHolder = useMemo(() => {
@@ -244,6 +258,9 @@ export function App({
   const fileOperation = useRef(0);
   const importQueue = useRef<Promise<void>>(Promise.resolve());
   const ownedCloseTokens = useRef(new Map<OwnedAppRepository, symbol>());
+  const resourceCloseTokens = useRef(
+    new Map<ProjectModuleResourceRuntime, symbol>(),
+  );
   const [sameIdConflict, setSameIdConflict] = useState<{
     context: SameProjectIdContext;
     confirmingReplace: boolean;
@@ -278,14 +295,31 @@ export function App({
   const extractorCatalogOperation = useRef(0);
   const createInFlight = useRef(false);
   const [createBusy, setCreateBusy] = useState(false);
+  const projectResourcePackages = useMemo(() => {
+    const exactModules = new Set(
+      projectModules(store?.state ?? null).map(
+        (item) => `${item.moduleId}@${item.version}`,
+      ),
+    );
+    return packageCatalog.packages.filter(
+      (item): item is ParsedModulePackage =>
+        item.kind === "module" &&
+        exactModules.has(`${item.artifactId}@${item.version}`),
+    );
+  }, [packageCatalog.packages, store]);
+  const projectModuleResourceRuntime = useMemo(
+    () => new ProjectModuleResourceRuntime(projectResourcePackages),
+    [projectResourcePackages],
+  );
 
   const refreshPackages = useCallback(
     async (rehydrateCurrent: boolean) => {
       if (packageRepository === undefined) return;
-      const [workflow, media, runtime] = await Promise.all([
+      const [workflow, media, runtime, moduleSession] = await Promise.all([
         import("./local-package-workflow.js"),
         import("./package-media-decoder.js"),
         import("./package-project-runtime.js"),
+        import("./active-project-module-session.js"),
       ]);
       const catalog = await workflow.loadInstalledPackageCatalog(
         packageRepository,
@@ -305,6 +339,10 @@ export function App({
             currentAppVersion: TESSERA_APP_VERSION,
             moduleResolutionMode: "tolerant",
           },
+        );
+        moduleSession.validateActiveProjectModuleInstances(
+          new EditorStore(restored),
+          catalog.packages,
         );
         if (mounted.current) setStore(new EditorStore(restored));
       }
@@ -354,6 +392,20 @@ export function App({
   }, [repositoryHolder]);
 
   useEffect(() => {
+    const closeTokens = resourceCloseTokens.current;
+    const token = Symbol("project-module-resource-runtime-lifetime");
+    closeTokens.set(projectModuleResourceRuntime, token);
+    return () => {
+      // 等 Editor 的 Pixi Texture 先释放 GPU 引用，再一次关闭 ImageBitmap/FontFace。
+      queueMicrotask(() => {
+        if (closeTokens.get(projectModuleResourceRuntime) !== token) return;
+        closeTokens.delete(projectModuleResourceRuntime);
+        projectModuleResourceRuntime.dispose();
+      });
+    };
+  }, [projectModuleResourceRuntime]);
+
+  useEffect(() => {
     let active = true;
     mounted.current = true;
     repository.setModuleResolutionProvider?.(() => ({
@@ -364,6 +416,7 @@ export function App({
       moduleResolutionMode: "tolerant",
     }));
     void (async () => {
+      let validationPackages: readonly ParsedExtensionPackage[] = [];
       if (packageRepository !== undefined) {
         try {
           const [workflow, media, runtime] = await Promise.all([
@@ -379,12 +432,22 @@ export function App({
           moduleResolverRef.current = runtime.createInstalledModuleResolver(
             catalog.packages,
           );
+          validationPackages = catalog.packages;
           if (active) setPackageCatalog(catalogState);
         } catch {
           if (active) setPackageErrorKey("package.error.recovery");
         }
       }
-      return repository.loadLatest();
+      const project = await repository.loadLatest();
+      if (project !== null) {
+        const moduleSession =
+          await import("./active-project-module-session.js");
+        moduleSession.validateActiveProjectModuleInstances(
+          new EditorStore(project),
+          validationPackages,
+        );
+      }
+      return project;
     })()
       .then((project) => {
         if (!active) return;
@@ -519,7 +582,21 @@ export function App({
       if (mounted.current) setCreateBusy(false);
       return;
     }
-    const next = new EditorStore(configured);
+    let next: EditorStore;
+    try {
+      next = new EditorStore(configured);
+      const moduleSession = await createValidationLoader();
+      moduleSession.validateActiveProjectModuleInstances(
+        next,
+        packageCatalog.packages,
+      );
+    } catch {
+      // 候选构造或严格验证失败时，保留当前工程且绝不进入保存队列。
+      if (mounted.current) setFileErrorKey("error.projectCreateFailed");
+      createInFlight.current = false;
+      if (mounted.current) setCreateBusy(false);
+      return;
+    }
     setStore(next);
     setNewProjectOpen(false);
     setStartupErrorKey(null);
@@ -601,7 +678,10 @@ export function App({
     setPackageBusy(true);
     setPackageErrorKey(null);
     try {
-      const workflow = await import("./project-module-settings-workflow.js");
+      const [workflow, moduleSession] = await Promise.all([
+        import("./project-module-settings-workflow.js"),
+        import("./active-project-module-session.js"),
+      ]);
       const nextStore = await workflow.commitProjectModuleChange(
         store.state,
         packageCatalog.packages,
@@ -614,6 +694,11 @@ export function App({
         saveTarget.replacementTarget(store.state, {
           candidateIncludesPrevious: true,
         }),
+        (candidate) =>
+          moduleSession.validateActiveProjectModuleInstances(
+            new EditorStore(candidate),
+            packageCatalog.packages,
+          ),
       );
       if (mounted.current) setStore(nextStore);
     } catch {
@@ -641,7 +726,10 @@ export function App({
       if (!mounted.current || fileOperation.current !== operation) {
         return { status: "cancelled" as const };
       }
-      const workflow = await loadWorkflow();
+      const [workflow, moduleSession] = await Promise.all([
+        loadWorkflow(),
+        import("./active-project-module-session.js"),
+      ]);
       return workflow.importProjectFile(
         {
           file,
@@ -658,6 +746,11 @@ export function App({
             : { moduleResolver: moduleResolverRef.current }),
         },
         {
+          validateState: (candidate) =>
+            moduleSession.validateActiveProjectModuleInstances(
+              new EditorStore(candidate),
+              packageCatalog.packages,
+            ),
           beforeSave: () =>
             mounted.current && fileOperation.current === operation,
         },
@@ -1073,6 +1166,8 @@ export function App({
       <LazyEditorView
         store={store}
         repository={saveTarget}
+        packages={packageCatalog.packages}
+        resourceRuntime={projectModuleResourceRuntime}
         onNew={() => setNewProjectOpen(true)}
         onOpenFile={openFile}
         onOpenFragmentFile={openFragmentFile}

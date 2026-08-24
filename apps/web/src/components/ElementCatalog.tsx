@@ -1,7 +1,10 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { normalizeRotationDegrees } from "@tessera/core";
+import {
+  normalizeRotationDegrees,
+  projectTextContentValid,
+} from "@tessera/core";
 import type {
   BrushMode,
   ConnectionPlacement,
@@ -21,9 +24,13 @@ export interface TextPlacementOptions {
 export interface ElementCatalogEntry {
   readonly moduleId: string;
   readonly moduleVersion: string;
+  readonly moduleDisplayName?: string;
+  readonly categoryId?: string;
+  readonly categoryDisplayName?: string;
   readonly category: "cell" | "edge" | "overlay" | "connection";
   readonly elementId: string;
   readonly displayName: string;
+  readonly disabledReason?: string | null;
 }
 
 interface Props {
@@ -41,6 +48,8 @@ interface Props {
   onEdgeColor(color: string): void;
   onOverlay(value: OverlayPlacement): void;
   onTextOptions(value: TextPlacementOptions): void;
+  validateText?(value: string): boolean;
+  onTextInvalid?(): void;
   onConnection(value: ConnectionPlacement): void;
   onElementSelect?(elementId: string): void;
 }
@@ -125,20 +134,58 @@ export function ElementCatalog(props: Props) {
     ],
     [t],
   );
-  const elements = props.elements ?? basicElements;
+  const elements = [
+    ...new Map(
+      [...(props.elements ?? []), ...basicElements].map((entry) => [
+        entry.elementId,
+        entry,
+      ]),
+    ).values(),
+  ];
   const modules = [
     ...new Map(
       elements.map((entry) => [
         entry.moduleId,
-        { moduleId: entry.moduleId, moduleVersion: entry.moduleVersion },
+        {
+          moduleId: entry.moduleId,
+          moduleVersion: entry.moduleVersion,
+          moduleDisplayName: entry.moduleDisplayName ?? entry.moduleId,
+        },
       ]),
     ).values(),
   ];
+  const selectedModule =
+    modules.find((module) => module.moduleId === moduleId) ?? modules[0];
+  const selectedModuleId = selectedModule?.moduleId ?? "tessera.basic";
+  const categories = [
+    ...new Map(
+      elements
+        .filter((entry) => entry.moduleId === selectedModuleId)
+        .map((entry) => {
+          const categoryId = entry.categoryId ?? entry.category;
+          return [
+            categoryId,
+            {
+              categoryId,
+              label:
+                entry.categoryDisplayName ??
+                t(`catalog.category.${entry.category}`),
+            },
+          ];
+        }),
+    ).values(),
+  ];
+  const selectedCategory =
+    category === "all" ||
+    categories.some((item) => item.categoryId === category)
+      ? category
+      : "all";
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredElements = elements.filter(
     (entry) =>
-      entry.moduleId === moduleId &&
-      (category === "all" || entry.category === category) &&
+      entry.moduleId === selectedModuleId &&
+      (selectedCategory === "all" ||
+        (entry.categoryId ?? entry.category) === selectedCategory) &&
       (normalizedQuery === "" ||
         entry.displayName.toLocaleLowerCase().includes(normalizedQuery)),
   );
@@ -158,8 +205,14 @@ export function ElementCatalog(props: Props) {
     <aside className={styles.panel}>
       <header>
         <div>
-          <strong>{t("package.basic.name")}</strong>
-          <small>tessera.basic · 1.0.0</small>
+          <strong>
+            {selectedModuleId === "tessera.basic"
+              ? t("package.basic.name")
+              : selectedModule?.moduleDisplayName}
+          </strong>
+          <small>
+            {selectedModuleId} · {selectedModule?.moduleVersion}
+          </small>
         </div>
         <button
           type="button"
@@ -182,22 +235,26 @@ export function ElementCatalog(props: Props) {
         </label>
         <Choice
           label={t("catalog.module")}
-          value={moduleId}
+          value={selectedModuleId}
           options={modules.map((module) => ({
             value: module.moduleId,
-            label: `${module.moduleId} · ${module.moduleVersion}`,
+            label: `${module.moduleDisplayName} · ${module.moduleVersion}`,
           }))}
-          onChange={setModuleId}
+          onChange={(value) => {
+            setModuleId(value);
+            setCategory("all");
+          }}
         />
         <Choice
           label={t("catalog.category")}
-          value={category}
-          options={(
-            ["all", "cell", "edge", "overlay", "connection"] as const
-          ).map((value) => ({
-            value,
-            label: t(`catalog.category.${value}`),
-          }))}
+          value={selectedCategory}
+          options={[
+            { value: "all", label: t("catalog.category.all") },
+            ...categories.map((item) => ({
+              value: item.categoryId,
+              label: item.label,
+            })),
+          ]}
           onChange={setCategory}
         />
         {filteredElements.length === 0 ? (
@@ -214,13 +271,30 @@ export function ElementCatalog(props: Props) {
                 ) : (
                   <button
                     type="button"
+                    disabled={
+                      entry.disabledReason !== null &&
+                      entry.disabledReason !== undefined
+                    }
                     aria-label={t("catalog.activateElement", {
                       id: entry.elementId,
                     })}
+                    title={
+                      entry.disabledReason === null ||
+                      entry.disabledReason === undefined
+                        ? undefined
+                        : t(`catalog.disabledReason.${entry.disabledReason}`)
+                    }
+                    data-disabled-reason={entry.disabledReason ?? undefined}
                     onClick={() => props.onElementSelect?.(entry.elementId)}
                   >
                     <span>{entry.displayName}</span>
                     <small>{entry.elementId}</small>
+                    {entry.disabledReason !== null &&
+                      entry.disabledReason !== undefined && (
+                        <small>
+                          {t(`catalog.disabledReason.${entry.disabledReason}`)}
+                        </small>
+                      )}
                   </button>
                 )}
               </li>
@@ -299,13 +373,20 @@ export function ElementCatalog(props: Props) {
               <span>{t("inspector.text")}</span>
               <textarea
                 value={props.textOptions.text}
-                maxLength={2048}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const text = event.target.value;
+                  if (
+                    !projectTextContentValid(text) ||
+                    props.validateText?.(text) === false
+                  ) {
+                    props.onTextInvalid?.();
+                    return;
+                  }
                   props.onTextOptions({
                     ...props.textOptions,
-                    text: event.target.value,
-                  })
-                }
+                    text,
+                  });
+                }}
               />
             </label>
             <label>

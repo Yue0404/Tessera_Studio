@@ -3,7 +3,11 @@ import { type MapRect, type ProjectState } from "@tessera/core";
 import { createPixiMarker, createPixiText } from "./pixi-visual.js";
 import { overlayAnchorPoint } from "./render-utils.js";
 import { configureRenderLayer } from "./render-layer-order.js";
-import { anchorInsideBufferedViewport } from "./overlay-visibility.js";
+import {
+  markerMapSize,
+  overlayBufferedViewport,
+  textMapSize,
+} from "./overlay-visibility.js";
 import { textBackgroundColor } from "./visual-style.js";
 
 export class OverlayRenderer {
@@ -14,12 +18,13 @@ export class OverlayRenderer {
     this.#parent = container;
   }
 
-  render(state: Readonly<ProjectState>, viewport: MapRect): void {
+  render(state: Readonly<ProjectState>, viewport: MapRect, zoom: number): void {
     for (const [layerId, container] of this.#layerContainers) {
       configureRenderLayer(container, state, layerId);
       for (const child of container.removeChildren()) child.destroy();
     }
-    const sorted = [...state.overlays.query(viewport)].sort(
+    const bufferedViewport = overlayBufferedViewport(viewport, zoom);
+    const sorted = [...state.overlays.query(bufferedViewport)].sort(
       (left, right) =>
         (state.layers.get(left.layerId)?.zIndex ?? 0) -
           (state.layers.get(right.layerId)?.zIndex ?? 0) ||
@@ -41,7 +46,10 @@ export class OverlayRenderer {
       const point = overlayAnchorPoint(state, overlay);
       if (
         point === undefined ||
-        !anchorInsideBufferedViewport(point, viewport)
+        point.x < bufferedViewport.minX ||
+        point.x > bufferedViewport.maxX ||
+        point.y < bufferedViewport.minY ||
+        point.y > bufferedViewport.maxY
       ) {
         continue;
       }
@@ -52,7 +60,7 @@ export class OverlayRenderer {
           createPixiMarker(
             point,
             overlay.style.markerShape,
-            overlay.style.size,
+            markerMapSize(overlay.style.size, zoom),
             overlay.style.rotation,
             overlay.style.color,
             opacity,
@@ -64,7 +72,7 @@ export class OverlayRenderer {
             point,
             overlay.text,
             {
-              fontSize: overlay.style.fontSize,
+              fontSize: textMapSize(overlay.style.fontSize, zoom),
               rotation: overlay.style.rotation,
               opacity,
               color: overlay.style.color,

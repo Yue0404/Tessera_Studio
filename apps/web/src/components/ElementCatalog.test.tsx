@@ -2,12 +2,13 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { describe, expect, it, vi } from "vitest";
 import i18n from "../i18n.js";
-import { ElementCatalog } from "./ElementCatalog.js";
+import { ElementCatalog, type ElementCatalogEntry } from "./ElementCatalog.js";
 
 describe("ElementCatalog", () => {
   function renderCatalog(
     overrides: {
       onElementSelect?: (elementId: string) => void;
+      elements?: readonly ElementCatalogEntry[];
     } = {},
   ) {
     return render(
@@ -39,6 +40,9 @@ describe("ElementCatalog", () => {
           onOverlay={vi.fn()}
           onTextOptions={vi.fn()}
           onConnection={vi.fn()}
+          {...(overrides.elements === undefined
+            ? {}
+            : { elements: overrides.elements })}
           {...(overrides.onElementSelect === undefined
             ? {}
             : { onElementSelect: overrides.onElementSelect })}
@@ -49,6 +53,7 @@ describe("ElementCatalog", () => {
 
   it("放置文字的旋转输入保持度数并规范化到 [0,360)", () => {
     const onTextOptions = vi.fn();
+    const onTextInvalid = vi.fn();
     render(
       <I18nextProvider i18n={i18n}>
         <ElementCatalog
@@ -81,6 +86,8 @@ describe("ElementCatalog", () => {
           onEdgeColor={vi.fn()}
           onOverlay={vi.fn()}
           onTextOptions={onTextOptions}
+          validateText={(value) => value !== "invalid"}
+          onTextInvalid={onTextInvalid}
           onConnection={vi.fn()}
         />
       </I18nextProvider>,
@@ -91,6 +98,19 @@ describe("ElementCatalog", () => {
     expect(onTextOptions).toHaveBeenCalledWith(
       expect.objectContaining({ rotation: 270 }),
     );
+    onTextOptions.mockClear();
+    fireEvent.change(screen.getByLabelText("文字内容"), {
+      target: { value: "invalid" },
+    });
+    expect(onTextInvalid).toHaveBeenCalledOnce();
+    expect(onTextOptions).not.toHaveBeenCalled();
+
+    onTextInvalid.mockClear();
+    fireEvent.change(screen.getByLabelText("文字内容"), {
+      target: { value: "👩🏽‍💻".repeat(257) },
+    });
+    expect(onTextInvalid).toHaveBeenCalledOnce();
+    expect(onTextOptions).not.toHaveBeenCalled();
   });
 
   it("按显示名称和分类筛选已载入基础元素，清空搜索恢复全部", () => {
@@ -142,5 +162,74 @@ describe("ElementCatalog", () => {
         "标记",
       ),
     ).toBeDefined();
+  });
+
+  it("外部会话误传 basic 重复项时仍保留六个可用内置元素", () => {
+    renderCatalog({
+      onElementSelect: vi.fn(),
+      elements: [
+        {
+          moduleId: "tessera.basic",
+          moduleVersion: "1.0.0",
+          category: "overlay",
+          elementId: "tessera.basic:text",
+          displayName: "重复文字",
+          disabledReason: "text-attribute-unsupported",
+        },
+      ],
+    });
+    expect(screen.getAllByRole("listitem")).toHaveLength(6);
+    const text = screen.getByRole("button", {
+      name: "使用目录元素 tessera.basic:text",
+    });
+    expect((text as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("重复文字")).toBeNull();
+  });
+
+  it("按模块与本地化分类浏览，并保留禁用原因", () => {
+    const onElementSelect = vi.fn();
+    renderCatalog({
+      onElementSelect,
+      elements: [
+        {
+          moduleId: "example.weather",
+          moduleVersion: "1.0.0",
+          moduleDisplayName: "天气",
+          category: "cell",
+          categoryId: "example.weather:terrain",
+          categoryDisplayName: "地形天气",
+          elementId: "example.weather:cell.rain",
+          displayName: "降雨",
+          disabledReason: null,
+        },
+        {
+          moduleId: "example.weather",
+          moduleVersion: "1.0.0",
+          moduleDisplayName: "天气",
+          category: "overlay",
+          categoryId: "example.weather:resource",
+          categoryDisplayName: "资源图标",
+          elementId: "example.weather:marker.radar",
+          displayName: "雷达",
+          disabledReason: "resource-style-unsupported",
+        },
+      ],
+    });
+    fireEvent.change(screen.getByLabelText("当前模块"), {
+      target: { value: "example.weather" },
+    });
+    expect(screen.getByText("天气")).toBeDefined();
+    fireEvent.change(screen.getByLabelText("分类"), {
+      target: { value: "example.weather:resource" },
+    });
+    const disabled = screen.getByRole("button", {
+      name: "使用目录元素 example.weather:marker.radar",
+    });
+    expect((disabled as HTMLButtonElement).disabled).toBe(true);
+    expect(disabled.getAttribute("data-disabled-reason")).toBe(
+      "resource-style-unsupported",
+    );
+    expect(screen.getByText("此元素依赖尚未支持的资源样式。")).toBeDefined();
+    expect(onElementSelect).not.toHaveBeenCalled();
   });
 });

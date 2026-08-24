@@ -28,6 +28,7 @@ interface MutableBucket {
 /** 64×64 稳定文件桶；空白地格从不进入存储。 */
 export class SparseChunkStore implements SparseCellStoreContract {
   readonly #cells = new Map<string, CellOverride>();
+  readonly #cellIdsByInstanceId = new Map<string, string>();
   readonly #buckets = new Map<string, MutableBucket>();
   readonly #runtimeLru = new Map<string, number>();
   readonly #runtimeChunkRevisions = new Map<string, number>();
@@ -57,10 +58,22 @@ export class SparseChunkStore implements SparseCellStoreContract {
     return this.#cells.get(cellId);
   }
 
+  getByInstanceId(instanceId: string): CellOverride | undefined {
+    const cellId = this.#cellIdsByInstanceId.get(instanceId);
+    return cellId === undefined ? undefined : this.#cells.get(cellId);
+  }
+
   set(cellId: string, value: CellOverride): this {
     if (cellId !== value.cellId) throw new Error("cell-id-key-mismatch");
+    const duplicateCellId = this.#cellIdsByInstanceId.get(value.instanceId);
+    if (duplicateCellId !== undefined && duplicateCellId !== cellId)
+      throw new Error(`cell-instance-duplicate:${value.instanceId}`);
     const parsed = parseCellId(cellId);
+    const previous = this.#cells.get(cellId);
+    if (previous !== undefined && previous.instanceId !== value.instanceId)
+      this.#cellIdsByInstanceId.delete(previous.instanceId);
     this.#cells.set(cellId, value);
+    this.#cellIdsByInstanceId.set(value.instanceId, cellId);
     this.#ensureBucket(parsed.row, parsed.column).cellIds.add(cellId);
     this.#markDirty(parsed.row, parsed.column);
     return this;
@@ -68,8 +81,10 @@ export class SparseChunkStore implements SparseCellStoreContract {
 
   delete(cellId: string): boolean {
     const parsed = parseCellId(cellId);
-    const deleted = this.#cells.delete(cellId);
-    if (!deleted) return false;
+    const previous = this.#cells.get(cellId);
+    if (previous === undefined) return false;
+    this.#cells.delete(cellId);
+    this.#cellIdsByInstanceId.delete(previous.instanceId);
     const bucket = this.#bucket(parsed.row, parsed.column);
     bucket?.cellIds.delete(cellId);
     if (bucket !== undefined) bucket.dirty = true;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProjectState } from "@tessera/core";
+import type { VisualExportCaptureOptions } from "@tessera/renderer/visual-export";
 import type {
   InteractionRangeSnapshot,
   VisualExportRangeSource,
@@ -31,6 +32,7 @@ interface Props {
   interaction: InteractionRangeSnapshot;
   initialCustomBounds: NonNullable<InteractionRangeSnapshot["viewportBounds"]>;
   workflowLoader?: VisualExportWorkflowLoader;
+  captureOptions?: VisualExportCaptureOptions;
   onClose(): void;
 }
 
@@ -41,6 +43,7 @@ export function VisualExportDialog({
   interaction,
   initialCustomBounds,
   workflowLoader = loadVisualExportWorkflow,
+  captureOptions,
   onClose,
 }: Props) {
   const { t } = useTranslation();
@@ -65,6 +68,7 @@ export function VisualExportDialog({
     null,
   );
   const taskRef = useRef<VisualExportWorkflowSession | null>(null);
+  const preparationAbortRef = useRef<AbortController | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const runIdRef = useRef(0);
   const mountedRef = useRef(true);
@@ -95,6 +99,7 @@ export function VisualExportDialog({
       mountedRef.current = false;
       runIdRef.current += 1;
       unsubscribeRef.current?.();
+      preparationAbortRef.current?.abort();
       taskRef.current?.cancel();
     };
   }, []);
@@ -124,6 +129,8 @@ export function VisualExportDialog({
     setProgress(null);
     setError(null);
     setSummary(null);
+    const preparationAbort = new AbortController();
+    preparationAbortRef.current = preparationAbort;
     let session: VisualExportWorkflowSession;
     try {
       const request: VisualExportWorkflowRequest = {
@@ -136,8 +143,11 @@ export function VisualExportDialog({
             : { kind: "color", color: backgroundColor },
         showGrid,
         scale,
+        signal: preparationAbort.signal,
+        ...(captureOptions === undefined ? {} : { captureOptions }),
       };
-      session = workflow.startVisualExportWorkflow(state, request);
+      session = await workflow.startVisualExportWorkflow(state, request);
+      preparationAbortRef.current = null;
       taskRef.current = session;
       const workerReady =
         session.capabilities.worker &&
@@ -165,6 +175,7 @@ export function VisualExportDialog({
         }
       });
     } catch (caught) {
+      preparationAbortRef.current = null;
       if (mountedRef.current && runIdRef.current === runId) {
         setError(workflow.visualExportErrorPresentation(caught));
         setRunning(false);
@@ -189,6 +200,8 @@ export function VisualExportDialog({
     runIdRef.current += 1;
     unsubscribeRef.current?.();
     unsubscribeRef.current = null;
+    preparationAbortRef.current?.abort();
+    preparationAbortRef.current = null;
     taskRef.current?.cancel();
     taskRef.current = null;
     onClose();
@@ -369,7 +382,10 @@ export function VisualExportDialog({
             <button
               type="button"
               className={styles.danger}
-              onClick={() => taskRef.current?.cancel()}
+              onClick={() => {
+                preparationAbortRef.current?.abort();
+                taskRef.current?.cancel();
+              }}
             >
               {t("visualExport.cancel")}
             </button>

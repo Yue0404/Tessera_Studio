@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import process from "node:process";
 import {
   missingRepositoryPaths,
+  validateExtractorReleaseCatalogDocument,
   validateTraceabilityDocument,
   validateVisualEvidenceDocument,
 } from "./release-evidence.mjs";
@@ -25,6 +26,7 @@ const releaseNotes = await readFile(
 const issues = [
   ...validateTraceabilityDocument(trace),
   ...validateVisualEvidenceDocument(visuals),
+  ...validateExtractorReleaseCatalogDocument(releaseCatalog),
 ];
 for (const path of await missingRepositoryPaths(root, [trace, visuals])) {
   issues.push(`证据路径不存在：${path}`);
@@ -44,30 +46,14 @@ for (const required of [
   if (!readme.includes(required))
     issues.push(`README 缺少发布事实：${required}`);
 }
-if (!releaseNotes.includes("普通 Windows 10 22H2")) {
-  issues.push("Release 说明未记录 Windows 10 支持阻塞");
-}
-if (!Array.isArray(releaseCatalog.releases)) {
-  issues.push("提取器 release catalog 缺少 releases 数组");
-}
-for (const release of releaseCatalog.releases ?? []) {
-  if (
-    typeof release?.assetUrl !== "string" ||
-    !release.assetUrl.startsWith(
-      "https://github.com/Yue0404/Tessera_Studio/releases/download/",
-    )
-  ) {
-    issues.push("提取器 release catalog 含非正式 GitHub Release URL");
-  }
-  if (
-    typeof release?.sha256 !== "string" ||
-    !/^[a-f0-9]{64}$/u.test(release.sha256) ||
-    /^0{64}$/u.test(release.sha256)
-  ) {
-    issues.push("提取器 release catalog 含占位或无效 SHA-256");
+for (const required of [
+  "核心静态网站仍面向 Windows 10+",
+  "Windows 11 24H2+ x64",
+]) {
+  if (!releaseNotes.includes(required)) {
+    issues.push(`Release 说明缺少 Windows 支持边界：${required}`);
   }
 }
-
 if (issues.length > 0) {
   for (const issue of issues) console.error(`- ${issue}`);
   process.exitCode = 1;

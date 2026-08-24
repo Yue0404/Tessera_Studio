@@ -1,5 +1,7 @@
 export * from "./connection-renderer.js";
 export * from "./grid-renderer.js";
+export * from "./generic-module-renderer.js";
+export * from "./generic-module-assets.js";
 export * from "./interaction-range-state.js";
 export * from "./overlay-renderer.js";
 export * from "./overlay-visibility.js";

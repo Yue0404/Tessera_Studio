@@ -153,7 +153,7 @@ function Test-ReleasePayload {
         $manifest.version -ne $releaseVersion -or
         $manifest.os -ne 'windows' -or
         $manifest.arch -ne 'x64' -or
-        $manifest.minOsBuild -ne 19045 -or
+        $manifest.minOsBuild -ne 26100 -or
         $manifest.entrypoint -ne $entrypoint -or
         $manifest.outputModuleId -ne 'tessera.civ6' -or
         $manifest.outputModuleVersion -ne '1.0.0' -or
@@ -352,7 +352,7 @@ try {
         version = $releaseVersion
         os = 'windows'
         arch = 'x64'
-        minOsBuild = 19045
+        minOsBuild = 26100
         artifactType = 'portable-zip'
         entrypoint = $entrypoint
         outputModuleId = 'tessera.civ6'
@@ -396,7 +396,7 @@ try {
         version = $releaseVersion
         os = 'windows'
         arch = 'x64'
-        minOsBuild = 19045
+        minOsBuild = 26100
         bytes = $archiveBytes
         sha256 = $sha256
         entrypoint = $entrypoint

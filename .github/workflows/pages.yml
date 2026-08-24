@@ -48,6 +48,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: 校验发布说明与证据闭包
         run: pnpm release:check
+      - name: 校验正式发布就绪
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: pnpm release:ready
       - name: 安装 Pages 冒烟浏览器
         run: pnpm exec playwright install chromium
       - name: 验证 Pages 子路径核心流程

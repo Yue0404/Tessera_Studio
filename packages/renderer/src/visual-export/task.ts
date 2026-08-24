@@ -7,6 +7,7 @@ import {
   createMainThreadCanvasSurface,
   executeVisualExportPng,
   type VisualExportCanvasSurface,
+  type VisualExportPngResourceEnvironment,
 } from "./png-executor.js";
 import {
   executeVisualExportSvg,
@@ -60,6 +61,7 @@ export interface StartVisualExportOptions {
   readonly now?: () => number;
   readonly yieldControl?: () => Promise<void>;
   readonly fallbackBatchSize?: number;
+  readonly pngResourceEnvironment?: VisualExportPngResourceEnvironment;
   readonly svgBatchNodes?: number;
   readonly svgLimits?: VisualExportSvgLimits;
   readonly svgFragmentOptions?: VisualExportSvgFragmentOptions;
@@ -287,7 +289,9 @@ export function startVisualExport(
       const canUseWorker =
         capabilities.worker &&
         capabilities.offscreenCanvas2d &&
-        capabilities.offscreenConvertToBlob;
+        capabilities.offscreenConvertToBlob &&
+        // Worker 对 FontFace/字体集合与图片解码支持并不一致；资源快照统一走主线程能力面。
+        plan.snapshot.resources.length === 0;
       if (canUseWorker) {
         try {
           const workerResult = await runWorker(
@@ -325,6 +329,9 @@ export function startVisualExport(
         yieldControl: options.yieldControl ?? defaultYieldControl,
         batchSize: options.fallbackBatchSize ?? 128,
         executionMode: "fallback",
+        ...(options.pngResourceEnvironment === undefined
+          ? {}
+          : { resourceEnvironment: options.pngResourceEnvironment }),
       });
       settleSuccess(fallbackResult);
     } catch (error) {

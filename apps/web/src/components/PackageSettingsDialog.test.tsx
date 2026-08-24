@@ -29,7 +29,7 @@ const extractorRelease = {
   version: "0.1.0-preview.1",
   os: "windows" as const,
   arch: "x64" as const,
-  minOsBuild: 19045,
+  minOsBuild: 26100,
   artifactType: "portable-zip" as const,
   entrypoint: "TesseraCiv6Extractor.exe" as const,
   bytes: 51_549_893,
@@ -426,7 +426,7 @@ describe("PackageSettingsDialog", () => {
     expect(screen.getByText("已安装精确版本：1.0.0")).toBeDefined();
     expect(screen.getByText("提取器版本：0.1.0-preview.1")).toBeDefined();
     expect(screen.getByText("平台：Windows x64")).toBeDefined();
-    expect(screen.getByText(/Windows 10 build 19045/)).toBeDefined();
+    expect(screen.getByText(/Windows 11 24H2.*26100/)).toBeDefined();
     expect(screen.getByText(/51,549,893/)).toBeDefined();
     expect(screen.getByText(/1111111111111111/)).toBeDefined();
     expect(screen.getByText(/SmartScreen/)).toBeDefined();

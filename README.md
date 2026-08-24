@@ -51,6 +51,10 @@ pnpm --filter @tessera/web exec vite preview --host 127.0.0.1 --port 4174
 
 `pnpm release:verify` 会在依赖已锁定安装后串行执行发布候选门禁；它不会修改 GitHub Release、Pages 或本地工程数据。
 
+`pnpm release:check` 只校验候选证据的结构与一致性，允许保留有明确原因的 `conditional`/`blocked`。显式接受 blocker 时，必须在 `manual/release-acceptance.json` 记录需求 ID、理由、接受人和 UTC 时间。
+
+`pnpm release:ready` 是正式部署门禁：它拒绝未接受的 P0/P1 blocker、根级许可证缺失或空的提取器正式目录，并只读下载目录中的 GitHub Release 资产核对体积和 SHA-256；不会写盘或执行提取器。Pages 的 Pull Request 只运行候选检查，只有主分支正式上传前运行就绪检查。
+
 ## 使用与数据安全
 
 - [用户手册](manual/USER_GUIDE.zh-CN.md)
@@ -65,7 +69,7 @@ pnpm --filter @tessera/web exec vite preview --host 127.0.0.1 --port 4174
 
 `tessera.civ6` 不是网站必需组件。网站不会扫描游戏目录，也不包含游戏资产。用户可以在包设置中导入自己已有的 `tessera.civ6.tessera-module.zip`；提取器下载目录只有在真实 GitHub Release 发布并回填可验证的 HTTPS URL、体积和 SHA-256 后才会显示。
 
-提取器当前基于 .NET 10。仓库尚未把普通 Windows 10 22H2 声明为受 Microsoft 支持的平台；正式系统支持范围需要在发布前依据 Microsoft 当前支持政策单独确认。自动化发布构建运行于 Windows Server 2022，本机 Windows 11 构建 26200 只作为开发机实测证据，两者不互相替代。
+核心静态网站仍可在 Windows 10+ 部署并由支持矩阵内的现代浏览器使用。可选提取器当前基于 .NET 10，正式支持目标固定为 Windows 11 24H2+ x64；普通 Windows 10 22H2 不再是提取器产品支持目标，系统范围已无待决冲突。自动化发布构建运行于 Windows Server 2022，本机其他 Windows 11 构建只作为开发机实测证据，两者都不能替代发布前必须闭合的 Windows 11 24H2+ x64 实机证据。
 
 ## 部署与授权边界
 

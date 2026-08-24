@@ -21,6 +21,7 @@ export async function commitProjectModuleChange(
   change: ProjectModuleChange,
   currentAppVersion: string,
   repository: ProjectModuleSaveTarget,
+  validateState?: (state: Readonly<ProjectState>) => void,
 ): Promise<EditorStore> {
   const candidate = await setProjectModuleEnabled(
     state,
@@ -30,6 +31,7 @@ export async function commitProjectModuleChange(
     change.enabled,
     currentAppVersion,
   );
+  validateState?.(candidate);
   const nextStore = new EditorStore(candidate);
   await repository.save(nextStore.state);
   return nextStore;

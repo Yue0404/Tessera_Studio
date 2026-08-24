@@ -2,6 +2,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -9,13 +10,16 @@ import {
 import { useTranslation } from "react-i18next";
 import {
   BackgroundTaskError,
+  cellId as projectCellId,
   type BackgroundTask,
   type EditorStore,
   type MapRect,
 } from "@tessera/core";
 import { FRAGMENT_EXTENSION, PROJECT_EXTENSION } from "@tessera/formats";
+import type { ParsedExtensionPackage } from "@tessera/module-runtime";
 import {
   TesseraRenderer,
+  genericModuleResourceKey,
   type BrushMode,
   type ConnectionPlacement,
   type ConnectionRebindTarget,
@@ -24,6 +28,12 @@ import {
   type RendererInteractionRejection,
 } from "@tessera/renderer";
 import type { ProjectSaveTarget } from "../project-file-workflow.js";
+import type { ProjectModuleResourceRuntime } from "../project-module-resource-runtime.js";
+import {
+  ActiveProjectModuleError,
+  ActiveProjectModuleSession,
+  moduleTextContentValid,
+} from "../active-project-module-session.js";
 import { createFillRegionWorker } from "../fill-region-worker-adapter.js";
 import { dispatchEditorShortcut } from "../editor-shortcuts.js";
 import {
@@ -43,9 +53,13 @@ import styles from "./EditorView.module.css";
 type SaveStatusKey =
   "status.saved" | "status.saving" | "status.saveFailed" | "status.unsaved";
 
+const EMPTY_PACKAGES: readonly ParsedExtensionPackage[] = [];
+
 export interface EditorViewProps {
   store: EditorStore;
   repository: ProjectSaveTarget;
+  packages?: readonly ParsedExtensionPackage[];
+  resourceRuntime?: ProjectModuleResourceRuntime;
   onNew(): void;
   onOpenFile(file: File): Promise<void>;
   onOpenFragmentFile(file: File): Promise<void>;
@@ -61,6 +75,8 @@ function alphaColor(value: string): string {
 export function EditorView({
   store,
   repository,
+  packages = EMPTY_PACKAGES,
+  resourceRuntime,
   onNew,
   onOpenFile,
   onOpenFragmentFile,
@@ -68,7 +84,7 @@ export function EditorView({
   externalErrorKey = null,
   onDismissExternalError,
 }: EditorViewProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const version = useSyncExternalStore(store.subscribe, () => store.version);
   const state = store.state;
   const canvasHost = useRef<HTMLDivElement>(null);
@@ -130,6 +146,11 @@ export function EditorView({
   const [connectionRebind, setConnectionRebind] =
     useState<ConnectionRebindTarget | null>(null);
   const connectionRebindRef = useRef<ConnectionRebindTarget | null>(null);
+  const activeModuleElementId = useRef<string | null>(null);
+  const moduleSession = useMemo(
+    () => new ActiveProjectModuleSession(store, packages, i18n.language),
+    [i18n.language, packages, store],
+  );
   connectionRebindRef.current = connectionRebind;
 
   placementRef.current = {
@@ -145,6 +166,9 @@ export function EditorView({
     const host = canvasHost.current;
     if (host === null) return;
     let cancelled = false;
+    let initialized = false;
+    let resourceRenderQueued = false;
+    let resourceRenderDirty = false;
     const startFill = (row: number, column: number, confirmed = false) => {
       try {
         fillTaskRef.current?.cancel();
@@ -210,24 +234,83 @@ export function EditorView({
         pointerDown: (point, cellId) => store.pointerDown(point, cellId),
         pointerMove: (point) => store.pointerMove(point),
         pointerUp: (point) => store.pointerUp(point),
-        paintCell: (row, column) =>
+        paintCell: (row, column) => {
+          const elementId = activeModuleElementId.current;
+          if (
+            elementId !== null &&
+            moduleSession.get(elementId)?.definition.primitive === "cell-style"
+          ) {
+            moduleSession.placeCell(
+              elementId,
+              projectCellId(store.state.grid.type, row, column),
+            );
+            return;
+          }
           store.paintCell(
             row,
             column,
             alphaColor(placementRef.current.brushColor),
-          ),
+          );
+        },
         eraseCell: (row, column) => store.eraseCell(row, column),
         fillCells: (row, column) => startFill(row, column),
         getBrushMode: () => placementRef.current.brushMode,
-        paintEdge: (edgeId, adjacentCellIds) =>
+        paintEdge: (edgeId, adjacentCellIds) => {
+          const elementId = activeModuleElementId.current;
+          if (
+            elementId !== null &&
+            moduleSession.get(elementId)?.definition.primitive === "edge-style"
+          ) {
+            moduleSession.placeEdge(elementId, edgeId, adjacentCellIds);
+            return;
+          }
           store.paintEdge(
             edgeId,
             adjacentCellIds,
             alphaColor(placementRef.current.edgeColor),
-          ),
+          );
+        },
         getOverlayPlacement: () => placementRef.current.overlay,
         placeOverlay: (point, cellId, edge) => {
           const current = placementRef.current;
+          const moduleElementId = activeModuleElementId.current;
+          const moduleElement =
+            moduleElementId === null
+              ? undefined
+              : moduleSession.get(moduleElementId);
+          if (
+            moduleElementId !== null &&
+            (moduleElement?.definition.primitive === "marker" ||
+              moduleElement?.definition.primitive === "text")
+          ) {
+            const target =
+              current.overlay.anchor === "map-point"
+                ? { kind: "map-point" as const, point }
+                : current.overlay.anchor === "cell" && cellId !== null
+                  ? { kind: "cell" as const, cellId }
+                  : current.overlay.anchor === "edge" && edge !== null
+                    ? {
+                        kind: "edge" as const,
+                        edgeId: edge.edgeId,
+                        adjacentCellIds: edge.adjacentCellIds,
+                      }
+                    : null;
+            if (target !== null) {
+              try {
+                moduleSession.placeOverlay(
+                  moduleElementId,
+                  target,
+                  moduleElement.definition.primitive === "text"
+                    ? current.textOptions.text
+                    : undefined,
+                );
+                setErrorKey(null);
+              } catch {
+                setErrorKey("error.moduleTextInvalid");
+              }
+            }
+            return;
+          }
           const anchor =
             current.overlay.anchor === "map-point"
               ? point
@@ -271,6 +354,25 @@ export function EditorView({
         },
         getConnectionPlacement: () => placementRef.current.connection,
         commitConnection: (start, end, edgeReferences) => {
+          const moduleElementId = activeModuleElementId.current;
+          if (
+            moduleElementId !== null &&
+            moduleSession.get(moduleElementId)?.definition.primitive ===
+              "connection"
+          ) {
+            const withExtensions = (endpoint: typeof start) => ({
+              ...endpoint,
+              extensions: {},
+            });
+            moduleSession.placeConnection(
+              moduleElementId,
+              withExtensions(start),
+              withExtensions(end),
+              edgeReferences,
+              placementRef.current.connection.label,
+            );
+            return true;
+          }
           const current = placementRef.current.connection;
           return (
             store.commitConnection(
@@ -316,13 +418,45 @@ export function EditorView({
         },
       },
       t("canvas.label"),
+      {
+        resolve: (instance) => moduleSession.resolveVisual(instance),
+        ...(resourceRuntime === undefined
+          ? {}
+          : {
+              resources: {
+                resolve: (identity) =>
+                  resourceRuntime.resolve(genericModuleResourceKey(identity)),
+                request: (identity) => void resourceRuntime.load(identity),
+              },
+            }),
+      },
     );
+    const unsubscribeResources = resourceRuntime?.subscribe(() => {
+      resourceRenderDirty = true;
+      if (resourceRenderQueued) return;
+      resourceRenderQueued = true;
+      // 同一资源的 loading/ready 连续通知只合并为一次 Pixi 重绘，不触发 React render。
+      queueMicrotask(() => {
+        resourceRenderQueued = false;
+        if (cancelled || !initialized || !resourceRenderDirty) return;
+        resourceRenderDirty = false;
+        instance.render(store.state);
+      });
+    });
     void instance.initialize().then(() => {
       if (cancelled) instance.destroy();
-      else renderer.current = instance;
+      else {
+        initialized = true;
+        renderer.current = instance;
+        if (resourceRenderDirty) {
+          resourceRenderDirty = false;
+          instance.render(store.state);
+        }
+      }
     });
     return () => {
       cancelled = true;
+      unsubscribeResources?.();
       fillTaskRef.current?.cancel();
       fillTaskRef.current = null;
       if (renderer.current === instance) {
@@ -330,7 +464,7 @@ export function EditorView({
         instance.destroy();
       }
     };
-  }, [store, t]);
+  }, [moduleSession, resourceRuntime, store, t]);
 
   useEffect(() => {
     if (
@@ -524,14 +658,102 @@ export function EditorView({
           overlay={overlay}
           textOptions={textOptions}
           connection={connection}
+          elements={moduleSession.elements}
           onBrushColor={setBrushColor}
           onBrushMode={setBrushMode}
           onEdgeColor={setEdgeColor}
           onOverlay={setOverlay}
           onTextOptions={setTextOptions}
+          validateText={(value) => {
+            const elementId = activeModuleElementId.current;
+            const element =
+              elementId === null ? undefined : moduleSession.get(elementId);
+            return (
+              element?.definition.primitive !== "text" ||
+              moduleTextContentValid(value)
+            );
+          }}
+          onTextInvalid={() => setErrorKey("error.moduleTextInvalid")}
           onConnection={setConnection}
           onElementSelect={(elementId) => {
             setConnectionRebind(null);
+            if (elementId.startsWith("tessera.basic:")) {
+              activeModuleElementId.current = null;
+            } else {
+              const element = moduleSession.get(elementId);
+              if (element === undefined || element.disabledReason !== null)
+                return;
+              if (element.definition.primitive === "domain-object") {
+                activeModuleElementId.current = null;
+                try {
+                  const instanceId = moduleSession.placeDomainGroup(
+                    elementId,
+                    store.selection
+                      .filter((selected) => selected.kind === "cell")
+                      .map((selected) => selected.id),
+                  );
+                  store.select([{ kind: "module-instance", id: instanceId }]);
+                  setErrorKey(null);
+                } catch (error) {
+                  const code =
+                    error instanceof ActiveProjectModuleError
+                      ? error.code
+                      : "domain-group-member-count-invalid";
+                  setErrorKey(
+                    code === "domain-group-members-disconnected"
+                      ? "error.domainGroupDisconnected"
+                      : code === "domain-group-member-out-of-bounds"
+                        ? "error.domainGroupOutOfBounds"
+                        : "error.domainGroupMemberCount",
+                  );
+                }
+                return;
+              }
+              activeModuleElementId.current = elementId;
+              if (element.definition.primitive === "cell-style") {
+                setBrushMode("paint");
+                store.setTool("brush");
+              } else if (
+                element.definition.primitive === "marker" ||
+                element.definition.primitive === "text"
+              ) {
+                const overlayType = element.definition.primitive;
+                const anchor =
+                  element.definition.anchors.includes("cell") ||
+                  element.definition.anchors.includes("cell-center")
+                    ? "cell"
+                    : element.definition.anchors.includes("map-point")
+                      ? "map-point"
+                      : "edge";
+                setOverlay((value) => ({
+                  ...value,
+                  type: overlayType,
+                  anchor,
+                }));
+                store.setTool("marker");
+              } else if (element.definition.primitive === "edge-style") {
+                store.setTool("edge");
+              } else if (element.definition.primitive === "connection") {
+                const endpoint = element.definition.anchors.includes(
+                  "cell-center",
+                )
+                  ? "cell-center"
+                  : element.definition.anchors.includes("map-point")
+                    ? "map-point"
+                    : "edge-midpoint";
+                setConnection((value) => ({
+                  ...value,
+                  kind:
+                    element.definition.defaultStyle.arrowStart === true ||
+                    element.definition.defaultStyle.arrowEnd === true
+                      ? "arrow"
+                      : "line",
+                  endpoint,
+                }));
+                store.setTool("connection");
+              }
+              return;
+            }
             if (elementId === "tessera.basic:cell.color")
               store.setTool("brush");
             else if (elementId === "tessera.basic:edge.style")
@@ -582,6 +804,17 @@ export function EditorView({
             onConnection={(connectionId, next) =>
               store.updateConnection(connectionId, next)
             }
+            onModuleInstance={(instanceId, patch) =>
+              moduleSession.updateInstance(instanceId, patch)
+            }
+            onDomainGroupMembers={(instanceId, memberCellIds) =>
+              moduleSession.updateDomainGroupMembers(instanceId, memberCellIds)
+            }
+            moduleRuleHints={store.selection.flatMap((selected) =>
+              selected.kind === "module-instance"
+                ? moduleSession.ruleHintsForInstance(selected.id)
+                : [],
+            )}
             connectionRebind={connectionRebind}
             onReverseConnection={(connectionId) =>
               store.reverseConnection(connectionId)
@@ -676,6 +909,9 @@ export function EditorView({
             state={state}
             selectionBounds={exportDialog.selectionBounds}
             viewportBounds={exportDialog.customBounds}
+            captureOptions={moduleSession.visualExportCaptureOptions(
+              resourceRuntime,
+            )}
             onClose={closeExportDialog}
           />
         )}

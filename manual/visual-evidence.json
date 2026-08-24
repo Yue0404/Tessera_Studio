@@ -20,21 +20,32 @@
     {
       "id": "production-new-project-1440x900",
       "kind": "browser",
+      "reviewedAt": "2026-08-24",
       "path": "manual/assets/production-new-project-1440x900.png",
       "viewport": { "width": 1440, "height": 900, "dpr": 1 },
       "capture": "tests/production-e2e/release-visual-evidence.spec.ts",
-      "checks": ["首屏无白屏", "创建按钮可见", "页面无滚动", "控制台无错误"]
+      "checks": [
+        "首屏无白屏且主操作层级清晰",
+        "Tessera Studio 品牌与通用编辑工具边界清晰，不依赖第三方游戏品牌",
+        "创建按钮除颜色外还具有文字、边框与空间层级线索",
+        "页面无滚动",
+        "控制台无错误"
+      ]
     },
     {
       "id": "production-editor-1440x900",
       "kind": "browser",
+      "reviewedAt": "2026-08-24",
       "path": "manual/assets/production-editor-1440x900.png",
       "viewport": { "width": 1440, "height": 900, "dpr": 1 },
       "capture": "tests/production-e2e/release-visual-evidence.spec.ts",
       "checks": [
         "真实画布可见",
         "地图为底层",
-        "工具与保存状态可达",
+        "工具栏、目录与上下文面板层级稳定",
+        "选中、禁用与状态提示同时使用文字、形状或边框，不只依赖颜色",
+        "界面保持 Tessera Studio 独立品牌，不借用 Civ6 视觉资产",
+        "保存状态可见",
         "控制台无错误"
       ]
     }

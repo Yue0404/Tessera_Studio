@@ -17,9 +17,13 @@ import {
 } from "@tessera/core";
 import { ConnectionRenderer } from "./connection-renderer.js";
 import { GridRenderer } from "./grid-renderer.js";
+import {
+  GenericModuleRenderer,
+  type GenericModuleVisualResolver,
+} from "./generic-module-renderer.js";
 import { OverlayRenderer } from "./overlay-renderer.js";
 import { endpointPoint, overlayAnchorPoint } from "./render-utils.js";
-import { hitTestProjectObject } from "./project-hit-test.js";
+import { hitTestProjectObject, topmostProjectHit } from "./project-hit-test.js";
 import { enableRenderLayerSorting } from "./render-layer-order.js";
 import { InteractionRangeState } from "./interaction-range-state.js";
 import {
@@ -154,12 +158,14 @@ export class TesseraRenderer {
   #contextLifecycle: WebGlContextLifecycle | undefined;
   #contextLost = false;
   #renderDurationMs = 0;
+  readonly #genericModuleRenderer: GenericModuleRenderer | undefined;
 
   constructor(
     host: HTMLElement,
     state: Readonly<ProjectState>,
     interaction: RendererInteraction,
     canvasLabel: string,
+    genericModuleVisualResolver?: GenericModuleVisualResolver,
   ) {
     this.#host = host;
     this.#state = state;
@@ -169,6 +175,10 @@ export class TesseraRenderer {
     this.#gridRenderer = new GridRenderer(this.#content);
     this.#connectionRenderer = new ConnectionRenderer(this.#content);
     this.#overlayRenderer = new OverlayRenderer(this.#content);
+    this.#genericModuleRenderer =
+      genericModuleVisualResolver === undefined
+        ? undefined
+        : new GenericModuleRenderer(this.#content, genericModuleVisualResolver);
   }
 
   async initialize(): Promise<void> {
@@ -256,7 +266,13 @@ export class TesseraRenderer {
       ),
     );
     this.#connectionRenderer.render(state, viewport);
-    this.#overlayRenderer.render(state, viewport);
+    this.#overlayRenderer.render(state, viewport, this.#zoom);
+    this.#genericModuleRenderer?.render(
+      state,
+      viewport,
+      this.#visible,
+      this.#zoom,
+    );
     this.#renderPreview();
     this.#renderDurationMs = performance.now() - startedAt;
     const stats = this.getPerformanceStats();
@@ -270,6 +286,14 @@ export class TesseraRenderer {
     canvas.dataset.gridRebuiltCount = String(stats.grid.rebuiltCount);
     canvas.dataset.gridTotalRebuiltCount = String(stats.grid.totalRebuiltCount);
     canvas.dataset.gridBuildDurationMs = String(stats.grid.buildDurationMs);
+    const resourceStats = this.#genericModuleRenderer?.resourceStats;
+    canvas.dataset.moduleResourceRequestedCount = String(
+      resourceStats?.requested ?? 0,
+    );
+    canvas.dataset.moduleResourceReadyCount = String(resourceStats?.ready ?? 0);
+    canvas.dataset.moduleResourcePlaceholderCount = String(
+      resourceStats?.placeholder ?? 0,
+    );
     if (stats.grid.rebuiltCount > 0) {
       canvas.dataset.gridLastRebuildDurationMs = String(
         stats.grid.buildDurationMs,
@@ -304,6 +328,7 @@ export class TesseraRenderer {
     window.removeEventListener("keydown", this.#onKeyDown);
     window.removeEventListener("keyup", this.#onKeyUp);
     window.removeEventListener("blur", this.#onWindowBlur);
+    this.#genericModuleRenderer?.destroy();
     this.#application.destroy({ removeView: true }, { children: true });
   }
 
@@ -459,7 +484,7 @@ export class TesseraRenderer {
     }
     for (const edgeId of visibleEdgeIds) {
       const edge = this.#state.edges.get(edgeId);
-      if (edge === undefined) continue;
+      if (edge?.persistence !== "explicit-style") continue;
       const segment = edgeSegment(
         this.#state.grid,
         edge.edgeId,
@@ -493,6 +518,11 @@ export class TesseraRenderer {
         selected.push({ kind: "overlay", id: overlay.overlayId });
       }
     }
+    selected.push(
+      ...(this.#genericModuleRenderer
+        ?.boxSelection(this.#state, rect, this.#visible)
+        .map((id) => ({ kind: "module-instance" as const, id })) ?? []),
+    );
     return selected;
   }
 
@@ -639,7 +669,17 @@ export class TesseraRenderer {
         this.#interaction.placeOverlay(point, cell?.cellId ?? null, edge);
       }
     } else if (toolBefore.tool === "select") {
-      const hit = hitTestProjectObject(this.#state, point, cell);
+      const moduleHit = this.#genericModuleRenderer?.hitTest(
+        this.#state,
+        point,
+        cell,
+        this.#zoom,
+      );
+      const hit = topmostProjectHit(
+        this.#state,
+        hitTestProjectObject(this.#state, point, cell, this.#zoom),
+        moduleHit ?? null,
+      );
       this.#interaction.select(hit === null ? [] : [hit], event.shiftKey);
     } else if (
       toolBefore.tool === "connection" &&
@@ -705,7 +745,7 @@ export class TesseraRenderer {
       this.#interaction.pointerStatusChanged?.(null);
       return;
     }
-    const hit = hitTestProjectObject(this.#state, point, cell);
+    const hit = hitTestProjectObject(this.#state, point, cell, this.#zoom);
     this.#interaction.pointerStatusChanged?.({
       row: cell.row,
       column: cell.column,

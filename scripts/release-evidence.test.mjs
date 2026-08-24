@@ -162,6 +162,43 @@ test("条件或阻塞项必须给出原因", () => {
   assert.match(issues.join("\n"), /必须说明/u);
 });
 
+test("已裁定的 P1 与无障碍状态不得整体回退，PERF-002 保持阻塞", () => {
+  const makeDocument = (id, status) => ({
+    schemaVersion: "1",
+    p0RequirementIds: ["APP-001"],
+    entries: [validEntry],
+    p1RequirementIds: [id],
+    trackedP1Evidence: [
+      {
+        ...validP1,
+        requirementIds: [id],
+        status,
+        ...(status === "covered" ? {} : { blocker: "受控测试阻塞" }),
+      },
+    ],
+  });
+  assert.deepEqual(
+    validateTraceabilityDocument(makeDocument("UX-007", "covered")),
+    [],
+  );
+  assert.match(
+    validateTraceabilityDocument(makeDocument("UX-007", "conditional")).join(
+      "\n",
+    ),
+    /UX-007 必须保持 covered/u,
+  );
+  assert.deepEqual(
+    validateTraceabilityDocument(makeDocument("PERF-002", "blocked")),
+    [],
+  );
+  assert.match(
+    validateTraceabilityDocument(makeDocument("PERF-002", "covered")).join(
+      "\n",
+    ),
+    /PERF-002 必须保持 blocked/u,
+  );
+});
+
 test("浏览器视觉证据必须记录视口和DPR", () => {
   assert.deepEqual(
     validateVisualEvidenceDocument({
@@ -170,6 +207,7 @@ test("浏览器视觉证据必须记录视口和DPR", () => {
         {
           id: "new-project",
           kind: "browser",
+          reviewedAt: "2026-08-24",
           path: "manual/assets/new-project.png",
           viewport: { width: 1440, height: 900, dpr: 1 },
           checks: ["可见"],
@@ -185,6 +223,7 @@ test("浏览器视觉证据必须记录视口和DPR", () => {
         {
           id: "new-project",
           kind: "browser",
+          reviewedAt: "2026-08-24",
           path: "manual/assets/new-project.png",
           viewport: null,
           checks: ["可见"],

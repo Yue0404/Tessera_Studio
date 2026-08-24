@@ -1,18 +1,19 @@
 # 视觉证据台账
 
-机器可读清单位于 [visual-evidence.json](visual-evidence.json)。概念图用于比较信息架构和视觉方向；浏览器截图来自真实 production build，不替代领域状态与自动测试。
+机器可读清单位于 [visual-evidence.json](visual-evidence.json)。概念图用于比较信息架构和视觉方向；浏览器截图来自真实 production build，不替代领域状态与自动测试。生产截图于 2026-08-24 在 1440×900、DPR=1 下完成复核。
 
-| 证据                                                     | 类型            | 视口            | 核查结论                               |
-| -------------------------------------------------------- | --------------- | --------------- | -------------------------------------- |
-| [新建概念图](assets/concept-new-project-v1.png)          | 概念            | 不适用          | 单一新建流程、地图参数优先、扩展包可选 |
-| [编辑器概念图](assets/concept-editor-v2.png)             | 概念            | 不适用          | 地图主体、浮动面板、紧凑工具           |
-| [生产新建页](assets/production-new-project-1440x900.png) | Edge production | 1440×900，DPR=1 | 首屏、可达性、滚动与生产资源           |
-| [生产编辑器](assets/production-editor-1440x900.png)      | Edge production | 1440×900，DPR=1 | 画布、浮动布局、工具与保存状态         |
+| 证据                                                     | 类型            | 视口            | 2026-08-24 人工视觉核查结论                                                                  |
+| -------------------------------------------------------- | --------------- | --------------- | -------------------------------------------------------------------------------------------- |
+| [新建概念图](assets/concept-new-project-v1.png)          | 概念            | 不适用          | 单一新建流程、地图参数优先、扩展包可选                                                       |
+| [编辑器概念图](assets/concept-editor-v2.png)             | 概念            | 不适用          | 地图主体、浮动面板、紧凑工具                                                                 |
+| [生产新建页](assets/production-new-project-1440x900.png) | Edge production | 1440×900，DPR=1 | 首屏主操作层级清晰；品牌独立于第三方游戏；创建操作同时具有文字、边框和空间层级线索           |
+| [生产编辑器](assets/production-editor-1440x900.png)      | Edge production | 1440×900，DPR=1 | 地图、工具栏、目录与上下文面板层级稳定；状态同时使用文字、形状或边框；保持独立品牌与可读密度 |
 
 ## 自动与人工边界
 
 - 截图生成测试同时监听 `pageerror`、console error 和失败响应；
-- DOM、颜色对比度、焦点、保存状态和对象数量由 Playwright 断言，不从像素猜测；
+- 键盘焦点、焦点环、`aria-pressed`、`prefers-reduced-motion` 与真实 WebGL `context-loss` 恢复由 [browser-safety-a11y.spec.ts](../tests/e2e/browser-safety-a11y.spec.ts) 自动验证，不作为静态截图观察结论；
+- DOM、颜色对比度、保存状态和对象数量由 Playwright 断言，不从像素猜测；
 - 人工复核比较概念图与实装的信息层级、遮挡、密度和文本可读性；
 - 截图不证明性能、存储原子性、格式往返或浏览器版本范围，这些证据分别进入追踪矩阵；
 - 若 UI 发生有意变化，必须重新运行截图测试并在 PR 中说明差异，不能只覆盖图片。

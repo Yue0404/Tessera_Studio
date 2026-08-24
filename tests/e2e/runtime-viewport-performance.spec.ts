@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { waitForEditorReady } from "./editor-ready.js";
 
@@ -109,6 +110,22 @@ async function canvasColorSnapshot(
     };
   }, png.toString("base64"));
   return { png, ...metrics };
+}
+
+async function nativeCanvasPng(canvas: Locator): Promise<Buffer> {
+  const dataUrl = await canvas.evaluate((element) => {
+    if (!(element instanceof HTMLCanvasElement)) {
+      throw new Error("native-canvas-element-invalid");
+    }
+    return element.toDataURL("image/png");
+  });
+  const separator = dataUrl.indexOf(",");
+  if (separator < 0) throw new Error("native-canvas-png-invalid");
+  return Buffer.from(dataUrl.slice(separator + 1), "base64");
+}
+
+function sha256(value: Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 async function canvasPixelDiff(
@@ -616,7 +633,9 @@ test("PERF-006 跨块线箭头与覆盖物在淘汰后重载保持稳定", async
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       ),
   );
-  const before = await canvas.screenshot();
+  // Locator 截图会把覆盖在全屏 canvas 上的命令栏与状态栏一起合成；
+  // PERF-006 必须读取 WebGL canvas 自身，避免把保存/指针文本变化误判为网格差异。
+  const before = await nativeCanvasPng(canvas);
   const cameraBefore = {
     x: Number(await canvas.getAttribute("data-camera-x")),
     y: Number(await canvas.getAttribute("data-camera-y")),
@@ -651,15 +670,25 @@ test("PERF-006 跨块线箭头与覆盖物在淘汰后重载保持稳定", async
   expect(
     Number(await canvas.getAttribute("data-grid-total-rebuilt-count")),
   ).toBeGreaterThan(rebuiltBefore);
-  const after = await canvas.screenshot();
-  // 本用例验收跨块 marker、line、arrow；外围网格批次重建另行跟踪。
-  // 解码后比较对象区域真实像素，避免把 PNG 压缩字节差异误判为回归。
+  const after = await nativeCanvasPng(canvas);
+  // 解码后严格比较原生 RGBA，不以 PNG 压缩字节或页面复合截图代替画布证据。
+  const fullPixelDiff = await canvasPixelDiff(page, before, after);
   const objectPixelDiff = await canvasPixelDiff(page, before, after, {
     left: 520,
     top: 250,
     right: 700,
     bottom: 450,
   });
+  console.log(
+    JSON.stringify({
+      scenario: "perf-006-native-canvas",
+      beforeSha256: sha256(before),
+      afterSha256: sha256(after),
+      fullPixelDiff,
+      objectPixelDiff,
+    }),
+  );
+  expect(fullPixelDiff).toEqual({ count: 0, bounds: null });
   expect(objectPixelDiff).toEqual({ count: 0, bounds: null });
 });
 

@@ -12,19 +12,22 @@
 
 ## 当前汇总
 
-| 范围                         | 状态        | 主要证据                                                          |
-| ---------------------------- | ----------- | ----------------------------------------------------------------- |
-| 创建、几何、编辑、图层、历史 | covered     | core/renderer/web 单元测试与 vertical-slice E2E                   |
-| 保存、Project、Fragment      | covered     | formats/storage 测试与真实浏览器下载、载入、刷新恢复              |
-| PNG/SVG                      | covered     | visual-export 单元测试及 Chromium/Edge 真 Blob 验证               |
-| 通用模块包                   | covered     | module-runtime、OPFS、Worker、真实浏览器导入                      |
-| Civilization VI              | conditional | Issue #14；无包时核心网站必须独立通过                             |
-| VIEW-008                     | covered     | 真实分块 P95、缺帧、接缝与跨块淘汰回归                            |
-| 最大地图内存与跨块稳定       | covered     | 强制 GC、LRU 饱和及线/箭头/覆盖物往返                             |
-| PERF-010 参考档性能          | blocked     | Issue #12；当前实机不等同冻结参考硬件                             |
-| 当前及前一主要浏览器版本     | blocked     | Issue #12；Chrome/Firefox 已闭合，Edge 前一版缺少安全并行运行证据 |
-| 普通 Windows 10 22H2         | blocked     | Microsoft 支持口径与当前 build-only 守卫冲突                      |
-| 项目许可证                   | blocked     | 仓库所有者尚未作出授权决定                                        |
+| 范围                                                                             | 状态        | 主要证据                                                                                                                                             |
+| -------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 创建、几何、编辑、图层、历史                                                     | covered     | core/renderer/web 单元测试与 vertical-slice E2E                                                                                                      |
+| 保存、Project、Fragment                                                          | covered     | formats/storage 测试与真实浏览器下载、载入、刷新恢复                                                                                                 |
+| PNG/SVG                                                                          | covered     | visual-export 单元测试及 Chromium/Edge 真 Blob 验证                                                                                                  |
+| 通用模块包                                                                       | covered     | module-runtime、OPFS、Worker、真实浏览器导入                                                                                                         |
+| Civilization VI                                                                  | conditional | 真实安装已验证 209 元素/114 资源；CIV-009 有 DomainGroup 直接实现、测试和生产 E2E；Issue #14 仍跟踪正式 Release、catalog 回填及 Win11 24H2+ x64 实机 |
+| VIEW-008                                                                         | covered     | 真实分块 P95、缺帧、接缝与跨块淘汰回归                                                                                                               |
+| 最大地图内存与跨块稳定                                                           | covered     | 强制 GC、LRU 饱和及线/箭头/覆盖物往返                                                                                                                |
+| PERF-010 参考档性能                                                              | blocked     | Issue #12；当前实机不等同冻结参考硬件                                                                                                                |
+| PERF-002 视口操作延迟                                                            | blocked     | 当前 1440×900、DPR=1 数据通过，但仍须在 PERF-010 冻结参考硬件闭合                                                                                    |
+| 当前及前一主要浏览器版本                                                         | blocked     | Issue #12；Chrome/Firefox 已闭合，Edge 前一版缺少安全并行运行证据                                                                                    |
+| 可选 Civ6 提取器 Windows 11 24H2+ x64 实机                                       | blocked     | 正式 Release/catalog 与精确目标机证据仍须闭合；核心静态网站仍面向 Windows 10+                                                                        |
+| P1：EDIT-002、LINK-007、MOD-008、LAYER-004、DATA-006、EXPORT-006、UX-006、UX-007 | covered     | 直接实现、模型/格式边界测试、浏览器 E2E 与 2026-08-24 人工视觉证据                                                                                   |
+| A11Y-001～A11Y-004                                                               | covered     | browser-safety-a11y 自动化与 2026-08-24 人工视觉层级、非纯颜色状态线索证据                                                                           |
+| 项目许可证                                                                       | blocked     | 仓库所有者尚未作出授权决定                                                                                                                           |
 
 ## 更新规则
 

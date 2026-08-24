@@ -40,7 +40,7 @@ pnpm browser:support:matrix --output local-modules/.review/browser-support.json
 - GPU batch 在饱和点为 83，后续 64 次最大仍为 83；
 - Chromium CDP `HeapProfiler.collectGarbage` 在首次饱和与后续 64 次后分别采样。修复子 `GraphicsContext` 未释放后，三轮饱和后驻留堆增量为 19,286,248、19,771,229、19,803,402 字节；相对饱和前单位访问线性外推比为 0.07896、0.08103、0.08114，均低于 0.25 门禁；
 - DPR=1 的真实 canvas 像素测量连续两轮均检测 194/194 个无遮挡、非水平交点采样行；半设备像素描边对齐后，Edge 的最大误差为 0 CSS px，Firefox 的最大误差为 0.05 CSS px，均不超过 0.5 CSS px；
-- PERF-006 回归在跨 64×64 分块边界创建标记、线和箭头，访问至 LRU 淘汰后返回；连续两轮均发生原区域批次重建，领域计数不变，前后 canvas PNG 逐字节一致。
+- PERF-006 回归在跨 64×64 分块边界创建标记、线和箭头，访问至 LRU 淘汰后返回；连续两轮均发生原区域批次重建，领域计数不变，前后 canvas 解码 RGBA 逐像素精确一致，不比较可能受编码器影响的 PNG 压缩字节。
 
 强制 GC 指标只适用于 Chromium/Edge；Firefox 通过缓存数量、状态和视觉回归验证，不宣称拥有等价 CDP 堆采样。
 
@@ -54,16 +54,16 @@ pnpm browser:support:matrix --output local-modules/.review/browser-support.json
 
 ## 当前浏览器与无障碍
 
-同一套 39 项核心流程矩阵事实，产品浏览器与 Playwright engine 分开记录：
+支持矩阵的产品浏览器与 Playwright engine 分开记录；最终候选为 Edge 151 与 Firefox 153 增加到 40 项，其余已记录版本保留此前 39 项证据：
 
-- 系统 Microsoft Edge `151.0.4129.101`：39/39；
+- 系统 Microsoft Edge `151.0.4129.101`：40/40；
 - Google 官方 Chrome for Testing Stable `152.0.7977.54`：39/39；
 - Google 官方 Chrome for Testing 上一主版本 `151.0.7922.138`：39/39；
-- Playwright Firefox `153.0`：39/39；
+- Playwright Firefox `153.0`：40/40；
 - 与 Playwright 1.62.1 匹配的官方 Firefox Beta `152.0b1`（revision `1526`）：39/39；
 - Playwright Chromium `151.0.7922.34`：39/39，仅作为 Chromium engine 补充证据，不冒充 Chrome 产品。
 
-Chrome 版本来自 Google Chrome for Testing 的 `last-known-good-versions-with-downloads.json` 与 `known-good-versions-with-downloads.json`；Firefox 152 来自 Playwright 1.62.1 `browsers.json` 指向的官方 CDN 构建。Firefox 品牌版不能直接由 Playwright 的 patched Firefox 协议驱动，因此不把 Mozilla branded binary 冒充这套 39 项结果。
+Chrome 版本来自 Google Chrome for Testing 的 `last-known-good-versions-with-downloads.json` 与 `known-good-versions-with-downloads.json`；Firefox 152 来自 Playwright 1.62.1 `browsers.json` 指向的官方 CDN 构建。Firefox 品牌版不能直接由 Playwright 的 patched Firefox 协议驱动，因此不把 Mozilla branded binary 冒充 Playwright Firefox 结果。最终复验环境没有可启动的系统 Chrome，属于浏览器能力在测试启动前不可用，不记为网页失败，也不把既有 Chrome for Testing 证据冒充为本轮系统 Chrome 结果。
 
 矩阵覆盖新建、绘制、撤销、保存/刷新、Project/Fragment、包安装、Worker 填充、CSP、WebGL context lost/restored、axe WCAG 2.2 AA、键盘焦点、tooltip 与 reduced-motion。
 
@@ -73,4 +73,6 @@ Microsoft 官方 Edge Enterprise API 提供上一主版本 `150.0.4078.144` 的 
 
 - PERF-001、PERF-002、PERF-010 的冻结参考硬件/硬件加速档；
 - Microsoft Edge 前一个主要版本的安全并行运行证据；
-- 普通 Windows 10 22H2 支持口径与项目许可证决策。
+- 核心静态网站继续面向 Windows 10+ 的支持矩阵内现代浏览器；它不包含需要单独操作系统发布的可执行程序；
+- 可选 Civ6 提取器的产品目标已固定为 Windows 11 24H2+ x64，但目标系统实机证据仍未闭合；
+- 项目许可证决策。

@@ -401,6 +401,11 @@ describe("Module Format v1 结构与本地化", () => {
       ["tessera.basic.connection", 4300],
       ["tessera.basic.annotation", 4400],
     ]);
+    expect(
+      BASIC_MODULE_PACKAGE.elements.find(
+        (element) => element.elementId === "tessera.basic:text",
+      )?.attributeSchema.properties.text,
+    ).toMatchObject({ type: "string", maxLength: 256 });
   });
 
   it("literal 模式不需要 locales，key 模式使用默认语言", () => {
@@ -873,11 +878,10 @@ describe("引用闭包、Catalog 与资源", () => {
     });
     const element = firstRecord(values, "elements/marker.json");
     element.resourceIds = ["example.assets:data.marker"];
-    (element.defaultStyle as Record<string, unknown>).resourceId =
-      "example.assets:data.marker";
     values["assets/marker.json"] = asset;
     expect(parsePackageFileSetForTests(jsonFiles(values))).toMatchObject({
       manifest: { resources: [{ bytes: assetBytes }] },
+      elements: [{ resourceIds: ["example.assets:data.marker"] }],
     });
 
     (firstItem(manifest.resources).license as { status: string }).status =

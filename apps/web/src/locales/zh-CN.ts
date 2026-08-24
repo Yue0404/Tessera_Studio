@@ -68,7 +68,7 @@ export const zhCN = {
     "package.civ6.releaseAvailable": "匹配的可选提取器",
     "package.civ6.extractorVersion": "提取器版本：{{version}}",
     "package.civ6.platform.windowsX64": "平台：Windows x64",
-    "package.civ6.minOsBuild": "最低系统：Windows 10 build {{build}}",
+    "package.civ6.minOsBuild": "最低系统：Windows 11 24H2（build {{build}}）",
     "package.civ6.releaseBytes": "下载大小：{{bytes}} 字节",
     "package.civ6.releaseSha256": "Release ZIP SHA-256：{{sha256}}",
     "package.civ6.unsignedWarning":
@@ -147,6 +147,19 @@ export const zhCN = {
     "catalog.results": "元素搜索结果",
     "catalog.activateElement": "使用目录元素 {{id}}",
     "catalog.noResults": "没有匹配的已载入元素。",
+    "catalog.disabledReason.grid-unsupported": "当前网格不支持此元素。",
+    "catalog.disabledReason.layer-unavailable": "元素所属图层不可用。",
+    "catalog.disabledReason.layer-readonly": "元素所属图层为只读状态。",
+    "catalog.disabledReason.primitive-unsupported":
+      "当前编辑器暂不支持放置此元素。",
+    "catalog.disabledReason.anchor-unsupported":
+      "当前编辑器不支持此元素的锚定方式。",
+    "catalog.disabledReason.resource-style-unsupported":
+      "此元素依赖尚未支持的资源样式。",
+    "catalog.disabledReason.text-attribute-unsupported":
+      "文字元素必须声明不超过 256 字且最多 8 行的 text 字符串属性。",
+    "catalog.disabledReason.required-attribute-missing":
+      "此元素缺少可自动填写的必填属性。",
     "catalog.expand": "展开元素目录",
     "catalog.collapse": "收起元素目录",
     "catalog.cellColors": "地块颜色",
@@ -225,6 +238,17 @@ export const zhCN = {
     "error.connectionSelf": "连接的起点和终点不能是同一目标，请重新选择。",
     "error.connectionRebindTargetInvalid": "重绑定端点需要点击合法地格。",
     "error.connectionCommitFailed": "连接操作未提交，请修正目标后重试。",
+    "error.moduleTextInvalid": "文字最多 256 个字素、8 行，未保存更改。",
+    "error.domainGroupMemberCount":
+      "领域对象必须由当前选择中的 2–64 个地格创建，工程未更改。",
+    "error.domainGroupDisconnected":
+      "所选地格没有通过共享边形成单一连通域，工程未更改。",
+    "error.domainGroupOutOfBounds": "所选领域成员不属于当前网格，工程未更改。",
+    "ruleHints.title": "规则提示",
+    "ruleHints.severity.error": "错误",
+    "ruleHints.severity.warning": "警告",
+    "ruleHints.severity.info": "信息",
+    "ruleHints.occupancy": "占用槽位 {{slotId}} 当前有 {{count}} 个对象。",
     "inspector.arrowBoth": "双向箭头",
     "fontWeight.normal": "常规",
     "fontWeight.bold": "粗体",
@@ -237,10 +261,17 @@ export const zhCN = {
     "inspector.emptySelection": "尚未选择对象。",
     "inspector.selectionCount": "已选择 {{count}} 个对象",
     "inspector.commonColor": "共同颜色",
+    "inspector.moduleAttributes": "模块属性（JSON）",
+    "inspector.moduleStyleOverrides": "样式覆盖（JSON）",
+    "inspector.moduleMissingReadonly": "所需模块缺失；实例只读且不可删除",
+    "inspector.moduleUpdateInvalid": "输入不符合模块声明，未保存更改",
+    "inspector.domainGroupMemberCount": "当前领域成员：{{count}} 格",
+    "inspector.replaceDomainGroupMembers": "用当前所选地格替换领域成员",
     "object.cell": "地格",
     "object.edge": "共享边",
     "object.overlay": "文字或标记",
     "object.connection": "连线或箭头",
+    "object.module-instance": "扩展模块实例",
     "layer.tessera.basic.cell-style": "地格样式",
     "layer.tessera.system.grid": "系统网格线",
     "layer.tessera.basic.edge-style": "共享边样式",
@@ -384,6 +415,7 @@ export const zhCN = {
       "工程文件超过 512 MiB 上限，当前工程未被替换。",
     "error.projectFileSaveFailed":
       "工程文件已通过校验，但本地保存失败，当前工程未被替换。",
+    "error.projectCreateFailed": "工程创建校验失败，未保存或切换当前工程。",
     "error.projectRecoveryFailed":
       "本地工程恢复失败。你仍可新建地图或载入其他工程文件。",
     "error.requiredName": "请输入工程名称。",

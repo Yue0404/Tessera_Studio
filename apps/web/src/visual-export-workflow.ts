@@ -1,13 +1,16 @@
 import type { ProjectState } from "@tessera/core";
 import {
   captureVisualExportSnapshot,
+  hydrateVisualExportSnapshotResources,
   detectVisualExportCanvasCapabilities,
   planVisualExport,
   resolveVisualExportBounds,
   startVisualExport,
+  iterateVisualPrimitives,
   VisualExportError,
   type StartVisualExportOptions,
   type VisualExportCanvasCapabilities,
+  type VisualExportCaptureOptions,
   type VisualExportPlan,
   type VisualExportRequest,
   type VisualExportResult,
@@ -29,6 +32,8 @@ export interface VisualExportWorkflowRequest {
     | { readonly kind: "color"; readonly color: string };
   readonly showGrid: boolean;
   readonly scale: 1 | 2 | 4;
+  readonly captureOptions?: VisualExportCaptureOptions;
+  readonly signal?: AbortSignal;
 }
 
 export interface VisualExportWorkflowSession extends VisualExportTask {
@@ -39,6 +44,14 @@ export interface VisualExportWorkflowSession extends VisualExportTask {
 export interface VisualExportWorkflowEngine {
   captureVisualExportSnapshot(
     state: Readonly<ProjectState>,
+    options?: VisualExportCaptureOptions,
+  ): VisualExportSnapshot;
+  hydrateVisualExportSnapshotResources(
+    snapshot: VisualExportSnapshot,
+    options: VisualExportCaptureOptions,
+    identities: readonly Parameters<
+      NonNullable<VisualExportCaptureOptions["prepareResource"]>
+    >[0][],
   ): VisualExportSnapshot;
   resolveVisualExportBounds: typeof resolveVisualExportBounds;
   detectVisualExportCanvasCapabilities(): VisualExportCanvasCapabilities;
@@ -51,6 +64,7 @@ export interface VisualExportWorkflowEngine {
 
 const browserEngine: VisualExportWorkflowEngine = {
   captureVisualExportSnapshot,
+  hydrateVisualExportSnapshotResources,
   resolveVisualExportBounds,
   detectVisualExportCanvasCapabilities,
   planVisualExport,
@@ -58,14 +72,21 @@ const browserEngine: VisualExportWorkflowEngine = {
 };
 
 /** 本函数同步捕获 snapshot；调用返回后编辑态变化不会进入本次产物。 */
-export function startVisualExportWorkflow(
+export async function startVisualExportWorkflow(
   state: Readonly<ProjectState>,
   request: VisualExportWorkflowRequest,
   engine: VisualExportWorkflowEngine = browserEngine,
-): VisualExportWorkflowSession {
-  const snapshot = engine.captureVisualExportSnapshot(state);
+): Promise<VisualExportWorkflowSession> {
+  const exportCancelled = () => request.signal?.aborted === true;
+  if (exportCancelled()) {
+    throw new VisualExportError("visual-export-cancelled");
+  }
+  const initialSnapshot = engine.captureVisualExportSnapshot(state, {
+    ...request.captureOptions,
+    deferResourceCapture: true,
+  });
   const resolved = resolveVisualExportRangeFromSnapshot(
-    snapshot,
+    initialSnapshot,
     request.range,
     request.interaction,
     engine,
@@ -92,6 +113,65 @@ export function startVisualExportWorkflow(
           showGrid: request.showGrid,
         };
   const capabilities = engine.detectVisualExportCanvasCapabilities();
+  const initialPlan = engine.planVisualExport(
+    initialSnapshot,
+    visualRequest,
+    capabilities,
+  );
+  const pending = new Map<
+    string,
+    Parameters<NonNullable<VisualExportCaptureOptions["prepareResource"]>>[0]
+  >();
+  for (const primitive of iterateVisualPrimitives(initialPlan)) {
+    const identity =
+      primitive.kind === "polygon"
+        ? primitive.patternResource?.identity
+        : primitive.kind === "marker"
+          ? primitive.imageResource
+          : primitive.kind === "text"
+            ? primitive.fontResource
+            : undefined;
+    if (identity !== undefined) {
+      pending.set(
+        `${identity.moduleId}@${identity.version}/${identity.resourceId}`,
+        identity,
+      );
+    }
+  }
+  if (request.captureOptions?.prepareResource !== undefined) {
+    const preparation = Promise.all(
+      [...pending.values()].map((identity) =>
+        request.captureOptions?.prepareResource?.(identity),
+      ),
+    );
+    if (request.signal === undefined) {
+      await preparation;
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        const abort = () =>
+          reject(new VisualExportError("visual-export-cancelled"));
+        request.signal?.addEventListener("abort", abort, { once: true });
+        preparation.then(
+          () => {
+            request.signal?.removeEventListener("abort", abort);
+            resolve();
+          },
+          (error: unknown) => {
+            request.signal?.removeEventListener("abort", abort);
+            reject(error);
+          },
+        );
+      });
+    }
+  }
+  if (exportCancelled()) {
+    throw new VisualExportError("visual-export-cancelled");
+  }
+  const snapshot = engine.hydrateVisualExportSnapshotResources(
+    initialPlan.snapshot,
+    request.captureOptions ?? {},
+    [...pending.values()],
+  );
   const plan = engine.planVisualExport(snapshot, visualRequest, capabilities);
   const task = engine.startVisualExport(plan, { capabilities });
   return Object.freeze({ ...task, plan, capabilities });

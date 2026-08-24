@@ -125,6 +125,37 @@ describe("ContextPanel", () => {
     expect(onOverlay.mock.calls[0]?.[1].style.rotation).toBe(90);
   });
 
+  it("基础文字按字素和行数拒绝超限内容且不产生写入", () => {
+    const store = new EditorStore(project());
+    const overlayId = store.placeText({ x: 32, y: 32 }, "原文");
+    const onOverlay = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          {...connectionActions}
+          panel="properties"
+          state={store.state}
+          selection={[{ kind: "overlay", id: overlayId }]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={onOverlay}
+          onConnection={vi.fn()}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("文字内容"), {
+      target: { value: "👩🏽‍💻".repeat(257) },
+    });
+    expect(onOverlay).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "文字最多 256 个字素、8 行",
+    );
+  });
+
   it("缺失模块占位层显示状态且不能解锁", () => {
     const state = project();
     (state.layers as Map<string, FixedLayerState>).set(
@@ -237,5 +268,245 @@ describe("ContextPanel", () => {
     expect(screen.getByText(/正在重新绑定起点/)).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(onCancelConnectionRebind).toHaveBeenCalledOnce();
+  });
+
+  it("generic 实例可编辑 JSON 覆盖并通过统一回调提交", () => {
+    const state = project();
+    (state.layers as Map<string, FixedLayerState>).set(
+      "example.weather.surface",
+      {
+        layerId: "example.weather.surface",
+        moduleVersion: "1.0.0",
+        zIndex: 2500,
+        visible: true,
+        locked: false,
+        opacity: 1,
+        allowedKinds: ["cell"],
+        runtimeStatus: "available",
+      },
+    );
+    state.moduleInstances.add({
+      kind: "cell",
+      instanceId: "generic-cell",
+      elementId: "example.weather:cell.rain",
+      layerId: "example.weather.surface",
+      cellId: "cell:square:1:1",
+      attributes: { intensity: 3 },
+      styleOverrides: {},
+      extensions: {},
+      runtimeStatus: "available",
+    });
+    const onModuleInstance = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          {...connectionActions}
+          panel="properties"
+          state={state}
+          selection={[{ kind: "module-instance", id: "generic-cell" }]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={vi.fn()}
+          onConnection={vi.fn()}
+          onModuleInstance={onModuleInstance}
+          moduleRuleHints={[
+            {
+              instanceId: "generic-cell",
+              elementId: "example.weather:cell.rain",
+              severity: "error",
+              kind: "occupancy",
+              message: "",
+              slotId: "example.weather:slot.rain",
+              count: 2,
+            },
+            {
+              instanceId: "generic-cell",
+              elementId: "example.weather:cell.rain",
+              severity: "warning",
+              kind: "constraint",
+              message: "附近需要排水设施",
+              constraintId: "example.weather:constraint.drainage",
+            },
+          ]}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    expect(screen.getByText("example.weather:cell.rain")).toBeDefined();
+    const ruleHints = screen.getByRole("region", { name: "规则提示" });
+    expect(ruleHints.textContent).toContain("错误");
+    expect(ruleHints.textContent).toContain(
+      "占用槽位 example.weather:slot.rain 当前有 2 个对象。",
+    );
+    expect(ruleHints.textContent).toContain("警告 附近需要排水设施");
+    const style = screen.getByLabelText("样式覆盖（JSON）");
+    fireEvent.change(style, {
+      target: { value: JSON.stringify({ fillOpacity: 0.5 }) },
+    });
+    fireEvent.blur(style);
+    expect(onModuleInstance).toHaveBeenCalledWith("generic-cell", {
+      styleOverrides: { fillOpacity: 0.5 },
+    });
+    onModuleInstance.mockClear();
+    fireEvent.change(style, { target: { value: "{" } });
+    fireEvent.blur(style);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "输入不符合模块声明，未保存更改",
+    );
+    expect((style as HTMLTextAreaElement).value).toBe("{}");
+    expect(onModuleInstance).not.toHaveBeenCalled();
+
+    const attributes = screen.getByLabelText("模块属性（JSON）");
+    onModuleInstance.mockImplementationOnce(() => {
+      throw new Error("schema rejected");
+    });
+    fireEvent.change(attributes, {
+      target: { value: JSON.stringify({ intensity: "invalid" }) },
+    });
+    expect(() => fireEvent.blur(attributes)).not.toThrow();
+    expect((attributes as HTMLTextAreaElement).value).toContain(
+      '"intensity": 3',
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
+      "输入不符合模块声明，未保存更改",
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "删除所选对象",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
+  it("DomainGroup 可用当前所选地格原子替换成员并显示非破坏性错误", () => {
+    const state = project();
+    (state.layers as Map<string, FixedLayerState>).set(
+      "example.weather.surface",
+      {
+        layerId: "example.weather.surface",
+        moduleVersion: "1.0.0",
+        zIndex: 2500,
+        visible: true,
+        locked: false,
+        opacity: 1,
+        allowedKinds: ["domain-group"],
+        runtimeStatus: "available",
+      },
+    );
+    state.moduleInstances.add({
+      kind: "domain-group",
+      instanceId: "generic-domain",
+      elementId: "example.weather:domain.zone",
+      layerId: "example.weather.surface",
+      memberCellIds: ["cell:square:1:1", "cell:square:1:2"],
+      attributes: {},
+      styleOverrides: {},
+      extensions: {},
+      runtimeStatus: "available",
+    });
+    const onDomainGroupMembers = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          {...connectionActions}
+          panel="properties"
+          state={state}
+          selection={[
+            { kind: "module-instance", id: "generic-domain" },
+            { kind: "cell", id: "cell:square:4:4" },
+            { kind: "cell", id: "cell:square:4:5" },
+          ]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={vi.fn()}
+          onConnection={vi.fn()}
+          onDomainGroupMembers={onDomainGroupMembers}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const replace = screen.getByRole("button", {
+      name: "用当前所选地格替换领域成员",
+    });
+    expect((replace as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(replace);
+    expect(onDomainGroupMembers).toHaveBeenCalledWith("generic-domain", [
+      "cell:square:4:4",
+      "cell:square:4:5",
+    ]);
+
+    onDomainGroupMembers.mockImplementationOnce(() => {
+      throw new Error("domain-group-members-disconnected");
+    });
+    fireEvent.click(replace);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "输入不符合模块声明，未保存更改",
+    );
+  });
+
+  it("missing generic 占位可选择但属性与删除均只读", () => {
+    const state = project();
+    (state.layers as Map<string, FixedLayerState>).set(
+      "example.missing.surface",
+      {
+        layerId: "example.missing.surface",
+        moduleVersion: "1.0.0",
+        zIndex: 2500,
+        visible: true,
+        locked: true,
+        opacity: 1,
+        allowedKinds: [],
+        runtimeStatus: "missing",
+      },
+    );
+    state.moduleInstances.add({
+      kind: "cell",
+      instanceId: "missing-cell",
+      elementId: "example.missing:cell.rain",
+      layerId: "example.missing.surface",
+      cellId: "cell:square:1:1",
+      attributes: { intensity: 3 },
+      styleOverrides: {},
+      extensions: {},
+      runtimeStatus: "missing",
+    });
+    const onModuleInstance = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          {...connectionActions}
+          panel="properties"
+          state={state}
+          selection={[{ kind: "module-instance", id: "missing-cell" }]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={vi.fn()}
+          onConnection={vi.fn()}
+          onModuleInstance={onModuleInstance}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    expect(screen.getByText("所需模块缺失；实例只读且不可删除")).toBeDefined();
+    expect(
+      (screen.getByLabelText("模块属性（JSON）") as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.blur(screen.getByLabelText("模块属性（JSON）"));
+    expect(onModuleInstance).not.toHaveBeenCalled();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "删除所选对象",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 });
