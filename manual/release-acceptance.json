@@ -1,4 +1,29 @@
 {
   "schemaVersion": "1",
-  "acceptedBlockers": []
+  "acceptedBlockers": [
+    {
+      "requirementId": "COMPAT-001",
+      "reason": "仓库所有者明确接受 COMPAT-001 浏览器兼容性证据延期的发布风险：Edge 150/151 最终有界 A/B 的失败在版本与轮次之间漂移，不能据此归因于 Edge 150；该需求保持 blocked，不声称 covered。",
+      "acceptedBy": "repository-owner",
+      "acceptedAt": "2026-08-24T12:29:47Z"
+    },
+    {
+      "requirementId": "PERF-001",
+      "reason": "仓库所有者明确接受 PERF-001 冻结参考硬件实测证据延期的发布风险；该需求保持 blocked，不声称 covered。",
+      "acceptedBy": "repository-owner",
+      "acceptedAt": "2026-08-24T12:29:47Z"
+    },
+    {
+      "requirementId": "PERF-002",
+      "reason": "仓库所有者明确接受 PERF-002 视口操作延迟在 PERF-010 冻结参考硬件上的可比实测证据延期的发布风险；该需求保持 blocked，不声称 covered。",
+      "acceptedBy": "repository-owner",
+      "acceptedAt": "2026-08-24T12:29:47Z"
+    },
+    {
+      "requirementId": "PERF-010",
+      "reason": "仓库所有者明确接受 PERF-010 在 4 核/8 线程、8 GiB 可用内存及硬件加速冻结参考档上的实测证据延期的发布风险；该需求保持 blocked，不声称 covered。",
+      "acceptedBy": "repository-owner",
+      "acceptedAt": "2026-08-24T12:29:47Z"
+    }
+  ]
 }

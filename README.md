@@ -77,4 +77,4 @@ pnpm --filter @tessera/web exec vite preview --host 127.0.0.1 --port 4174
 
 网站是纯静态应用，Pages 工作流在 Pull Request 中只构建和审计制品；仅正式目标分支的推送可以部署 GitHub Pages。
 
-仓库当前没有根级项目许可证。`THIRD_PARTY_NOTICES.md` 仅记录依赖许可证事实，不构成 Tessera Studio 自身的授权；项目许可证必须由仓库所有者在正式发布前决定。
+除另有说明外，Tessera Studio 自有代码和自有资产依据根目录的 [PolyForm Noncommercial License 1.0.0](LICENSE) 提供，并附带 `Required Notice: Copyright 2026 Yue0404`。该许可证不覆盖第三方依赖或第三方资产，也不对用户在本地生成或导入的 `tessera.civ6` 游戏资产重新授权；相关权利仍由各自权利人和适用条款决定，详见 [第三方组件说明](THIRD_PARTY_NOTICES.md)。

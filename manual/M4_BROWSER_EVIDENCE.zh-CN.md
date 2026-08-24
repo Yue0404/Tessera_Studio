@@ -71,11 +71,13 @@ Microsoft 官方 Edge Enterprise API 提供上一主版本 `150.0.4078.144` 的 
 
 首次隔离 Actions run [32693990026](https://github.com/Yue0404/Tessera_Studio/actions/runs/32693990026) 已在 GitHub-hosted `windows-2022` 一次性 VM 中按 Microsoft Enterprise API、冻结 SHA256 与 Authenticode 微软签名校验官方 MSI，并以 `ALLOWDOWNGRADE=1` 得到真实 `browser.version()=150.0.4078.144`。该轮完整矩阵为 21/40 通过、19 项超时；超时同时出现在 locator click、mouse、page.evaluate、download 与 teardown，且 Playwright 1.62.1 的官方测试范围是 Edge 151，因此这轮结果不足以把 Edge 150 标为 covered。
 
-仓库现将 `.github/workflows/edge-previous-major.yml` 收窄为可复跑的同 runner A/B 诊断：先在原始 Edge 151、再在回滚后的 Edge 150 上逐进程运行相同六个代表场景，并以短的长生命周期 trace 哨兵区分浏览器版本、进程复用与 trace 因素。工作流记录精确文件版本、`browser.version()`、WebGL vendor/renderer、renderer 状态与页面错误，不上传 artifact；首次 A/B 结果仍待运行，COMPAT-001 阻塞保持不变。
+仓库随后将 `.github/workflows/edge-previous-major.yml` 收窄为可复跑的同 runner A/B 诊断：先在原始 Edge 151、再在回滚后的 Edge 150 上逐进程运行相同六个代表场景，并以短的长生命周期 trace 哨兵区分浏览器版本、进程复用与 trace 因素。工作流记录精确文件版本、`browser.version()`、WebGL vendor/renderer、renderer 状态与页面错误，不上传 artifact；以下三轮结果构成逐步收敛的有界诊断历史。
 
 首次 A/B run [32700237225](https://github.com/Yue0404/Tessera_Studio/actions/runs/32700237225) 的 Edge 151 独立用例为 5/6 通过，长生命周期哨兵 3/3 通过；`data-workflow` 在 Windows Server 2022 + SwiftShader 上耗尽 90 秒测试总时限，`setInputFiles` 因 test ended 被取消，期间 pageerror、console error 与 unhandled rejection 均为空。旧工作流随后错误继承 pnpm 非零退出码并跳过 Edge 150，汇总又因跨行 `>>` 触发 PowerShell `Missing file specification`；因此该 run 只证明 Edge 151 的其余代表路径，不构成版本 A/B 结论。诊断现将每用例测试总时限提高到 180 秒、单动作与导航仍限制为 30 秒，并确保两阶段完成身份检查后由最终汇总统一裁决；修订后的首次 A/B run 仍待执行，COMPAT-001 阻塞不变。
 
 第二次 A/B run [32702840670](https://github.com/Yue0404/Tessera_Studio/actions/runs/32702840670) 已完整执行两个版本：Edge 151 与 Edge 150 的其余独立用例均为 5/5 通过，长生命周期哨兵均为 3/3 通过；两者唯一失败仍是 `data-workflow`。Edge 151 在 112.66 秒后失败于等待 `input[accept=".tessera-project.json"]` 的 30 秒动作上限，Edge 150 在 152.62 秒后失败于导入后等待地图画布可见的 30 秒上限；两侧 pageerror、console error 与 unhandled rejection 均为空。最后一次有界复测仅把该用例总时限设为 300 秒：设计隐藏的导入 input 只等待附着最多 90 秒，导入后的 loading 隐藏与地图画布可见各等待最多 90 秒；全局动作/导航 30 秒与 job 45 分钟门禁保持不变。若该次仍失败，则判定 GitHub-hosted Windows Server 2022 + SwiftShader 不适合作为此流程的验收环境，不再继续加时；COMPAT-001 仍不据此关闭。
+
+最终有界 A/B run [32721395248](https://github.com/Yue0404/Tessera_Studio/actions/runs/32721395248) 再次完整执行两个版本。Edge 151 的 `data-workflow` 在新 context 的 `page.goto` 触发 30 秒导航上限，其余独立用例 5/5 通过、长生命周期哨兵 3/3 通过。Edge 150 的 `data-workflow` 通过，`vertical-slice` 因保存状态在 5 秒后仍显示“保存中”而失败，其余独立用例 5/5 通过、长生命周期哨兵 3/3 通过。双方均报告 renderer available，WebGL renderer 为 SwiftShader，且 pageerror、console error 与 unhandled rejection 均为空。失败点在版本与轮次之间漂移：上一轮两个版本均失败于 `data-workflow` 的不同等待点，本轮 Edge 150 已通过该流程而 Edge 151 失败，并出现 Edge 150 独有的短保存状态等待失败；这些结果不能把失败归因于 Edge 150，也不足以把 COMPAT-001 标为 covered。按既定有界策略停止继续加时，COMPAT-001 保持 blocked；仓库所有者仅在 `release-acceptance.json` 中接受证据延期的发布风险，不把未闭合证据改写为已覆盖。
 
 可选 Civ6 提取器已在 Windows 11 专业工作站版 25H2 x64（build 26200.9168）完成无系统 `dotnet` 的自包含 GUI、ZIP 闭包和禁止资产审计；该结果满足 24H2+（build 26100+）目标机下限，完整记录见 [Civ6 Windows 目标机证据](./CIV6_WINDOWS_EVIDENCE.zh-CN.md)。它不替代仍未发布的正式 Release/catalog。
 
@@ -83,6 +85,5 @@ Microsoft 官方 Edge Enterprise API 提供上一主版本 `150.0.4078.144` 的 
 
 - PERF-001、PERF-002、PERF-010 的冻结参考硬件/硬件加速档；
 - 当前单一正式 profile 固定为系统 Microsoft Edge（`msedge`）；是否扩展为多浏览器性能档仍待 Issue #12 的产品决定；
-- Microsoft Edge 前一个主要版本的安全并行运行证据；
-- 核心静态网站继续面向 Windows 10+ 的支持矩阵内现代浏览器；它不包含需要单独操作系统发布的可执行程序；
-- 项目许可证决策。
+- Microsoft Edge 前一个主要版本的兼容性结论；最终有界 A/B 已安全运行，但失败跨版本与轮次漂移，不能据此归因于 Edge 150；
+- 核心静态网站继续面向 Windows 10+ 的支持矩阵内现代浏览器；它不包含需要单独操作系统发布的可执行程序。

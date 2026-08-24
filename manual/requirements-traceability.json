@@ -535,8 +535,11 @@
         "tests/e2e/browser-runtime-metadata.spec.ts",
         "tests/browser-support/support-matrix-v1.schema.json"
       ],
-      "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/12"],
-      "blocker": "当前 Edge、Chrome、Firefox 及 Chrome/Firefox 前一主版本均有39项自动化证据；Microsoft 官方 Edge 150 MSI 无法经行政解包得到可并行启动二进制，不能在不覆盖系统 Edge 的前提下完成上一主版本运行证据。"
+      "humanEvidence": [
+        "manual/M4_BROWSER_EVIDENCE.zh-CN.md",
+        "https://github.com/Yue0404/Tessera_Studio/issues/12"
+      ],
+      "blocker": "Edge 151/150 已在同一 GitHub-hosted Windows Server 2022 + SwiftShader runner 完成最终有界 A/B：两侧其余独立用例均为5/5、长生命周期哨兵均为3/3，且无 page、console 或 unhandled 错误；Edge 151 的 data-workflow 与 Edge 150 的 vertical-slice 分别失败于不同等待点，失败跨版本与轮次漂移，不能归因于 Edge 150。停止继续加时，COMPAT-001 保持 blocked，由仓库所有者显式接受证据延期风险。"
     },
     {
       "area": "运行时性能与后台任务",

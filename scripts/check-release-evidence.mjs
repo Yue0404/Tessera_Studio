@@ -7,6 +7,7 @@ import {
   validateTraceabilityDocument,
   validateVisualEvidenceDocument,
 } from "./release-evidence.mjs";
+import { validateReleaseLicenseStatements } from "./release-license-evidence.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readJson = async (path) =>
@@ -22,11 +23,20 @@ const releaseNotes = await readFile(
   resolve(root, "manual/RELEASE_NOTES.md"),
   "utf8",
 );
+const extractorNotice = await readFile(
+  resolve(root, "tools/civ6-extractor/release/SOURCE-AND-LICENSE.txt"),
+  "utf8",
+);
 
 const issues = [
   ...validateTraceabilityDocument(trace),
   ...validateVisualEvidenceDocument(visuals),
   ...validateExtractorReleaseCatalogDocument(releaseCatalog),
+  ...validateReleaseLicenseStatements({
+    readme,
+    releaseNotes,
+    extractorNotice,
+  }),
 ];
 for (const path of await missingRepositoryPaths(root, [trace, visuals])) {
   issues.push(`证据路径不存在：${path}`);
@@ -41,7 +51,6 @@ for (const required of [
   "pnpm e2e:production",
   "pnpm e2e:pages",
   "完整 Tessera Project",
-  "仓库当前没有根级项目许可证",
 ]) {
   if (!readme.includes(required))
     issues.push(`README 缺少发布事实：${required}`);

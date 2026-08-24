@@ -8,6 +8,7 @@ import {
   validateTraceabilityDocument,
   validateVisualEvidenceDocument,
 } from "./release-evidence.mjs";
+import { validateReleaseLicenseStatements } from "./release-license-evidence.mjs";
 
 const validEntry = {
   area: "测试",
@@ -226,4 +227,66 @@ test("浏览器视觉证据必须记录视口和DPR", () => {
     }).join("\n"),
     /viewport/u,
   );
+});
+
+const validReadmeLicenseText = `
+除另有说明外，Tessera Studio 自有代码和自有资产依据根目录的 [PolyForm Noncommercial License 1.0.0](LICENSE) 提供，并附带 \`Required Notice: Copyright 2026 Yue0404\`。
+该许可证不覆盖第三方依赖或第三方资产，也不对用户在本地生成或导入的 \`tessera.civ6\` 游戏资产重新授权；相关权利仍由各自权利人和适用条款决定。
+`;
+const validReleaseNotesLicenseText = `
+根目录 \`LICENSE\` 采用官方未修改的 PolyForm Noncommercial License 1.0.0，并包含 \`Required Notice: Copyright 2026 Yue0404\`。
+该许可证仅覆盖 Tessera Studio 自有代码和自有资产；第三方依赖、第三方资产、Civilization VI 游戏资产和用户在本地生成或导入的 \`tessera.civ6\` 模块不因此获得重新授权。
+`;
+const validExtractorLicenseText = `
+The repository root LICENSE applies to the extractor's Tessera Studio-owned source code under the official, unmodified PolyForm Noncommercial License 1.0.0.
+Required Notice: Copyright 2026 Yue0404
+The repository license covers only Tessera Studio-owned code and assets.
+The bundled .NET runtime and its third-party components remain under the license terms included separately as DOTNET-LICENSE.txt and DOTNET-THIRD-PARTY-NOTICES.txt.
+Civilization VI game assets and locally generated or imported tessera.civ6 modules are not covered or relicensed by the repository license.
+`;
+
+test("发布文档必须完整陈述新的项目授权边界", () => {
+  assert.deepEqual(
+    validateReleaseLicenseStatements({
+      readme: validReadmeLicenseText,
+      releaseNotes: validReleaseNotesLicenseText,
+      extractorNotice: validExtractorLicenseText,
+    }),
+    [],
+  );
+
+  const issues = validateReleaseLicenseStatements({
+    readme:
+      "PolyForm Noncommercial License 1.0.0 Required Notice: Copyright 2026 Yue0404",
+    releaseNotes:
+      "PolyForm Noncommercial License 1.0.0 Required Notice: Copyright 2026 Yue0404",
+    extractorNotice:
+      "PolyForm Noncommercial License 1.0.0 Required Notice: Copyright 2026 Yue0404",
+  }).join("\n");
+  assert.match(issues, /缺少准确的授权边界/u);
+});
+
+test("发布文档再次声称仓库没有许可证时必须失败", () => {
+  for (const obsolete of [
+    "仓库当前没有根级项目许可证",
+    "仓库尚无根级项目许可证",
+    "did not contain a repository-level LICENSE",
+  ]) {
+    const issues = validateReleaseLicenseStatements({
+      readme: `${validReadmeLicenseText}\n${obsolete}`,
+      releaseNotes: validReleaseNotesLicenseText,
+      extractorNotice: validExtractorLicenseText,
+    }).join("\n");
+    assert.match(issues, /仍含过时的无许可证声明/u);
+    assert.match(issues, new RegExp(obsolete.replaceAll(".", "\\."), "u"));
+  }
+});
+
+test("提取器许可说明恢复旧英文无许可证声明时必须失败", () => {
+  const issues = validateReleaseLicenseStatements({
+    readme: validReadmeLicenseText,
+    releaseNotes: validReleaseNotesLicenseText,
+    extractorNotice: `${validExtractorLicenseText}\ndid not contain a repository-level LICENSE`,
+  }).join("\n");
+  assert.match(issues, /提取器许可说明 仍含过时的无许可证声明/u);
 });

@@ -62,13 +62,32 @@ public sealed class ReleaseConfigurationTests
     }
 
     [Fact]
-    public void 发布说明准确声明纯托管解码和许可证现状()
+    public void 发布说明准确声明纯托管解码和许可证边界()
     {
         var notice = File.ReadAllText(Path.Combine(ToolRoot(), "release", "SOURCE-AND-LICENSE.txt"));
 
         Assert.Contains("fully managed", notice, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("does not bundle SkiaSharp", notice, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("did not contain a repository-level LICENSE", notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "official, unmodified PolyForm Noncommercial License 1.0.0",
+            notice,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Required Notice: Copyright 2026 Yue0404",
+            notice,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "covers only Tessera Studio-owned code and assets",
+            notice,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "game assets and locally generated or imported tessera.civ6 modules are not covered or relicensed",
+            notice,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "did not contain a repository-level LICENSE",
+            notice,
+            StringComparison.OrdinalIgnoreCase);
         Assert.Contains("DOTNET-THIRD-PARTY-NOTICES.txt", notice, StringComparison.Ordinal);
     }
 

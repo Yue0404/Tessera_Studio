@@ -187,7 +187,8 @@ function Test-ReleasePayload {
         $text = Get-Content -LiteralPath (Join-Path $PayloadDirectory $relativePath) -Raw
         if ($text.Contains($RepositoryRoot, [StringComparison]::OrdinalIgnoreCase) -or
             $text.Contains($DotnetRoot, [StringComparison]::OrdinalIgnoreCase) -or
-            $text -match '-----BEGIN [A-Z ]*PRIVATE KEY-----|github_pat_|ghp_[A-Za-z0-9]+|password\s*=') {
+            $text -match '(?i)(?:[a-z]:[\\/]|\\\\)[^\r\n"]*(?:Sid Meier''s Civilization VI|SteamLibrary|steamapps[\\/]common)' -or
+            $text -match '-----BEGIN [A-Z ]*PRIVATE KEY-----|github_pat_|gh[pousr]_[A-Za-z0-9]+|Authorization:\s*Bearer\s+\S+|password\s*[:=]') {
             throw "发布文本包含绝对路径或疑似秘密：$relativePath"
         }
     }
