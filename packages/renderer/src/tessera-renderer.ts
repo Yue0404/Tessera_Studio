@@ -158,6 +158,9 @@ export class TesseraRenderer {
   #contextLifecycle: WebGlContextLifecycle | undefined;
   #contextLost = false;
   #renderDurationMs = 0;
+  #applicationInitialized = false;
+  #applicationDestroyed = false;
+  #destroyed = false;
   readonly #genericModuleRenderer: GenericModuleRenderer | undefined;
 
   constructor(
@@ -182,14 +185,29 @@ export class TesseraRenderer {
   }
 
   async initialize(): Promise<void> {
-    await this.#application.init({
-      preference: "webgl",
-      resizeTo: this.#host,
-      antialias: true,
-      autoDensity: true,
-      resolution: Math.min(devicePixelRatio, 2),
-      backgroundAlpha: 1,
-    });
+    try {
+      await this.#application.init({
+        preference: "webgl",
+        resizeTo: this.#host,
+        antialias: true,
+        autoDensity: true,
+        resolution: Math.min(devicePixelRatio, 2),
+        backgroundAlpha: 1,
+      });
+    } catch (error: unknown) {
+      // Pixi 插件可能在 renderer 已创建后才 reject；保留该事实供 pending cleanup 完成释放。
+      this.#applicationInitialized =
+        (this.#application as unknown as { renderer?: unknown }).renderer !==
+        undefined;
+      if (this.#destroyed) this.#destroyApplicationOnce();
+      throw error;
+    }
+    this.#applicationInitialized = true;
+    // React StrictMode 可能在 Pixi 初始化尚未完成时先执行 cleanup。
+    if (this.#destroyed) {
+      this.#destroyApplicationOnce();
+      return;
+    }
     this.#application.canvas.dataset.testid = "map-canvas";
     this.#application.canvas.dataset.rendererStatus = "available";
     this.#application.canvas.setAttribute("aria-label", this.#canvasLabel);
@@ -303,9 +321,19 @@ export class TesseraRenderer {
   }
 
   destroy(): void {
+    if (this.#destroyed) return;
+    this.#destroyed = true;
     this.#resizeObserver?.disconnect();
     this.#contextLifecycle?.destroy();
     this.#contextLifecycle = undefined;
+    window.removeEventListener("pointerup", this.#onPointerUp);
+    window.removeEventListener("pointercancel", this.#onPointerCancel);
+    window.removeEventListener("keydown", this.#onKeyDown);
+    window.removeEventListener("keyup", this.#onKeyUp);
+    window.removeEventListener("blur", this.#onWindowBlur);
+    this.#genericModuleRenderer?.destroy();
+    // autoDetectRenderer reject 时 Pixi 尚无 renderer/canvas，只清理已创建的 JS 资源。
+    if (!this.#applicationInitialized) return;
     this.#application.canvas.removeEventListener(
       "pointerdown",
       this.#onPointerDown,
@@ -323,12 +351,12 @@ export class TesseraRenderer {
       this.#onContextMenu,
     );
     this.#application.canvas.removeEventListener("wheel", this.#onWheel);
-    window.removeEventListener("pointerup", this.#onPointerUp);
-    window.removeEventListener("pointercancel", this.#onPointerCancel);
-    window.removeEventListener("keydown", this.#onKeyDown);
-    window.removeEventListener("keyup", this.#onKeyUp);
-    window.removeEventListener("blur", this.#onWindowBlur);
-    this.#genericModuleRenderer?.destroy();
+    this.#destroyApplicationOnce();
+  }
+
+  #destroyApplicationOnce(): void {
+    if (!this.#applicationInitialized || this.#applicationDestroyed) return;
+    this.#applicationDestroyed = true;
     this.#application.destroy({ removeView: true }, { children: true });
   }
 

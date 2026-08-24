@@ -69,7 +69,9 @@ Chrome 版本来自 Google Chrome for Testing 的 `last-known-good-versions-with
 
 Microsoft 官方 Edge Enterprise API 提供上一主版本 `150.0.4078.144` 的 x64 MSI。该 MSI 下载成功，`msiexec /a` 返回成功，但行政映像只生成重新打包的 MSI，没有可并行启动的 `msedge.exe`；内嵌载荷是 Edge Update Setup。为避免覆盖系统 Edge 或改变默认浏览器，本轮没有执行安装器，因此 Edge 150 保持 blocked。这一结论只说明当前安全自动化边界，不代表 Edge 150 产品不兼容。
 
-仓库新增 `.github/workflows/edge-previous-major.yml`，可在 GitHub-hosted `windows-2022` 一次性 VM 中按 Microsoft Enterprise API 与冻结 SHA256 校验官方 MSI，再用 `ALLOWDOWNGRADE=1` 隔离回滚系统 Edge 并运行同一完整支持矩阵。工作流同时校验安装前、安装后、真实 `browser.version()` 与测试后文件版本，且不上传 artifact；实际结果仍须等待首次 Actions run，不提前把 Edge 150 标为 covered。
+首次隔离 Actions run [32693990026](https://github.com/Yue0404/Tessera_Studio/actions/runs/32693990026) 已在 GitHub-hosted `windows-2022` 一次性 VM 中按 Microsoft Enterprise API、冻结 SHA256 与 Authenticode 微软签名校验官方 MSI，并以 `ALLOWDOWNGRADE=1` 得到真实 `browser.version()=150.0.4078.144`。该轮完整矩阵为 21/40 通过、19 项超时；超时同时出现在 locator click、mouse、page.evaluate、download 与 teardown，且 Playwright 1.62.1 的官方测试范围是 Edge 151，因此这轮结果不足以把 Edge 150 标为 covered。
+
+仓库现将 `.github/workflows/edge-previous-major.yml` 收窄为可复跑的同 runner A/B 诊断：先在原始 Edge 151、再在回滚后的 Edge 150 上逐进程运行相同六个代表场景，并以短的长生命周期 trace 哨兵区分浏览器版本、进程复用与 trace 因素。工作流记录精确文件版本、`browser.version()`、WebGL vendor/renderer、renderer 状态与页面错误，不上传 artifact；首次 A/B 结果仍待运行，COMPAT-001 阻塞保持不变。
 
 可选 Civ6 提取器已在 Windows 11 专业工作站版 25H2 x64（build 26200.9168）完成无系统 `dotnet` 的自包含 GUI、ZIP 闭包和禁止资产审计；该结果满足 24H2+（build 26100+）目标机下限，完整记录见 [Civ6 Windows 目标机证据](./CIV6_WINDOWS_EVIDENCE.zh-CN.md)。它不替代仍未发布的正式 Release/catalog。
 

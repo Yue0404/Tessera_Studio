@@ -33,23 +33,26 @@ async function downloadFromDialog(
   return downloading;
 }
 
-async function requireDownloadPath(
+async function saveDownloadForCrossContext(
   download: Download,
-  missingPathMessage: string,
+  outputPath: string,
 ): Promise<string> {
-  const path = await download.path();
-  if (path === null) throw new Error(missingPathMessage);
-  return path;
+  // Playwright 的 download.path() 属于原 context；先持久化到本测试目录再跨 context 上传。
+  await download.saveAs(outputPath);
+  return outputPath;
 }
 
 test("完整 Project 可下载、载入并确认替换同 ID 工程", async ({
   page,
   browser,
-}) => {
+}, testInfo) => {
   test.setTimeout(90_000);
   await createPaintedSquareProject(page, "完整工程工作流");
   const full = await downloadFromDialog(page, "完整 Tessera Project");
-  const fullPath = await requireDownloadPath(full, "完整工程下载没有临时路径");
+  const fullPath = await saveDownloadForCrossContext(
+    full,
+    testInfo.outputPath("full-project.tessera-project.json"),
+  );
   expect(full.suggestedFilename()).toBe("完整工程工作流.tessera-project.json");
 
   const fullContext = await browser.newContext();
@@ -82,13 +85,13 @@ test("完整 Project 可下载、载入并确认替换同 ID 工程", async ({
 test("部分 Project 完整导出后仍保持非完整来源状态", async ({
   page,
   browser,
-}) => {
+}, testInfo) => {
   test.setTimeout(90_000);
   await createPaintedSquareProject(page, "部分工程工作流");
   const partial = await downloadFromDialog(page, "部分 Tessera Project");
-  const partialPath = await requireDownloadPath(
+  const partialPath = await saveDownloadForCrossContext(
     partial,
-    "部分工程下载没有临时路径",
+    testInfo.outputPath("partial-project.tessera-project.json"),
   );
   expect(partial.suggestedFilename()).toBe(
     "部分工程工作流.partial.tessera-project.json",
@@ -115,13 +118,16 @@ test("部分 Project 完整导出后仍保持非完整来源状态", async ({
   }
 });
 
-test("Fragment 可下载、导入并原子合并到目标工程", async ({ page, browser }) => {
+test("Fragment 可下载、导入并原子合并到目标工程", async ({
+  page,
+  browser,
+}, testInfo) => {
   test.setTimeout(90_000);
   await createPaintedSquareProject(page, "Fragment 来源");
   const fragment = await downloadFromDialog(page, "Tessera Fragment");
-  const fragmentPath = await requireDownloadPath(
+  const fragmentPath = await saveDownloadForCrossContext(
     fragment,
-    "Fragment 下载没有临时路径",
+    testInfo.outputPath("fragment.tessera-fragment.json"),
   );
   expect(fragment.suggestedFilename()).toBe(
     "Fragment 来源.tessera-fragment.json",

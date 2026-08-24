@@ -1,4 +1,4 @@
-name: Edge Previous Major Evidence
+name: Edge Previous Major A-B Diagnostic
 
 on:
   workflow_dispatch:
@@ -7,37 +7,80 @@ on:
       - codex/m6-release-candidate
     paths:
       - ".github/workflows/edge-previous-major.yml"
-      - "playwright.cross-browser.config.ts"
-      - "scripts/browser-support-matrix-result.mjs"
-      - "scripts/browser-support-matrix-result.test.mjs"
-      - "scripts/run-browser-support-matrix.mjs"
-      - "tests/browser-support/**"
-      - "tests/e2e/browser-runtime-metadata.spec.ts"
+      - "package.json"
+      - "playwright.edge-diagnostic.config.ts"
+      - "scripts/edge-version-diagnostic-result.mjs"
+      - "scripts/run-edge-version-diagnostic.mjs"
+      - "tests/browser-support/edge-diagnostic-v1.schema.json"
+      - "tests/edge-diagnostic/**"
 
 permissions:
   contents: read
 
 jobs:
-  verify-edge-previous-major:
-    name: 验证 Edge 前一主版本
+  diagnose-edge-current-and-previous:
+    name: 同 runner 对比 Edge 151 与 150
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-
       - name: 锁定安装依赖
         run: pnpm install --frozen-lockfile
+
+      - name: 诊断 runner 原始 Edge 151
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $edgeCandidates = @(
+            "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+            "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
+          )
+          $edgePath = $edgeCandidates |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($edgePath)) {
+            throw "GitHub runner 未找到系统 Microsoft Edge。"
+          }
+          $currentVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
+            $edgePath
+          ).ProductVersion
+          if (([version]$currentVersion).Major -ne 151) {
+            throw "runner 初始 Edge 不是冻结的当前主版本 151：$currentVersion"
+          }
+          $resultPath = Join-Path $env:RUNNER_TEMP "edge-current-diagnostic.json"
+          $nativePreference = $PSNativeCommandUseErrorActionPreference
+          $PSNativeCommandUseErrorActionPreference = $false
+          pnpm edge:diagnostic -- `
+            --label=current `
+            "--expected-version=$currentVersion" `
+            "--output=$resultPath" `
+            "--debug=pw:api,pw:browser"
+          $diagnosticExit = $LASTEXITCODE
+          $PSNativeCommandUseErrorActionPreference = $nativePreference
+          $afterVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
+            $edgePath
+          ).ProductVersion
+          if ($afterVersion -ne $currentVersion) {
+            throw "当前版本诊断期间 Edge 文件版本变化：$currentVersion -> $afterVersion"
+          }
+          $resultExists = Test-Path -LiteralPath $resultPath -PathType Leaf
+          Write-Host "Edge current file/browser expected: $currentVersion"
+          Write-Host "Edge current diagnostic exit: $diagnosticExit"
+          Write-Host "Edge current diagnostic JSON exists: $resultExists"
+          "EDGE_EXECUTABLE=$edgePath" >> $env:GITHUB_ENV
+          "EDGE_CURRENT_VERSION=$currentVersion" >> $env:GITHUB_ENV
+          "EDGE_CURRENT_RESULT=$resultPath" >> $env:GITHUB_ENV
+          "EDGE_CURRENT_EXIT=$diagnosticExit" >> $env:GITHUB_ENV
+          "EDGE_CURRENT_RESULT_EXISTS=$resultExists" >> $env:GITHUB_ENV
 
       - name: 从微软官方 MSI 回滚到 Edge 150
         shell: pwsh
@@ -49,46 +92,26 @@ jobs:
           $targetHash = "D0B3719C0F36B1E9A4D57287801689CA9B5954290DEDEA14FD291B5673D04730"
           $stableAppId = "{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}"
           $apiUrl = "https://edgeupdates.microsoft.com/api/products?view=enterprise"
-
-          function Resolve-EdgeExecutable {
-            $candidates = @(
-              "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
-              "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
-            )
-            $path = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
-              Select-Object -First 1
-            if ([string]::IsNullOrWhiteSpace($path)) {
-              throw "GitHub runner 未找到系统 Microsoft Edge。"
-            }
-            return $path
-          }
-
-          function Read-EdgeVersion([string]$Path) {
-            $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($Path).ProductVersion
-            if ([string]::IsNullOrWhiteSpace($version)) {
-              throw "无法读取 Microsoft Edge ProductVersion：$Path"
-            }
-            return $version
-          }
-
-          $edgePath = Resolve-EdgeExecutable
-          $beforeVersion = Read-EdgeVersion $edgePath
-          if (([version]$beforeVersion).Major -ne $currentMajor) {
-            throw "runner 初始 Edge 不是当前冻结主版本 $currentMajor：$beforeVersion"
-          }
-
           $products = Invoke-RestMethod -Uri $apiUrl
-          $stable = $products | Where-Object Product -eq "Stable" | Select-Object -First 1
+          $stable = $products |
+            Where-Object Product -eq "Stable" |
+            Select-Object -First 1
           if ($null -eq $stable) {
             throw "Microsoft Enterprise API 未返回 Stable 产品。"
           }
           $releases = @(
             $stable.Releases |
-              Where-Object { $_.Platform -eq "Windows" -and $_.Architecture -eq "x64" }
+              Where-Object {
+                $_.Platform -eq "Windows" -and $_.Architecture -eq "x64"
+              }
           )
-          $latest = $releases | Sort-Object { [version]$_.ProductVersion } -Descending |
+          $latest = $releases |
+            Sort-Object { [version]$_.ProductVersion } -Descending |
             Select-Object -First 1
-          if ($null -eq $latest -or ([version]$latest.ProductVersion).Major -ne $currentMajor) {
+          if (
+            $null -eq $latest -or
+            ([version]$latest.ProductVersion).Major -ne $currentMajor
+          ) {
             throw "Microsoft Stable 当前主版本已不是 $currentMajor：$($latest.ProductVersion)"
           }
           $previous = $releases |
@@ -98,7 +121,8 @@ jobs:
           if ($null -eq $previous -or $previous.ProductVersion -ne $targetVersion) {
             throw "Microsoft API 中前一主版本最新补丁不再是 $targetVersion：$($previous.ProductVersion)"
           }
-          $artifact = $previous.Artifacts | Where-Object ArtifactName -eq "msi" |
+          $artifact = $previous.Artifacts |
+            Where-Object ArtifactName -eq "msi" |
             Select-Object -First 1
           if ($null -eq $artifact -or $artifact.HashAlgorithm -ne "SHA256") {
             throw "Microsoft API 未返回 Edge $targetVersion 的 SHA256 MSI。"
@@ -113,16 +137,16 @@ jobs:
           ) {
             throw "Microsoft API 返回了非预期的 MSI 下载地址：$downloadUri"
           }
-
           $msiPath = Join-Path $env:RUNNER_TEMP "MicrosoftEdgeEnterpriseX64-$targetVersion.msi"
           $msiLogPath = Join-Path $env:RUNNER_TEMP "edge-$targetVersion-msi.log"
           Invoke-WebRequest -Uri $downloadUri -OutFile $msiPath
-          $downloadHash = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash
+          $downloadHash = (
+            Get-FileHash -LiteralPath $msiPath -Algorithm SHA256
+          ).Hash
           if ($downloadHash -ne $targetHash) {
             throw "下载的 Edge $targetVersion MSI SHA256 不匹配。"
           }
-
-          # 固定哈希确认内容身份后，再验证 MSI 确由微软有效签名，阻止未签名或签名异常的安装包进入执行阶段。
+          # 哈希锁定内容后仍验证微软签名，防止异常 MSI 进入执行阶段。
           $signature = Get-AuthenticodeSignature -FilePath $msiPath
           $signatureSubject = $signature.SignerCertificate.Subject
           if (
@@ -130,10 +154,9 @@ jobs:
             [string]::IsNullOrWhiteSpace($signatureSubject) -or
             $signatureSubject -notlike "*Microsoft Corporation*"
           ) {
-            throw "Edge $targetVersion MSI Authenticode 签名无效或签名主体不是 Microsoft Corporation：status=$($signature.Status)，subject=$signatureSubject"
+            throw "Edge MSI 签名无效或签名主体异常：status=$($signature.Status)，subject=$signatureSubject"
           }
-
-          # runner 是一次性 VM；只禁用 Stable channel 更新，避免测试期间被后台升级。
+          # runner 为一次性 VM；只禁用 Stable channel 更新，避免 A/B 后半程被后台升级。
           $policyPath = "HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate"
           New-Item -Path $policyPath -Force | Out-Null
           New-ItemProperty `
@@ -142,8 +165,8 @@ jobs:
             -PropertyType DWord `
             -Value 0 `
             -Force | Out-Null
-
-          Get-Process -Name msedge -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process -Name msedge -ErrorAction SilentlyContinue |
+            Stop-Process -Force
           $process = Start-Process `
             -FilePath "msiexec.exe" `
             -ArgumentList @(
@@ -160,98 +183,129 @@ jobs:
           if ($process.ExitCode -notin @(0, 3010)) {
             throw "Edge MSI 回滚失败，exit $($process.ExitCode)。"
           }
-
-          $edgePath = Resolve-EdgeExecutable
-          $afterVersion = Read-EdgeVersion $edgePath
+          $afterVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
+            $env:EDGE_EXECUTABLE
+          ).ProductVersion
           if ($afterVersion -ne $targetVersion) {
             throw "Edge MSI 回滚后的文件版本不是 $targetVersion：$afterVersion"
           }
-
           Write-Host "Microsoft Stable latest: $($latest.ProductVersion)"
           Write-Host "Edge target: $targetVersion"
           Write-Host "Edge MSI SHA256: $downloadHash"
           Write-Host "Edge MSI signature subject: $signatureSubject"
-          Write-Host "Edge file before rollback: $beforeVersion"
+          Write-Host "Edge file before rollback: $env:EDGE_CURRENT_VERSION"
           Write-Host "Edge file after rollback: $afterVersion"
-          Write-Host "Edge MSI exit: $($process.ExitCode)"
-
-          "EDGE_EXECUTABLE=$edgePath" >> $env:GITHUB_ENV
           "EDGE_TARGET_VERSION=$targetVersion" >> $env:GITHUB_ENV
-          "EDGE_BEFORE_VERSION=$beforeVersion" >> $env:GITHUB_ENV
-          "EDGE_AFTER_VERSION=$afterVersion" >> $env:GITHUB_ENV
           "EDGE_MSI_SHA256=$downloadHash" >> $env:GITHUB_ENV
+          "EDGE_SIGNATURE_SUBJECT=$signatureSubject" >> $env:GITHUB_ENV
 
-          @"
-          ## Edge 前一主版本安装证据
-
-          | 字段 | 值 |
-          | --- | --- |
-          | Microsoft Stable latest | $($latest.ProductVersion) |
-          | 冻结目标 | $targetVersion |
-          | runner 安装前文件版本 | $beforeVersion |
-          | MSI 安装后文件版本 | $afterVersion |
-          | MSI SHA256 | ``$downloadHash`` |
-          | MSI Authenticode Subject | $signatureSubject |
-          | MSI exit | $($process.ExitCode) |
-          "@ >> $env:GITHUB_STEP_SUMMARY
-
-      - name: 在真实 Edge 150 运行完整支持矩阵
+      - name: 诊断回滚后的 Edge 150
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $matrixPath = Join-Path $env:RUNNER_TEMP "edge-150-support-matrix.json"
-          pnpm support:matrix -- `
-            --targets=edge-system `
-            --version-scope=previous `
-            "--output=$matrixPath"
-          $matrixExit = $LASTEXITCODE
-          if (-not (Test-Path -LiteralPath $matrixPath -PathType Leaf)) {
-            throw "支持矩阵没有生成 JSON。"
+          $beforeVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
+            $env:EDGE_EXECUTABLE
+          ).ProductVersion
+          if ($beforeVersion -ne $env:EDGE_TARGET_VERSION) {
+            throw "Edge 150 诊断前文件版本异常：$beforeVersion"
           }
+          $resultPath = Join-Path $env:RUNNER_TEMP "edge-previous-diagnostic.json"
+          $nativePreference = $PSNativeCommandUseErrorActionPreference
+          $PSNativeCommandUseErrorActionPreference = $false
+          pnpm edge:diagnostic -- `
+            --label=previous `
+            "--expected-version=$env:EDGE_TARGET_VERSION" `
+            "--output=$resultPath" `
+            "--debug=pw:api,pw:browser"
+          $diagnosticExit = $LASTEXITCODE
+          $PSNativeCommandUseErrorActionPreference = $nativePreference
+          $afterVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
+            $env:EDGE_EXECUTABLE
+          ).ProductVersion
+          if ($afterVersion -ne $env:EDGE_TARGET_VERSION) {
+            throw "Edge 150 诊断期间文件版本变化：$afterVersion"
+          }
+          $resultExists = Test-Path -LiteralPath $resultPath -PathType Leaf
+          Write-Host "Edge previous diagnostic exit: $diagnosticExit"
+          Write-Host "Edge previous diagnostic JSON exists: $resultExists"
+          "EDGE_PREVIOUS_RESULT=$resultPath" >> $env:GITHUB_ENV
+          "EDGE_PREVIOUS_EXIT=$diagnosticExit" >> $env:GITHUB_ENV
+          "EDGE_PREVIOUS_RESULT_EXISTS=$resultExists" >> $env:GITHUB_ENV
 
-          $serialized = Get-Content -LiteralPath $matrixPath -Raw
-          Write-Host "Edge support matrix JSON:"
-          Write-Host $serialized
-          $matrix = $serialized | ConvertFrom-Json
-          $runs = @($matrix.runs)
-          if ($matrixExit -ne 0) {
-            throw "Edge 150 支持矩阵命令失败，exit $matrixExit。"
-          }
-          if (
-            $matrix.profile -ne "support-matrix-v1" -or
-            $matrix.versionScope -ne "previous" -or
-            $matrix.previousMajor.status -ne "tested" -or
-            $runs.Count -ne 1 -or
-            $runs[0].target -ne "edge-system" -or
-            $runs[0].status -ne "passed" -or
-            $runs[0].browserName -ne "chromium" -or
-            $runs[0].browserVersion -ne $env:EDGE_TARGET_VERSION
+      - name: 汇总 A/B 后再决定任务结果
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $failures = [Collections.Generic.List[string]]::new()
+          @"
+          ## Edge 151 / 150 同 runner A/B 诊断
+
+          | 安全事实 | 值 |
+          | --- | --- |
+          | 当前版本 | $env:EDGE_CURRENT_VERSION |
+          | 回滚目标 | $env:EDGE_TARGET_VERSION |
+          | MSI SHA256 | ``$env:EDGE_MSI_SHA256`` |
+          | Authenticode Subject | $env:EDGE_SIGNATURE_SUBJECT |
+
+          | 版本 | 用例 | 状态 | 退出码 | browser.version | renderer | WebGL renderer |
+          | --- | --- | --- | ---: | --- | --- | --- |
+          "@ >> $env:GITHUB_STEP_SUMMARY
+          function Add-DiagnosticSummary(
+            [string]$Label,
+            [string]$Path,
+            [string]$ExpectedVersion,
+            [string]$CommandExit
           ) {
-            throw "Edge 150 支持矩阵身份或结果不满足冻结契约。"
+            if (
+              [string]::IsNullOrWhiteSpace($Path) -or
+              -not (Test-Path -LiteralPath $Path -PathType Leaf)
+            ) {
+              $failures.Add("$Label 未生成诊断 JSON。")
+              "| $Label | missing | failed | $CommandExit | - | - | - |" >>
+                $env:GITHUB_STEP_SUMMARY
+              return
+            }
+            $serialized = Get-Content -LiteralPath $Path -Raw
+            Write-Host "Edge $Label diagnostic JSON:"
+            Write-Host $serialized
+            $result = $serialized | ConvertFrom-Json
+            foreach ($entry in @($result.cases) + @($result.sentinel)) {
+              $fact = @($entry.facts)[0]
+              "| $Label | $($entry.id) | $($entry.status) | $($entry.exitCode) | $($fact.browserVersion) | $($fact.rendererStatus) | $($fact.webglRenderer) |" >>
+                $env:GITHUB_STEP_SUMMARY
+            }
+            if (
+              $result.profile -ne "edge-diagnostic-v1" -or
+              $result.label -ne $Label -or
+              $result.expectedBrowserVersion -ne $ExpectedVersion -or
+              $result.status -ne "passed" -or
+              [int]$CommandExit -ne 0
+            ) {
+              $failures.Add("$Label 诊断未通过或身份不匹配。")
+            }
           }
-
+          Add-DiagnosticSummary `
+            "current" `
+            $env:EDGE_CURRENT_RESULT `
+            $env:EDGE_CURRENT_VERSION `
+            $env:EDGE_CURRENT_EXIT
+          Add-DiagnosticSummary `
+            "previous" `
+            $env:EDGE_PREVIOUS_RESULT `
+            $env:EDGE_TARGET_VERSION `
+            $env:EDGE_PREVIOUS_EXIT
           $finalVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
             $env:EDGE_EXECUTABLE
           ).ProductVersion
-          if ($finalVersion -ne $env:EDGE_TARGET_VERSION) {
-            throw "支持矩阵运行期间 Edge 被更新：$finalVersion"
-          }
-
-          Write-Host "Edge runtime browser.version(): $($runs[0].browserVersion)"
-          Write-Host "Edge file after tests: $finalVersion"
+          Write-Host "Edge file after all tests: $finalVersion"
           @"
 
-          ## Edge 150 支持矩阵结果
-
-          | 字段 | 值 |
-          | --- | --- |
-          | status | $($runs[0].status) |
-          | browserName | $($runs[0].browserName) |
-          | browser.version() | $($runs[0].browserVersion) |
-          | 测试后文件版本 | $finalVersion |
-          | previousMajor | $($matrix.previousMajor.status) |
-
-          ~~~json
-          $serialized
-          ~~~
+          测试后 Edge 文件版本：$finalVersion
           "@ >> $env:GITHUB_STEP_SUMMARY
+          if ($finalVersion -ne $env:EDGE_TARGET_VERSION) {
+            $failures.Add("全部诊断后 Edge 文件版本不是冻结的 150。")
+          }
+          if ($failures.Count -gt 0) {
+            throw ($failures -join [Environment]::NewLine)
+          }

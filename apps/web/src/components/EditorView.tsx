@@ -20,6 +20,7 @@ import type { ParsedExtensionPackage } from "@tessera/module-runtime";
 import {
   TesseraRenderer,
   genericModuleResourceKey,
+  startRendererInitialization,
   type BrushMode,
   type ConnectionPlacement,
   type ConnectionRebindTarget,
@@ -167,6 +168,7 @@ export function EditorView({
     if (host === null) return;
     let cancelled = false;
     let initialized = false;
+    let rendererFailed = false;
     let resourceRenderQueued = false;
     let resourceRenderDirty = false;
     const startFill = (row: number, column: number, confirmed = false) => {
@@ -438,31 +440,47 @@ export function EditorView({
       // 同一资源的 loading/ready 连续通知只合并为一次 Pixi 重绘，不触发 React render。
       queueMicrotask(() => {
         resourceRenderQueued = false;
-        if (cancelled || !initialized || !resourceRenderDirty) return;
+        if (cancelled || rendererFailed || !initialized || !resourceRenderDirty)
+          return;
         resourceRenderDirty = false;
         instance.render(store.state);
       });
     });
-    void instance.initialize().then(() => {
-      if (cancelled) instance.destroy();
-      else {
+    let resourcesUnsubscribed = false;
+    const unsubscribeResourcesOnce = (): void => {
+      if (resourcesUnsubscribed) return;
+      resourcesUnsubscribed = true;
+      unsubscribeResources?.();
+    };
+    const initialization = startRendererInitialization(instance, {
+      onReady: () => {
         initialized = true;
         renderer.current = instance;
         if (resourceRenderDirty) {
           resourceRenderDirty = false;
           instance.render(store.state);
         }
-      }
+      },
+      onFailure: (error, disposed) => {
+        initialized = false;
+        rendererFailed = true;
+        if (renderer.current === instance) renderer.current = undefined;
+        unsubscribeResourcesOnce();
+        // 保留原始错误供浏览器诊断，同时由受控状态向用户说明失败。
+        console.error("地图渲染器初始化失败", error);
+        if (!disposed) setErrorKey("error.rendererInitializeFailed");
+      },
     });
+    void initialization.completion;
     return () => {
       cancelled = true;
-      unsubscribeResources?.();
+      unsubscribeResourcesOnce();
       fillTaskRef.current?.cancel();
       fillTaskRef.current = null;
       if (renderer.current === instance) {
         renderer.current = undefined;
-        instance.destroy();
       }
+      initialization.dispose();
     };
   }, [moduleSession, resourceRuntime, store, t]);
 

@@ -306,6 +306,8 @@ export const zhCN = {
     "toolbar.contextPanels": "属性与设置面板",
     "renderer.contextLost":
       "图形上下文已丢失，画布交互已暂停。浏览器恢复后会自动重建地图视图。",
+    "error.rendererInitializeFailed":
+      "地图画布初始化失败，工程数据未受影响。请重新载入页面后重试。",
     "projectConflict.title": "本地已有同一工程",
     "projectConflict.description":
       "文件“{{name}}”与当前本地工程使用相同 ID（{{id}}）。请选择打开方式。",
