@@ -15,11 +15,40 @@ const buildScriptUrl = new URL(
   import.meta.url,
 );
 
+function normalizeEol(value) {
+  return value.replace(/\r\n?/gu, "\n");
+}
+
+async function readPortableText(url) {
+  return normalizeEol(await readFile(url, "utf8"));
+}
+
 const [workflow, publishScript, buildScript] = await Promise.all([
-  readFile(workflowUrl, "utf8"),
-  readFile(publishScriptUrl, "utf8"),
-  readFile(buildScriptUrl, "utf8"),
+  readPortableText(workflowUrl),
+  readPortableText(publishScriptUrl),
+  readPortableText(buildScriptUrl),
 ]);
+
+test("发布契约读取在 LF 与 CRLF checkout 下保持相同语义", () => {
+  const lfFixture = [
+    "on:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      version:",
+    "        required: true",
+    "",
+  ].join("\n");
+  const crlfFixture = lfFixture.replaceAll("\n", "\r\n");
+  for (const source of [lfFixture, crlfFixture]) {
+    const normalized = normalizeEol(source);
+    assert.match(normalized, /^on:\s*\n\s{2}workflow_dispatch:/mu);
+    assert.match(
+      normalized,
+      /^\s{6}version:\n(?:.*\n){0,4}?\s{8}required: true$/mu,
+    );
+    assert.doesNotMatch(normalized, /\r/u);
+  }
+});
 
 test("正式提取器发布只能手动触发并显式输入版本与 tag", () => {
   assert.match(workflow, /^on:\s*\n\s{2}workflow_dispatch:/mu);
