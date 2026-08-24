@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import os from "node:os";
 import { dirname } from "node:path";
 import { performance } from "node:perf_hooks";
 import { expect, test, type Page } from "@playwright/test";
@@ -7,19 +6,15 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { createProject } from "../../packages/core/src/index.js";
 import { stringifyProjectV1 } from "../../packages/formats/src/index.js";
+import {
+  collectGitProvenance,
+  collectWindowsMachineFacts,
+  referenceEnvironmentIssues,
+  validateOfficialBenchmarkProfile,
+} from "../../scripts/benchmark-profile.mjs";
 
 const enabled = process.env.TESSERA_BROWSER_BENCHMARK === "1";
 const viewport = { width: 1_440, height: 900 } as const;
-
-function positiveIntegerEnvironment(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new RangeError(`${name}-invalid`);
-  }
-  return value;
-}
 
 function percentile(samples: readonly number[], quantile: number): number {
   const sorted = [...samples].sort((left, right) => left - right);
@@ -231,10 +226,9 @@ async function measureDrawing(page: Page): Promise<number[]> {
 
 test.skip(!enabled, "只通过 benchmark:browser 显式运行");
 test("benchmark-profile-v1 真实浏览器性能", async ({ browser }) => {
-  const coldIterations = positiveIntegerEnvironment(
-    "TESSERA_BENCHMARK_COLD_ITERATIONS",
-    20,
-  );
+  const browserChannel = test.info().project.use.channel;
+  expect(browserChannel).toBe("msedge");
+  const coldIterations = 20;
   const dimension = 100;
   const contentCount = 2_000;
   const json = fixedProjectJson(dimension, contentCount);
@@ -525,15 +519,22 @@ test("benchmark-profile-v1 真实浏览器性能", async ({ browser }) => {
     await fillContext.close();
   }
 
-  const cpu = os.cpus()[0];
-  const availableMemoryBytes = os.freemem();
-  const logicalCpuCount = os.cpus().length;
-  const comparable =
-    process.platform === "win32" &&
-    logicalCpuCount === 8 &&
-    availableMemoryBytes >= 8 * 1024 ** 3 &&
-    availableMemoryBytes < 9 * 1024 ** 3 &&
-    hardwareAccelerated;
+  const machine = collectWindowsMachineFacts();
+  const provenance = collectGitProvenance();
+  const environmentWithoutComparison = {
+    ...machine,
+    browserChannel,
+    browserName: "Microsoft Edge",
+    browserVersion: browser.version(),
+    viewport,
+    dpr: 1,
+    gpuRenderer,
+    hardwareAccelerated,
+  };
+  const comparisonIssues = referenceEnvironmentIssues(
+    environmentWithoutComparison,
+  );
+  const comparable = comparisonIssues.length === 0;
   const scenarios = [
     scenario(
       "project-import-100x100-2000-content",
@@ -608,6 +609,7 @@ test("benchmark-profile-v1 真实浏览器性能", async ({ browser }) => {
   const profile = {
     profile: "benchmark-profile-v1",
     generatedAt: new Date().toISOString(),
+    provenance,
     configuration: {
       coldIterations,
       projectDimension: dimension,
@@ -615,20 +617,11 @@ test("benchmark-profile-v1 真实浏览器性能", async ({ browser }) => {
       fillCount: 250_000,
     },
     environment: {
-      os: `${os.platform()} ${os.release()} ${os.arch()}`,
-      cpu: cpu?.model ?? "unknown",
-      logicalCpuCount,
-      availableMemoryBytes,
-      browserName: "Microsoft Edge / Chromium",
-      browserVersion: browser.version(),
-      viewport,
-      dpr: 1,
-      gpuRenderer,
-      hardwareAccelerated,
+      ...environmentWithoutComparison,
       comparable,
       comparisonReason: comparable
         ? "精确满足 benchmark-profile-v1 参考环境。"
-        : "本机CPU/可用内存或GPU加速与4核8线程、8GiB可用内存参考环境不完全一致，数据仅作实机证据。",
+        : `数据仅作不可比较的补充实机证据：${comparisonIssues.join("；")}`,
     },
     scenarios,
   };
@@ -643,6 +636,14 @@ test("benchmark-profile-v1 真实浏览器性能", async ({ browser }) => {
   if (!validate.compile(schema)(profile)) {
     throw new Error(
       `benchmark-profile-invalid:${JSON.stringify(validate.errors)}`,
+    );
+  }
+  if (comparable) {
+    expect(validateOfficialBenchmarkProfile(profile)).toEqual([]);
+    console.log("[benchmark] 已生成可进入正式审查的参考档候选。");
+  } else {
+    console.warn(
+      "[benchmark] 场景通过不代表正式参考档通过；当前输出仅为 comparable=false 的补充证据。",
     );
   }
   const output = process.env.TESSERA_BENCHMARK_OUTPUT;

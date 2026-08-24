@@ -1,23 +1,23 @@
 # M4-C 浏览器真实性能与稳定性证据
 
-本文记录可复跑的候选证据，不提交 benchmark JSON 运行产物，也不把非参考机器结果冒充 PERF-010 参考档。
+本文记录可复跑的候选证据。普通运行把 benchmark JSON 写入 Git 忽略目录，不把非参考机器结果冒充 PERF-010 参考档；只有严格匹配冻结环境的正式候选才可作为受跟踪的 `manual/benchmark-profile-v1.json` 进入发布门禁。
 
 ## 复跑入口
 
 ```powershell
 pnpm benchmark:browser --output local-modules/.review/browser-benchmark.json
 pnpm e2e --workers=1 tests/e2e/runtime-viewport-performance.spec.ts
-pnpm browser:support:matrix --output local-modules/.review/browser-support.json
+pnpm support:matrix -- --output=local-modules/.review/browser-support.json
 ```
 
-基准输出必须通过 [benchmark-profile-v1 schema](../tests/benchmarks/benchmark-profile-v1.schema.json)。性能 runner 使用生产构建、生产工程导入/恢复、生产 renderer 和真实填充 Worker；输出目录被 Git 忽略。
+基准输出必须通过 [benchmark-profile-v1 schema](../tests/benchmarks/benchmark-profile-v1.schema.json)。性能 runner 使用生产构建、生产工程导入/恢复、生产 renderer 和真实填充 Worker；Windows 环境通过只读 CIM/PowerShell 采集 OS build、架构、物理/逻辑核心、机型与可用内存。runner 还以无 shell 的只读 Git 子进程记录 40 位被测提交和工作树清洁状态；正式门禁要求被测提交是当前 HEAD 的祖先，且两者之间没有整个 web 应用、core、renderer、storage、formats、module-runtime、benchmark/release runner 配置脚本及依赖锁文件变化。后续只提交 profile、追踪文档、许可证或 catalog 不会造成自引用阻塞。Schema 与正式发布语义门禁共同冻结 100×100/2,000 内容格、20 次冷启动、场景身份、样本和统计结果。
 
 ## 2026-08-23 实机环境
 
 - OS：Windows `10.0.26200 x64`；
 - CPU：Intel Core i9-12900H，20 个逻辑处理器；
 - 可用内存：约 39.6 GB；
-- 浏览器：Microsoft Edge / Chromium `151.0.4129.101`；
+- 浏览器：系统 Microsoft Edge `151.0.4129.101`（`browserChannel=msedge`）；
 - 视口：`1440×900`，DPR=1；
 - headless 会话未提供可识别的硬件 GPU renderer，`hardwareAccelerated=false`；
 - 与 PERF-010 的 4 核/8 线程、8 GiB 可用内存、硬件加速参考档不等价，因此 `comparable=false`。
@@ -69,11 +69,14 @@ Chrome 版本来自 Google Chrome for Testing 的 `last-known-good-versions-with
 
 Microsoft 官方 Edge Enterprise API 提供上一主版本 `150.0.4078.144` 的 x64 MSI。该 MSI 下载成功，`msiexec /a` 返回成功，但行政映像只生成重新打包的 MSI，没有可并行启动的 `msedge.exe`；内嵌载荷是 Edge Update Setup。为避免覆盖系统 Edge 或改变默认浏览器，本轮没有执行安装器，因此 Edge 150 保持 blocked。这一结论只说明当前安全自动化边界，不代表 Edge 150 产品不兼容。
 
+仓库新增 `.github/workflows/edge-previous-major.yml`，可在 GitHub-hosted `windows-2022` 一次性 VM 中按 Microsoft Enterprise API 与冻结 SHA256 校验官方 MSI，再用 `ALLOWDOWNGRADE=1` 隔离回滚系统 Edge 并运行同一完整支持矩阵。工作流同时校验安装前、安装后、真实 `browser.version()` 与测试后文件版本，且不上传 artifact；实际结果仍须等待首次 Actions run，不提前把 Edge 150 标为 covered。
+
 可选 Civ6 提取器已在 Windows 11 专业工作站版 25H2 x64（build 26200.9168）完成无系统 `dotnet` 的自包含 GUI、ZIP 闭包和禁止资产审计；该结果满足 24H2+（build 26100+）目标机下限，完整记录见 [Civ6 Windows 目标机证据](./CIV6_WINDOWS_EVIDENCE.zh-CN.md)。它不替代仍未发布的正式 Release/catalog。
 
 ## 仍未闭合
 
 - PERF-001、PERF-002、PERF-010 的冻结参考硬件/硬件加速档；
+- 当前单一正式 profile 固定为系统 Microsoft Edge（`msedge`）；是否扩展为多浏览器性能档仍待 Issue #12 的产品决定；
 - Microsoft Edge 前一个主要版本的安全并行运行证据；
 - 核心静态网站继续面向 Windows 10+ 的支持矩阵内现代浏览器；它不包含需要单独操作系统发布的可执行程序；
 - 项目许可证决策。

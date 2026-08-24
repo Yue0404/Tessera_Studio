@@ -6,6 +6,7 @@
   "required": [
     "profile",
     "generatedAt",
+    "provenance",
     "configuration",
     "environment",
     "scenarios"
@@ -13,6 +14,27 @@
   "properties": {
     "profile": { "const": "benchmark-profile-v1" },
     "generatedAt": { "type": "string", "format": "date-time" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gitProbe", "testedCommit", "worktreeClean"],
+      "properties": {
+        "gitProbe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["succeeded", "reason"],
+          "properties": {
+            "succeeded": { "const": true },
+            "reason": { "const": "git-read-only" }
+          }
+        },
+        "testedCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "worktreeClean": { "const": true }
+      }
+    },
     "configuration": {
       "type": "object",
       "additionalProperties": false,
@@ -23,44 +45,82 @@
         "fillCount"
       ],
       "properties": {
-        "coldIterations": { "type": "integer", "minimum": 1 },
-        "projectDimension": { "type": "integer", "minimum": 1 },
-        "projectContentCount": { "type": "integer", "minimum": 1 },
-        "fillCount": { "type": "integer", "const": 250000 }
+        "coldIterations": { "const": 20 },
+        "projectDimension": { "const": 100 },
+        "projectContentCount": { "const": 2000 },
+        "fillCount": { "const": 250000 }
       }
     },
     "environment": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "required": [
+        "hardwareProbe",
         "os",
+        "osBuildNumber",
+        "osArchitecture",
         "cpu",
+        "physicalCoreCount",
         "logicalCpuCount",
+        "pcSystemType",
+        "chassisTypes",
+        "machineType",
         "availableMemoryBytes",
+        "browserChannel",
         "browserName",
         "browserVersion",
         "viewport",
         "dpr",
+        "gpuRenderer",
         "hardwareAccelerated",
         "comparable",
         "comparisonReason"
       ],
       "properties": {
-        "os": { "type": "string", "minLength": 1 },
-        "cpu": { "type": "string", "minLength": 1 },
-        "logicalCpuCount": { "type": "integer", "minimum": 1 },
-        "availableMemoryBytes": { "type": "integer", "minimum": 0 },
-        "browserName": { "type": "string", "minLength": 1 },
-        "browserVersion": { "type": "string", "minLength": 1 },
-        "viewport": {
+        "hardwareProbe": {
           "type": "object",
-          "required": ["width", "height"],
+          "additionalProperties": false,
+          "required": ["succeeded", "reason"],
           "properties": {
-            "width": { "type": "integer", "const": 1440 },
-            "height": { "type": "integer", "const": 900 }
+            "succeeded": { "type": "boolean" },
+            "reason": { "type": "string", "minLength": 1 }
           }
         },
-        "dpr": { "type": "number", "const": 1 },
+        "os": { "type": "string", "minLength": 1 },
+        "osBuildNumber": { "type": "integer", "minimum": 0 },
+        "osArchitecture": {
+          "enum": ["x64", "arm64", "unknown"]
+        },
+        "cpu": { "type": "string", "minLength": 1 },
+        "physicalCoreCount": { "type": "integer", "minimum": 0 },
+        "logicalCpuCount": { "type": "integer", "minimum": 0 },
+        "pcSystemType": { "type": "integer", "minimum": 0 },
+        "chassisTypes": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "uniqueItems": true
+        },
+        "machineType": {
+          "enum": ["desktop", "non-desktop", "unknown"]
+        },
+        "availableMemoryBytes": { "type": "integer", "minimum": 0 },
+        "browserChannel": { "const": "msedge" },
+        "browserName": { "const": "Microsoft Edge" },
+        "browserVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
+        },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "const": 1440 },
+            "height": { "const": 900 }
+          }
+        },
+        "dpr": { "const": 1 },
+        "gpuRenderer": { "type": "string", "minLength": 1 },
         "hardwareAccelerated": { "type": "boolean" },
         "comparable": { "type": "boolean" },
         "comparisonReason": { "type": "string", "minLength": 1 }
@@ -68,7 +128,8 @@
     },
     "scenarios": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 11,
+      "maxItems": 11,
       "items": {
         "type": "object",
         "additionalProperties": true,
@@ -76,7 +137,7 @@
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "scope": { "type": "string", "minLength": 1 },
-          "unit": { "type": "string", "minLength": 1 },
+          "unit": { "enum": ["ms", "fps"] },
           "samples": {
             "type": "array",
             "minItems": 1,

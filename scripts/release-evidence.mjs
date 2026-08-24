@@ -16,7 +16,6 @@ const REQUIRED_P1_STATUSES = new Map([
   ["A11Y-002", "covered"],
   ["A11Y-003", "covered"],
   ["A11Y-004", "covered"],
-  ["PERF-002", "blocked"],
 ]);
 const RELEASE_SHA256 = /^[a-f0-9]{64}$/u;
 

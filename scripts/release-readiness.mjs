@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import {
+  PERFORMANCE_REFERENCE_REQUIREMENTS,
+  validateBenchmarkSourceProvenance,
+  validateOfficialBenchmarkProfile,
+} from "./benchmark-profile.mjs";
 
 const REQUIREMENT_ID = /^[A-Z][A-Z0-9]*-[0-9]{3}$/u;
 
@@ -55,6 +60,9 @@ export function validateReleaseReadiness({
   acceptance,
   hasRootLicense,
   releaseCatalog,
+  benchmarkProfile,
+  benchmarkProfileTracked = false,
+  benchmarkRepositoryEvidence,
 }) {
   const issues = [...validateReleaseAcceptanceDocument(acceptance)];
   const blockedIds = new Set(
@@ -76,6 +84,34 @@ export function validateReleaseReadiness({
   for (const id of [...blockedIds].sort()) {
     if (!acceptedIds.has(id)) {
       issues.push(`正式发布仍有未接受的需求阻塞：${id}`);
+    }
+  }
+  const statusById = new Map(
+    traceEntries(trace).flatMap((entry) =>
+      (entry.requirementIds ?? []).map((id) => [id, entry.status]),
+    ),
+  );
+  const coveredPerformanceIds = PERFORMANCE_REFERENCE_REQUIREMENTS.filter(
+    (id) => statusById.get(id) === "covered",
+  );
+  if (coveredPerformanceIds.length > 0) {
+    if (!benchmarkProfileTracked) {
+      issues.push(
+        `正式发布把 ${coveredPerformanceIds.join(
+          "、",
+        )} 标为 covered 时，必须提交受跟踪的正式 benchmark profile。`,
+      );
+    }
+    if (benchmarkProfile === undefined) {
+      issues.push("正式发布缺少 benchmark-profile-v1 参考档证据。");
+    } else {
+      issues.push(...validateOfficialBenchmarkProfile(benchmarkProfile));
+      issues.push(
+        ...validateBenchmarkSourceProvenance(
+          benchmarkProfile,
+          benchmarkRepositoryEvidence,
+        ),
+      );
     }
   }
   if (!hasRootLicense) {

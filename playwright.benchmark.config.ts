@@ -1,8 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const chromiumChannel =
-  process.platform === "win32" ? ("msedge" as const) : ("chromium" as const);
-
 export default defineConfig({
   testDir: "./tests/benchmarks",
   testMatch: "browser-runtime-performance.spec.ts",
@@ -25,8 +22,8 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium-benchmark",
-      use: { ...devices["Desktop Chrome"], channel: chromiumChannel },
+      name: "edge-benchmark",
+      use: { ...devices["Desktop Edge"], channel: "msedge" },
     },
   ],
 });

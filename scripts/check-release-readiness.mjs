@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import process from "node:process";
@@ -5,6 +6,10 @@ import {
   validateExtractorReleaseCatalogDocument,
   validateTraceabilityDocument,
 } from "./release-evidence.mjs";
+import {
+  OFFICIAL_BENCHMARK_PROFILE_PATH,
+  collectBenchmarkRepositoryEvidence,
+} from "./benchmark-profile.mjs";
 import {
   validateReleaseReadiness,
   verifyExtractorReleaseAssets,
@@ -38,6 +43,30 @@ const acceptance = await readJson("manual/release-acceptance.json");
 const releaseCatalog = await readJson(
   "apps/web/public/extractor-releases.json",
 );
+let benchmarkProfile;
+try {
+  benchmarkProfile = await readJson(OFFICIAL_BENCHMARK_PROFILE_PATH);
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+}
+const benchmarkProfileTracked =
+  benchmarkProfile !== undefined &&
+  spawnSync(
+    "git",
+    ["ls-files", "--error-unmatch", "--", OFFICIAL_BENCHMARK_PROFILE_PATH],
+    {
+      cwd: root,
+      encoding: "utf8",
+      windowsHide: true,
+    },
+  ).status === 0;
+const benchmarkRepositoryEvidence =
+  benchmarkProfile === undefined
+    ? undefined
+    : collectBenchmarkRepositoryEvidence(
+        benchmarkProfile?.provenance?.testedCommit,
+        { cwd: root },
+      );
 
 const issues = [
   ...validateTraceabilityDocument(trace),
@@ -47,6 +76,9 @@ const issues = [
     acceptance,
     hasRootLicense: await hasRootLicense(),
     releaseCatalog,
+    benchmarkProfile,
+    benchmarkProfileTracked,
+    benchmarkRepositoryEvidence,
   }),
 ];
 if (issues.length === 0) {

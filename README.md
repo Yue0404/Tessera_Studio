@@ -53,7 +53,9 @@ pnpm --filter @tessera/web exec vite preview --host 127.0.0.1 --port 4174
 
 `pnpm release:check` 只校验候选证据的结构与一致性，允许保留有明确原因的 `conditional`/`blocked`。显式接受 blocker 时，必须在 `manual/release-acceptance.json` 记录需求 ID、理由、接受人和 UTC 时间。
 
-`pnpm release:ready` 是正式部署门禁：它拒绝未接受的 P0/P1 blocker、根级许可证缺失或空的提取器正式目录，并只读下载目录中的 GitHub Release 资产核对体积和 SHA-256；不会写盘或执行提取器。Pages 的 Pull Request 只运行候选检查，只有主分支正式上传前运行就绪检查。
+`pnpm release:ready` 是正式部署门禁：它拒绝未接受的 P0/P1 blocker、根级许可证缺失或空的提取器正式目录，并只读下载目录中的 GitHub Release 资产核对体积和 SHA-256；不会写盘或执行提取器。若 PERF-001、PERF-002 或 PERF-010 标为 `covered`，门禁还要求受跟踪的 `manual/benchmark-profile-v1.json` 严格匹配冻结硬件、固定场景及全部通过结果，并验证被测提交是当前 HEAD 的祖先且其后没有性能敏感源码变化。Pages 的 Pull Request 只运行候选检查，只有主分支正式上传前运行就绪检查。
+
+`pnpm benchmark:browser --output local-modules/.review/browser-benchmark.json` 可在安装系统 Edge 的受支持 Windows 机器生成补充 profile；Windows CIM 采集失败、硬件不匹配或测试时工作树不干净时不能称为正式参考档。正式单一 profile 固定使用系统 Microsoft Edge（`browserChannel=msedge`），浏览器版本记录真实 `browser.version()`；是否扩展为多浏览器性能档仍由 Issue #12 的产品决定，工具不会擅自放宽或扩大范围。
 
 ## 使用与数据安全
 

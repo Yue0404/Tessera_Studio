@@ -162,7 +162,7 @@ test("条件或阻塞项必须给出原因", () => {
   assert.match(issues.join("\n"), /必须说明/u);
 });
 
-test("已裁定的 P1 与无障碍状态不得整体回退，PERF-002 保持阻塞", () => {
+test("已裁定的 P1 与无障碍状态不得整体回退", () => {
   const makeDocument = (id, status) => ({
     schemaVersion: "1",
     p0RequirementIds: ["APP-001"],
@@ -188,14 +188,8 @@ test("已裁定的 P1 与无障碍状态不得整体回退，PERF-002 保持阻�
     /UX-007 必须保持 covered/u,
   );
   assert.deepEqual(
-    validateTraceabilityDocument(makeDocument("PERF-002", "blocked")),
+    validateTraceabilityDocument(makeDocument("PERF-002", "covered")),
     [],
-  );
-  assert.match(
-    validateTraceabilityDocument(makeDocument("PERF-002", "covered")).join(
-      "\n",
-    ),
-    /PERF-002 必须保持 blocked/u,
   );
 });
 

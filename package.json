@@ -35,7 +35,7 @@
     "inspect:civ6-installation": "node tools/civ6-extractor/scripts/inspect-installation.mjs",
     "inspect:civ6-catalog": "node tools/civ6-extractor/scripts/inspect-installation.mjs --catalog",
     "inspect:civ6-art": "node tools/civ6-extractor/scripts/inspect-installation.mjs --art",
-    "release:check": "node scripts/check-release-evidence.mjs && node --test scripts/release-evidence.test.mjs scripts/release-readiness.test.mjs scripts/line-ending.test.mjs scripts/release-runner.test.mjs",
+    "release:check": "node scripts/check-release-evidence.mjs && node --test scripts/benchmark-profile.test.mjs scripts/release-evidence.test.mjs scripts/release-readiness.test.mjs scripts/line-ending.test.mjs scripts/release-runner.test.mjs",
     "release:ready": "node scripts/check-release-readiness.mjs",
     "release:verify": "node scripts/verify-release-candidate.mjs"
   },

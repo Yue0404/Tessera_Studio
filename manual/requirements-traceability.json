@@ -574,9 +574,13 @@
       "status": "blocked",
       "implementation": [
         "scripts/run-browser-benchmark.mjs",
+        "scripts/benchmark-profile.mjs",
+        "scripts/release-readiness.mjs",
         "playwright.benchmark.config.ts"
       ],
       "automatedTests": [
+        "scripts/benchmark-profile.test.mjs",
+        "scripts/release-readiness.test.mjs",
         "tests/benchmarks/benchmark-profile-v1.schema.json",
         "tests/benchmarks/browser-runtime-performance.spec.ts"
       ],
@@ -584,7 +588,7 @@
         "manual/M4_BROWSER_EVIDENCE.zh-CN.md",
         "https://github.com/Yue0404/Tessera_Studio/issues/12"
       ],
-      "blocker": "当前20次冷启动实机证据通过，但机器为20逻辑处理器、约39.6 GiB可用内存且headless GPU不可识别，不等同PERF-010冻结参考档。"
+      "blocker": "严格CIM采集、Schema、固定场景、系统Edge msedge、被测提交provenance和release:ready门禁已实现；当前20次冷启动补充证据通过，但机器为14物理核/20逻辑处理器、约39.6 GiB可用内存且headless GPU不可识别，不等同PERF-010冻结参考档。是否扩展为多浏览器性能档仍由Issue #12等待产品决定。"
     }
   ],
   "trackedP1Evidence": [
@@ -681,10 +685,13 @@
     {
       "requirementIds": ["PERF-002"],
       "implementation": [
+        "scripts/benchmark-profile.mjs",
         "packages/renderer/src/tessera-renderer.ts",
         "apps/web/src/components/EditorView.tsx"
       ],
       "automatedTests": [
+        "scripts/benchmark-profile.test.mjs",
+        "scripts/release-readiness.test.mjs",
         "tests/benchmarks/browser-runtime-performance.spec.ts"
       ],
       "humanEvidence": [
@@ -692,7 +699,7 @@
         "https://github.com/Yue0404/Tessera_Studio/issues/12"
       ],
       "status": "blocked",
-      "blocker": "当前1440×900、DPR=1实机数据通过，但硬件和GPU条件不等同PERF-010冻结参考档。"
+      "blocker": "当前1440×900、DPR=1补充实机数据通过但comparable=false；严格系统Edge与被测提交provenance门禁已实现，仍等待PERF-010冻结参考机实跑及Issue #12决定是否扩展浏览器范围。"
     }
   ]
 }
