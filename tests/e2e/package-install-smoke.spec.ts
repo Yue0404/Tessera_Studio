@@ -158,7 +158,34 @@ async function moduleArchive(moduleId: string): Promise<Uint8Array> {
   });
 }
 
-test("Edge 真实 ZIP Worker 安装到 OPFS，刷新后仍按精确身份可用", async ({
+function extractorCatalog(
+  overrides: Readonly<Record<string, unknown>> = {},
+): string {
+  const version = "0.1.0-preview.1";
+  return JSON.stringify({
+    schemaVersion: "1",
+    releases: [
+      {
+        extractorId: "tessera.civ6-extractor",
+        version,
+        os: "windows",
+        arch: "x64",
+        minOsBuild: 26100,
+        artifactType: "portable-zip",
+        entrypoint: "TesseraCiv6Extractor.exe",
+        bytes: 51_549_893,
+        sha256: "1".repeat(64),
+        outputModuleId: "tessera.civ6",
+        outputModuleVersion: "1.0.0",
+        minAppVersion: "0.1.0",
+        assetUrl: `https://github.com/Yue0404/Tessera_Studio/releases/download/extractor-v${version}/tessera-civ6-extractor-v${version}-windows-x64.zip`,
+        ...overrides,
+      },
+    ],
+  });
+}
+
+test("真实 ZIP Worker 安装到 OPFS，刷新后仍按精确身份可用", async ({
   page,
 }) => {
   const moduleId = `example.e2e-${crypto.randomUUID().slice(0, 8)}`;
@@ -166,6 +193,9 @@ test("Edge 真实 ZIP Worker 安装到 OPFS，刷新后仍按精确身份可用"
   await page.goto("/");
   await page.getByRole("button", { name: "管理模块与预设包" }).click();
   const dialog = page.getByRole("dialog", { name: "包设置" });
+  await expect(
+    dialog.getByText(/当前没有与应用或已安装模块版本匹配的提取器发布/),
+  ).toBeVisible();
   await dialog.locator('input[type="file"]').setInputFiles({
     name: `${moduleId}.tessera-module.zip`,
     mimeType: "application/zip",
@@ -197,4 +227,63 @@ test("Edge 真实 ZIP Worker 安装到 OPFS，刷新后仍按精确身份可用"
   // 清理本用例创建的本地包，避免同一浏览器 profile 污染后续用例。
   await reopened.getByRole("button", { name: "删除本地包" }).click();
   await expect(reopened.getByText(moduleId, { exact: false })).toHaveCount(0);
+});
+
+test("提取器目录仅在打开包设置后请求并呈现安全下载链接", async ({ page }) => {
+  let requests = 0;
+  await page.route("**/extractor-releases.json", async (route) => {
+    requests += 1;
+    await route.fulfill({
+      contentType: "application/json; charset=utf-8",
+      body: extractorCatalog(),
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "新建地图" })).toBeVisible();
+  expect(requests).toBe(0);
+  await page.getByRole("button", { name: "管理模块与预设包" }).click();
+  const dialog = page.getByRole("dialog", { name: "包设置" });
+  const link = dialog.getByRole("link", { name: "下载匹配版本提取器" });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute(
+    "href",
+    /github\.com\/Yue0404\/Tessera_Studio\/releases\/download\//,
+  );
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(dialog.getByText(/Windows 11 24H2.*26100/)).toBeVisible();
+  await expect(dialog.getByText(/SmartScreen/)).toBeVisible();
+  expect(requests).toBe(1);
+});
+
+test("损坏或不匹配的提取器目录可诊断且不影响本地包入口", async ({ page }) => {
+  await page.route("**/extractor-releases.json", async (route) => {
+    await route.fulfill({
+      contentType: "application/json; charset=utf-8",
+      body: JSON.stringify({ schemaVersion: "1", releases: [], unknown: true }),
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "管理模块与预设包" }).click();
+  const dialog = page.getByRole("dialog", { name: "包设置" });
+  await expect(dialog.getByText(/无法读取提取器版本目录/)).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "导入已有文明 6 模块包" }),
+  ).toBeEnabled();
+
+  await page.unroute("**/extractor-releases.json");
+  await page.route("**/extractor-releases.json", async (route) => {
+    await route.fulfill({
+      contentType: "application/json; charset=utf-8",
+      body: extractorCatalog({ minAppVersion: "9.0.0" }),
+    });
+  });
+  await dialog.getByRole("button", { name: "关闭" }).click();
+  await page.getByRole("button", { name: "管理模块与预设包" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "包设置" }).getByText(/当前没有与应用/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "下载匹配版本提取器" }),
+  ).toHaveCount(0);
 });

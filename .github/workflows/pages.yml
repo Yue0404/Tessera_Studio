@@ -1,0 +1,81 @@
+name: Pages Candidate
+
+on:
+  pull_request:
+    branches:
+      - init
+      - main
+    paths:
+      - ".github/workflows/pages.yml"
+      - "README.md"
+      - "THIRD_PARTY_NOTICES.md"
+      - "manual/**"
+      - "apps/web/**"
+      - "packages/**"
+      - "scripts/**"
+      - "tests/pages-e2e/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "playwright.pages.config.ts"
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建并审计 Pages 制品
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: 锁定安装
+        run: pnpm install --frozen-lockfile
+      - name: 校验发布说明与证据闭包
+        run: pnpm release:check
+      - name: 校验正式发布就绪
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: pnpm release:ready
+      - name: 安装 Pages 冒烟浏览器
+        run: pnpm exec playwright install chromium
+      - name: 验证 Pages 子路径核心流程
+        run: pnpm e2e:pages
+      - name: 审计待部署静态制品
+        run: pnpm pages:check
+      - name: 上传正式 Pages 制品
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    name: 部署正式 Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

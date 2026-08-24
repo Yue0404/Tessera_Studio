@@ -1,5 +1,5 @@
 import { createProject, edgeIdentity, EditorStore } from "@tessera/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   parseProjectV1,
   ProjectFormatError,
@@ -132,9 +132,10 @@ describe("Project Format v1", () => {
     );
 
     const document = JSON.parse(stringifyProjectV1(store.state)) as any;
-    expect(
-      document.managers.edgeManager.edges[0].layerInstances[0].attributes,
-    ).toEqual({ persistence: "reference-only" });
+    expect(document.managers.edgeManager.edges[0]).toMatchObject({
+      edgeId: edge.edgeId,
+      layerInstances: [],
+    });
     expect(document.managers.connectionManager.connections[0]).toMatchObject({
       kind: "arrow",
       start: { kind: "cell-center" },
@@ -159,5 +160,69 @@ describe("Project Format v1", () => {
       zIndex: 4300,
       visible: true,
     });
+  });
+
+  it("大量跨分块 owner 恢复只使用一次性 manager ID 索引", () => {
+    const store = new EditorStore(
+      createProject({
+        name: "稀疏规模恢复",
+        grid: { type: "square", width: 256, height: 256, cellSize: 24 },
+        style: {
+          canvasBackground: "#09141DFF",
+          defaultCellColor: "#14232DFF",
+          gridColor: "#59656AFF",
+          gridOpacity: 0.7,
+          gridWidth: 1,
+          defaultEdgeColor: "#59656AFF",
+        },
+      }),
+    );
+    const objectCount = 512;
+    for (let index = 0; index < objectCount; index += 1) {
+      const row = 1 + (index % 128);
+      const column = 1 + Math.floor(index / 128) * 64;
+      const edge = edgeIdentity(store.state.grid, { row, column }, 1);
+      const ownerCellId = edge.adjacentCellIds[0];
+      if (ownerCellId === undefined) throw new Error("edge-owner-missing");
+      store.placeEdgeMarker({
+        instanceId: crypto.randomUUID(),
+        ...edge,
+        strokeColor: "#59656AFF",
+        strokeWidth: 1,
+        strokeOpacity: 1,
+        lineStyle: "solid",
+        persistence: "reference-only",
+      });
+      store.createConnection(
+        { kind: "edge-midpoint", edgeId: edge.edgeId },
+        { kind: "cell-center", cellId: ownerCellId },
+        "line",
+      );
+    }
+    const text = stringifyProjectV1(store.state);
+    const document = JSON.parse(text) as any;
+    expect(document.chunks.length).toBeGreaterThan(1);
+    expect(document.managers.edgeManager.edges).toHaveLength(objectCount);
+    expect(document.managers.overlayManager.overlays).toHaveLength(objectCount);
+    expect(document.managers.connectionManager.connections).toHaveLength(
+      objectCount,
+    );
+
+    const findSpy = vi.spyOn(Array.prototype, "find");
+    const restored = parseProjectV1(text);
+    const managerFindCalls = findSpy.mock.instances.filter((value) => {
+      if (!Array.isArray(value) || value.length !== objectCount) return false;
+      const first = value[0] as Record<string, unknown> | undefined;
+      return (
+        first !== undefined &&
+        ("edgeId" in first || "overlayId" in first || "connectionId" in first)
+      );
+    });
+    findSpy.mockRestore();
+
+    expect(managerFindCalls).toHaveLength(0);
+    expect(restored.edges.size).toBe(objectCount);
+    expect(restored.overlays.size).toBe(objectCount);
+    expect(restored.connections.size).toBe(objectCount);
   });
 });

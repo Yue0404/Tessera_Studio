@@ -1,3 +1,7 @@
+import type { SpatialIndexStats } from "./sparse-spatial-index.js";
+import type { MapRect } from "./viewport-clipping.js";
+import type { ModuleInstanceStoreContract } from "./module-instance-store.js";
+
 export type GridType = "square" | "hex-pointy";
 
 export interface MapStyle {
@@ -189,10 +193,28 @@ export interface SparseChunkBucket {
   readonly dirty: boolean;
 }
 
+export interface RuntimeChunkCacheOptions {
+  /** 视口外预取圈数，运行时最多允许两圈。 */
+  readonly prefetchRings?: 0 | 1 | 2;
+  /** 除当前工作集外允许保留的历史分块总上限。 */
+  readonly maxLoaded?: number;
+}
+
+export interface RuntimeChunkCacheStats {
+  readonly visibleChunkCount: number;
+  readonly prefetchedChunkCount: number;
+  readonly hitCount: number;
+  readonly missCount: number;
+  readonly loadedChunkCount: number;
+  readonly dirtyRetainedCount: number;
+  readonly evictedChunkKeys: readonly string[];
+}
+
 export interface SparseCellStoreContract {
   readonly size: number;
   readonly bucketCount: number;
   get(cellId: string): CellOverride | undefined;
+  getByInstanceId(instanceId: string): CellOverride | undefined;
   set(cellId: string, value: CellOverride): this;
   delete(cellId: string): boolean;
   values(): IterableIterator<CellOverride>;
@@ -203,6 +225,15 @@ export interface SparseCellStoreContract {
   unassignOverlay(overlayId: string, ownerCellId: string): void;
   touchRuntimeChunk(chunkRow: number, chunkColumn: number): void;
   evictRuntimeChunks(maxLoaded: number): readonly string[];
+  updateRuntimeViewport(
+    grid: ProjectGrid,
+    visibleCells: readonly CellCoordinate[],
+    options?: RuntimeChunkCacheOptions,
+  ): RuntimeChunkCacheStats;
+  /** 返回分块内容修订号，供渲染批次判断是否需要重建。 */
+  getRuntimeChunkRevision(chunkRow: number, chunkColumn: number): number;
+  /** 已有对象的样式改变时，显式使其所属分块失效。 */
+  invalidateRuntimeChunkForCell(cellId: string): void;
   markAllClean(): void;
   readonly loadedChunkKeys: readonly string[];
 }
@@ -211,8 +242,10 @@ export interface EdgeManagerContract {
   readonly edgesById: ReadonlyMap<string, EdgeLike>;
   readonly size: number;
   get(edgeId: string): EdgeLike | undefined;
+  getByInstanceId(instanceId: string): EdgeLike | undefined;
   values(): IterableIterator<EdgeLike>;
   ensure(edge: EdgeOverride): EdgeLike;
+  replace(edge: EdgeOverride): EdgeLike;
   updateStyle(edgeId: string, style: EdgeStyle): EdgeLike;
   setPersistence(
     edgeId: string,
@@ -226,9 +259,16 @@ export interface ConnectionManagerContract {
   readonly size: number;
   get(connectionId: string): ConnectionData | undefined;
   values(): IterableIterator<ConnectionData>;
+  hasEdgeReference(edgeId: string, excludingConnectionId?: string): boolean;
   add(connection: ConnectionData): ConnectionData;
   replace(connection: ConnectionData): ConnectionData;
   delete(connectionId: string): boolean;
+  configureSpatialIndex(
+    bucketSize: number,
+    resolveBounds: (connection: ConnectionData) => MapRect | undefined,
+  ): void;
+  query(rect: MapRect): readonly ConnectionData[];
+  readonly spatialIndexStats: SpatialIndexStats;
 }
 
 export interface OverlayManagerContract {
@@ -236,9 +276,16 @@ export interface OverlayManagerContract {
   readonly size: number;
   get(overlayId: string): OverlayData | undefined;
   values(): IterableIterator<OverlayData>;
+  hasEdgeReference(edgeId: string, excludingOverlayId?: string): boolean;
   add(overlay: OverlayData): OverlayData;
   replace(overlay: OverlayData): OverlayData;
   delete(overlayId: string): boolean;
+  configureSpatialIndex(
+    bucketSize: number,
+    resolveBounds: (overlay: OverlayData) => MapRect | undefined,
+  ): void;
+  query(rect: MapRect): readonly OverlayData[];
+  readonly spatialIndexStats: SpatialIndexStats;
 }
 
 export interface ProjectState {
@@ -252,6 +299,7 @@ export interface ProjectState {
   edges: EdgeManagerContract;
   connections: ConnectionManagerContract;
   overlays: OverlayManagerContract;
+  moduleInstances: ModuleInstanceStoreContract;
   layers: ReadonlyMap<string, FixedLayerState>;
   readonly formatSource: ProjectFormatSource;
   revision: number;
@@ -294,4 +342,5 @@ export type SelectedObject =
   | { kind: "cell"; id: string }
   | { kind: "edge"; id: string }
   | { kind: "overlay"; id: string }
-  | { kind: "connection"; id: string };
+  | { kind: "connection"; id: string }
+  | { kind: "module-instance"; id: string };

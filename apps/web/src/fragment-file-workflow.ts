@@ -101,6 +101,7 @@ export async function commitFragmentMerge(
   prepared: PreparedFragmentMerge,
   repository: ProjectSaveTarget,
   resolver?: FragmentModuleResolver,
+  validateState?: (state: Readonly<ProjectState>) => void,
 ): Promise<EditorStore> {
   if (prepared.plan.status !== "ready") {
     throw new FragmentFileWorkflowError("fragment-merge-not-ready", {
@@ -125,6 +126,7 @@ export async function commitFragmentMerge(
         moduleResolutionMode: "tolerant",
       }),
     );
+    validateState?.(store.state);
   } catch (error) {
     throw new FragmentFileWorkflowError(
       "fragment-merge-failed",

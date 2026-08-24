@@ -1,4 +1,7 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
+import { edgeSegment } from "../../packages/core/src/geometry.js";
+import type { MapPoint, ProjectGrid } from "../../packages/core/src/types.js";
+import { mapToScreen } from "../../packages/renderer/src/camera-transform.js";
 import { waitForImportedProject } from "./editor-ready.js";
 
 async function createProject(
@@ -199,26 +202,145 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
   await expect(page.getByTestId("connection-count")).toContainText("2");
   await expect(page.getByTestId("edge-count")).toContainText("2");
 
+  const geometryDocument = await exportJson(page);
+  const geometryManagers = geometryDocument.managers as {
+    edgeManager: {
+      edges: {
+        edgeId: string;
+        adjacentCellIds: readonly string[];
+      }[];
+    };
+    connectionManager: {
+      connections: {
+        connectionId: string;
+        kind: "line" | "arrow";
+        start:
+          | { kind: "map-point"; point: MapPoint }
+          | { kind: "edge-midpoint"; edgeId: string };
+        end:
+          | { kind: "map-point"; point: MapPoint }
+          | { kind: "edge-midpoint"; edgeId: string };
+      }[];
+    };
+  };
+  const projectGrid = geometryDocument.grid as ProjectGrid;
+  const edgeById = new Map(
+    geometryManagers.edgeManager.edges.map((edge) => [edge.edgeId, edge]),
+  );
+  const midpoint = (start: MapPoint, end: MapPoint): MapPoint => ({
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  });
+  const endpointPoint = (
+    endpoint:
+      | { kind: "map-point"; point: MapPoint }
+      | { kind: "edge-midpoint"; edgeId: string },
+  ): MapPoint => {
+    if (endpoint.kind === "map-point") return endpoint.point;
+    const edge = edgeById.get(endpoint.edgeId);
+    if (edge === undefined) throw new Error("e2e-edge-endpoint-missing");
+    const segment = edgeSegment(projectGrid, edge.edgeId, edge.adjacentCellIds);
+    if (segment === undefined) throw new Error("e2e-edge-segment-missing");
+    return midpoint(segment[0], segment[1]);
+  };
+  const canvasPosition = async (point: MapPoint): Promise<MapPoint> => {
+    const transform = await canvas.evaluate((element) => ({
+      camera: {
+        x: Number((element as HTMLElement).dataset.cameraX),
+        y: Number((element as HTMLElement).dataset.cameraY),
+      },
+      zoom: Number((element as HTMLElement).dataset.zoom),
+    }));
+    return mapToScreen(point, transform.camera, transform.zoom);
+  };
+  const line = geometryManagers.connectionManager.connections.find(
+    (connection) => connection.kind === "line",
+  );
+  const arrow = geometryManagers.connectionManager.connections.find(
+    (connection) => connection.kind === "arrow",
+  );
+  if (line === undefined || arrow === undefined)
+    throw new Error("e2e-connection-geometry-missing");
+  const targetEdge = edgeById.get(
+    arrow.start.kind === "edge-midpoint" ? arrow.start.edgeId : "",
+  );
+  if (targetEdge === undefined) throw new Error("e2e-target-edge-missing");
+  const targetSegment = edgeSegment(
+    projectGrid,
+    targetEdge.edgeId,
+    targetEdge.adjacentCellIds,
+  );
+  if (targetSegment === undefined)
+    throw new Error("e2e-target-segment-missing");
+
+  // connection 只持有 reference-only 结构边；显式使用边工具后才应成为可编辑样式边。
+  await page.getByRole("button", { name: "边" }).click();
+  await canvas.click({
+    position: await canvasPosition(
+      midpoint(targetSegment[0], targetSegment[1]),
+    ),
+  });
+  await expect(page.getByTestId("edge-count")).toContainText("2");
+
+  // 连接命中使用实际导出几何，证明用户能稳定选择并编辑 line 与 arrow。
+  await page.getByRole("button", { name: "选择" }).click();
+  await canvas.click({
+    position: await canvasPosition(
+      midpoint(endpointPoint(line.start), endpointPoint(line.end)),
+    ),
+  });
+  await page.getByRole("button", { name: "属性" }).click();
+  let inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
+  await expect(
+    inspector.getByText(line.connectionId, { exact: true }),
+  ).toBeVisible();
+  await inspector.getByLabel("线宽").fill("4");
+  await inspector.getByRole("button", { name: "关闭" }).click();
+
+  await canvas.click({
+    position: await canvasPosition(
+      midpoint(endpointPoint(arrow.start), endpointPoint(arrow.end)),
+    ),
+  });
+  await page.getByRole("button", { name: "属性" }).click();
+  inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
+  await expect(
+    inspector.getByText(arrow.connectionId, { exact: true }),
+  ).toBeVisible();
+  await inspector.getByLabel("线宽").fill("5");
+  await inspector.getByLabel("短标签").fill("双向道路已编辑");
+  await inspector.getByRole("button", { name: "关闭" }).click();
+
   await page.getByRole("button", { name: "图层" }).click();
   const connectionLayer = page
     .getByRole("listitem")
     .filter({ hasText: "tessera.basic.connection · 4300" });
   await connectionLayer.getByRole("checkbox", { name: "显示" }).uncheck();
   await page.getByRole("button", { name: "选择" }).click();
-  await canvas.click({ position: { x: 468, y: 306 } });
+  await canvas.click({
+    position: await canvasPosition(
+      midpoint(targetSegment[0], targetSegment[1]),
+    ),
+  });
   await page.getByRole("button", { name: "属性" }).click();
-  const inspector = page
+  const edgeInspector = page
     .locator("aside")
     .filter({ hasText: "已选择 1 个对象" });
-  const width = inspector.getByLabel("线宽");
+  await expect(
+    edgeInspector.getByText(targetEdge.edgeId, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    edgeInspector.getByText("共享边", { exact: true }),
+  ).toBeVisible();
+  const width = edgeInspector.getByLabel("线宽");
   await expect(width).toBeVisible({ timeout: 3_000 });
   await width.fill("7");
-  const opacity = inspector.getByLabel("透明度");
+  const opacity = edgeInspector.getByLabel("透明度");
   await expect(opacity).toBeVisible({ timeout: 3_000 });
   await opacity.focus();
   await opacity.press("Home");
   for (let step = 0; step < 8; step += 1) await opacity.press("ArrowRight");
-  await inspector.getByLabel("线型").selectOption("dashed");
+  await edgeInspector.getByLabel("线型").selectOption("dashed");
 
   const project = await exportJson(page);
   const managers = project.managers as {
@@ -242,12 +364,16 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
   );
   expect(managers.connectionManager.connections).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ kind: "line" }),
+      expect.objectContaining({
+        kind: "line",
+        styleOverrides: expect.objectContaining({ strokeWidth: 4 }),
+      }),
       expect.objectContaining({
         kind: "arrow",
         arrowStart: true,
         arrowEnd: true,
-        label: "双向道路",
+        label: "双向道路已编辑",
+        styleOverrides: expect.objectContaining({ strokeWidth: 5 }),
       }),
     ]),
   );
@@ -257,7 +383,7 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
   await expect(page.getByTestId("connection-count")).toContainText("2");
 });
 
-test("M1 连通填充、擦除、安全门与 Shift 多选", async ({ page }) => {
+test("连通填充、擦除与 Shift 多选", async ({ page }) => {
   test.setTimeout(90_000);
   await createProject(page, "正方形", "填充擦除", "20");
   const canvas = page.getByLabel("地图编辑画布");
@@ -275,12 +401,86 @@ test("M1 连通填充、擦除、安全门与 Shift 多选", async ({ page }) =>
   await expect(page.getByText("已选择 2 个对象")).toBeVisible();
 });
 
-test("M1 40000 地图连通填充触发安全门且保持稀疏", async ({ page }) => {
+test("M4 10001 以上填充进入后台且取消不提交半成品", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    const workerUrls: string[] = [];
+    Object.defineProperty(window, "__tesseraWorkerUrls", {
+      configurable: true,
+      value: workerUrls,
+    });
+    window.Worker = new Proxy(NativeWorker, {
+      construct(target, argumentsList, newTarget) {
+        workerUrls.push(String(argumentsList[0]));
+        return Reflect.construct(target, argumentsList, newTarget);
+      },
+    });
+  });
+
+  let releaseWorker: (() => void) | undefined;
+  const workerGate = new Promise<void>((resolve) => {
+    releaseWorker = resolve;
+  });
+  const workerScriptPattern = /\/fill-region-worker\.ts(?:\?|$)/;
+  let workerRequestSeen = false;
+  const workerRoute = async (route: Route) => {
+    workerRequestSeen = true;
+    await workerGate;
+    try {
+      await route.abort("aborted");
+    } catch (error) {
+      // 生产取消会先 terminate Worker；此时浏览器已自行取消脚本请求。
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes("already handled")
+      ) {
+        throw error;
+      }
+    }
+  };
+  await page.route(workerScriptPattern, workerRoute);
+
+  try {
+    await createProject(page, "正方形", "后台填充取消", "101");
+    await page.getByRole("button", { name: "画刷" }).click();
+    await page.getByLabel("操作模式").selectOption("fill");
+    await page
+      .getByLabel("地图编辑画布")
+      .click({ position: { x: 500, y: 300 } });
+
+    await expect.poll(() => workerRequestSeen).toBe(true);
+    const workerUrls = await page.evaluate(
+      () =>
+        (
+          window as Window & {
+            readonly __tesseraWorkerUrls?: readonly string[];
+          }
+        ).__tesseraWorkerUrls ?? [],
+    );
+    expect(workerUrls.some((url) => url.includes("fill-region-worker"))).toBe(
+      true,
+    );
+
+    const cancel = page.getByRole("button", { name: "取消填充" });
+    await expect(cancel).toBeVisible();
+    await cancel.click({ force: true });
+    await expect(cancel).toBeHidden();
+    await expect(page.getByTestId("cell-count")).toContainText("0");
+  } finally {
+    releaseWorker?.();
+    if (!page.isClosed()) {
+      await page.unroute(workerScriptPattern, workerRoute);
+    }
+  }
+});
+
+test("M4 40000 地图连通填充触发总量门禁且保持稀疏", async ({ page }) => {
   await createProject(page, "正方形", "填充安全门", "40000");
   await page.getByRole("button", { name: "画刷" }).click();
   await page.getByLabel("操作模式").selectOption("fill");
   await page.getByLabel("地图编辑画布").click({ position: { x: 500, y: 300 } });
-  await expect(page.getByRole("alert")).toContainText("10000 格安全上限");
+  await expect(page.getByRole("alert")).toContainText("运行时或 64 MiB");
   await expect(page.getByTestId("cell-count")).toContainText("0");
 });
 

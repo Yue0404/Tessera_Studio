@@ -5,6 +5,11 @@ import {
   markerPolygon,
   textLayout,
 } from "../visual-style.js";
+import {
+  GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER,
+  genericModuleMarkerImageSize,
+  genericModulePatternTileSize,
+} from "../generic-module-assets.js";
 import type {
   TextPrimitive,
   VisualExportPlan,
@@ -13,6 +18,19 @@ import type {
 
 export type VisualExportCanvasContext =
   CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
+export interface VisualExportCanvasResources {
+  readonly images: ReadonlyMap<
+    string,
+    Readonly<{ source: CanvasImageSource; width: number; height: number }>
+  >;
+  readonly fonts: ReadonlyMap<string, string>;
+}
+
+const EMPTY_CANVAS_RESOURCES: VisualExportCanvasResources = {
+  images: new Map(),
+  fonts: new Map(),
+};
 
 function colorAndAlpha(
   color: string,
@@ -67,11 +85,14 @@ function configureStroke(
   context.strokeStyle = paint.color;
   context.globalAlpha = paint.alpha;
   context.lineWidth = primitive.strokeWidth;
-  context.lineCap = "round";
+  context.lineCap = primitive.lineCap ?? "round";
   context.lineJoin = "round";
   context.setLineDash(
     primitive.lineStyle === "dashed"
-      ? [...defaultDashPattern(primitive.strokeWidth)]
+      ? [
+          ...(primitive.dashPattern ??
+            defaultDashPattern(primitive.strokeWidth)),
+        ]
       : [],
   );
   context.lineDashOffset =
@@ -83,8 +104,13 @@ function configureStroke(
 function drawText(
   context: VisualExportCanvasContext,
   primitive: TextPrimitive,
+  resources: VisualExportCanvasResources,
 ): void {
-  const layout = textLayout(primitive.text, primitive.fontSize);
+  const layout = textLayout(
+    primitive.text,
+    primitive.fontSize,
+    primitive.wrapWidth,
+  );
   const fill = colorAndAlpha(primitive.color, primitive.opacity);
   const lineX =
     primitive.align === "left"
@@ -113,7 +139,12 @@ function drawText(
     context.globalAlpha = background.alpha;
     context.fill();
   }
-  context.font = `${primitive.fontWeight} ${primitive.fontSize}px ${BASIC_EXPORT_FONT_FAMILY}`;
+  const family =
+    (primitive.fontResourceKey === undefined
+      ? undefined
+      : resources.fonts.get(primitive.fontResourceKey)) ??
+    BASIC_EXPORT_FONT_FAMILY;
+  context.font = `${primitive.fontWeight} ${primitive.fontSize}px ${family}`;
   context.textAlign = primitive.align;
   context.textBaseline = "alphabetic";
   context.fillStyle = fill.color;
@@ -132,8 +163,12 @@ export function canvasTextWorkUnits(
   text: string,
   fontSize: number,
   backgroundVisible: boolean,
+  wrapWidth?: number,
 ): number {
-  return textLayout(text, fontSize).lines.length + (backgroundVisible ? 1 : 0);
+  return (
+    textLayout(text, fontSize, wrapWidth).lines.length +
+    (backgroundVisible ? 1 : 0)
+  );
 }
 
 export function canvasPrimitiveWorkUnits(primitive: VisualPrimitive): number {
@@ -142,6 +177,7 @@ export function canvasPrimitiveWorkUnits(primitive: VisualPrimitive): number {
         primitive.text,
         primitive.fontSize,
         primitive.backgroundColor !== null,
+        primitive.wrapWidth,
       )
     : 1;
 }
@@ -155,8 +191,13 @@ export async function drawVisualTextToCanvasBatched(
   primitive: TextPrimitive,
   batchSize: number,
   checkpoint: (completedLines: number, totalLines: number) => Promise<void>,
+  resources: VisualExportCanvasResources = EMPTY_CANVAS_RESOURCES,
 ): Promise<void> {
-  const layout = textLayout(primitive.text, primitive.fontSize);
+  const layout = textLayout(
+    primitive.text,
+    primitive.fontSize,
+    primitive.wrapWidth,
+  );
   const fill = colorAndAlpha(primitive.color, primitive.opacity);
   const lineX =
     primitive.align === "left"
@@ -192,7 +233,12 @@ export async function drawVisualTextToCanvasBatched(
     context.save();
     context.translate(primitive.point.x, primitive.point.y);
     context.rotate((primitive.rotation * Math.PI) / 180);
-    context.font = `${primitive.fontWeight} ${primitive.fontSize}px ${BASIC_EXPORT_FONT_FAMILY}`;
+    const family =
+      (primitive.fontResourceKey === undefined
+        ? undefined
+        : resources.fonts.get(primitive.fontResourceKey)) ??
+      BASIC_EXPORT_FONT_FAMILY;
+    context.font = `${primitive.fontWeight} ${primitive.fontSize}px ${family}`;
     context.textAlign = primitive.align;
     context.textBaseline = "alphabetic";
     context.fillStyle = fill.color;
@@ -246,15 +292,52 @@ export function prepareVisualExportCanvas(
 export function drawVisualPrimitiveToCanvas(
   context: VisualExportCanvasContext,
   primitive: VisualPrimitive,
+  resources: VisualExportCanvasResources = EMPTY_CANVAS_RESOURCES,
 ): void {
   context.save();
   switch (primitive.kind) {
     case "polygon": {
       const paint = colorAndAlpha(primitive.fillColor, primitive.opacity);
       pathPoints(context, primitive.points, true);
+      const image =
+        primitive.patternResourceKey === undefined
+          ? undefined
+          : resources.images.get(primitive.patternResourceKey);
+      if (image !== undefined) {
+        const pattern = context.createPattern(image.source, "repeat");
+        if (pattern !== null) {
+          const tile = genericModulePatternTileSize(
+            image.width,
+            image.height,
+            primitive.patternScale ?? 1,
+          );
+          pattern.setTransform({
+            a: tile.width / image.width,
+            b: 0,
+            c: 0,
+            d: tile.height / image.height,
+            e: 0,
+            f: 0,
+          });
+          context.fillStyle = pattern;
+          context.globalAlpha = paint.alpha;
+          context.fill();
+          break;
+        }
+      }
       context.fillStyle = paint.color;
       context.globalAlpha = paint.alpha;
       context.fill();
+      if (primitive.resourcePlaceholder === "pattern") {
+        context.strokeStyle =
+          GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER.secondaryColor;
+        context.lineWidth =
+          GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER.strokeWidth;
+        context.setLineDash([
+          ...GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER.strokeDashPattern,
+        ]);
+        context.stroke();
+      }
       break;
     }
     case "outline":
@@ -273,6 +356,26 @@ export function drawVisualPrimitiveToCanvas(
       const paint = colorAndAlpha(primitive.color, primitive.opacity);
       context.translate(primitive.point.x, primitive.point.y);
       context.rotate((primitive.rotation * Math.PI) / 180);
+      const image =
+        primitive.imageResourceKey === undefined
+          ? undefined
+          : resources.images.get(primitive.imageResourceKey);
+      if (image !== undefined) {
+        const size = genericModuleMarkerImageSize(
+          image.width,
+          image.height,
+          primitive.size,
+        );
+        context.globalAlpha = paint.alpha;
+        context.drawImage(
+          image.source,
+          -size.width / 2,
+          -size.height / 2,
+          size.width,
+          size.height,
+        );
+        break;
+      }
       if (primitive.shape === "circle") {
         context.beginPath();
         context.arc(0, 0, primitive.size / 2, 0, Math.PI * 2);
@@ -286,10 +389,26 @@ export function drawVisualPrimitiveToCanvas(
       context.fillStyle = paint.color;
       context.globalAlpha = paint.alpha;
       context.fill();
+      if (primitive.resourcePlaceholder === "marker") {
+        const cross =
+          primitive.size *
+          GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER.markerCrossRatio;
+        context.beginPath();
+        context.moveTo(-cross, -cross);
+        context.lineTo(cross, cross);
+        context.moveTo(cross, -cross);
+        context.lineTo(-cross, cross);
+        context.strokeStyle =
+          GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER.secondaryColor;
+        context.lineWidth =
+          GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER.strokeWidth;
+        context.globalAlpha = 1;
+        context.stroke();
+      }
       break;
     }
     case "text":
-      drawText(context, primitive);
+      drawText(context, primitive, resources);
       break;
   }
   context.restore();

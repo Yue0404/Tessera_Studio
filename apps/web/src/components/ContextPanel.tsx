@@ -11,6 +11,8 @@ import {
 } from "@tessera/core";
 import styles from "./ContextPanel.module.css";
 import { SelectionInspector } from "./SelectionInspector.js";
+import type { ConnectionRebindTarget } from "@tessera/renderer";
+import type { ProjectRuleHint } from "../module-rule-evaluator.js";
 
 interface Props {
   panel: "properties" | "layers" | "modules" | "map";
@@ -20,6 +22,17 @@ interface Props {
   onEdgeStyle(edgeId: string, style: EdgeStyle): void;
   onOverlay(overlayId: string, overlay: OverlayData): void;
   onConnection(connectionId: string, connection: ConnectionData): void;
+  onModuleInstance?: Parameters<
+    typeof SelectionInspector
+  >[0]["onModuleInstance"];
+  onDomainGroupMembers?: Parameters<
+    typeof SelectionInspector
+  >[0]["onDomainGroupMembers"];
+  moduleRuleHints?: readonly ProjectRuleHint[];
+  connectionRebind: ConnectionRebindTarget | null;
+  onReverseConnection(connectionId: string): void;
+  onBeginConnectionRebind(target: ConnectionRebindTarget): void;
+  onCancelConnectionRebind(): void;
   onDeleteSelection(): void;
   onLayerState(
     layerId: string,
@@ -36,6 +49,13 @@ export function ContextPanel({
   onEdgeStyle,
   onOverlay,
   onConnection,
+  onModuleInstance,
+  onDomainGroupMembers,
+  moduleRuleHints,
+  connectionRebind,
+  onReverseConnection,
+  onBeginConnectionRebind,
+  onCancelConnectionRebind,
   onDeleteSelection,
   onLayerState,
   onClose,
@@ -53,7 +73,12 @@ export function ContextPanel({
     <aside className={styles.panel}>
       <header>
         <h2>{t(titleKey)}</h2>
-        <button type="button" onClick={onClose} aria-label={t("action.close")}>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("action.close")}
+          title={t("action.close")}
+        >
           <X size={18} />
         </button>
       </header>
@@ -65,6 +90,15 @@ export function ContextPanel({
           onEdgeStyle={onEdgeStyle}
           onOverlay={onOverlay}
           onConnection={onConnection}
+          {...(onModuleInstance === undefined ? {} : { onModuleInstance })}
+          {...(onDomainGroupMembers === undefined
+            ? {}
+            : { onDomainGroupMembers })}
+          {...(moduleRuleHints === undefined ? {} : { moduleRuleHints })}
+          connectionRebind={connectionRebind}
+          onReverseConnection={onReverseConnection}
+          onBeginConnectionRebind={onBeginConnectionRebind}
+          onCancelConnectionRebind={onCancelConnectionRebind}
           onDelete={onDeleteSelection}
         />
       )}

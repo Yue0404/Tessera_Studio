@@ -9,6 +9,7 @@ export const TEXT_BACKGROUND_PADDING_EM = 0.2;
 export const TEXT_BACKGROUND_RADIUS_EM = 0.15;
 
 export interface TextVisualStyle {
+  readonly fontFamily?: string;
   readonly fontSize: number;
   readonly fontWeight: "normal" | "bold";
   readonly align: "left" | "center" | "right";
@@ -16,6 +17,7 @@ export interface TextVisualStyle {
   readonly color: string;
   readonly opacity: number;
   readonly backgroundVisible: boolean;
+  readonly wrapWidth?: number;
 }
 
 export interface TextLayout {
@@ -41,6 +43,29 @@ function graphemeCount(value: string): number {
   return [...GRAPHEME_SEGMENTER.segment(value)].length;
 }
 
+function wrapTextLines(
+  text: string,
+  fontSize: number,
+  wrapWidth: number | undefined,
+): readonly string[] {
+  const source = text.split(/\r\n|\r|\n/u);
+  if (wrapWidth === undefined) return source;
+  const columns = Math.max(
+    1,
+    Math.floor(wrapWidth / (fontSize * TEXT_WIDTH_FACTOR)),
+  );
+  return source.flatMap((line) => {
+    const graphemes = [...GRAPHEME_SEGMENTER.segment(line)].map(
+      (segment) => segment.segment,
+    );
+    if (graphemes.length === 0) return [""];
+    const wrapped: string[] = [];
+    for (let index = 0; index < graphemes.length; index += columns)
+      wrapped.push(graphemes.slice(index, index + columns).join(""));
+    return wrapped;
+  });
+}
+
 function maxGraphemeColumns(lines: readonly string[]): number {
   let columns = 1;
   for (const line of lines) {
@@ -50,8 +75,12 @@ function maxGraphemeColumns(lines: readonly string[]): number {
   return columns;
 }
 
-export function textLayout(text: string, fontSize: number): TextLayout {
-  const lines = text.split(/\r\n|\r|\n/u);
+export function textLayout(
+  text: string,
+  fontSize: number,
+  wrapWidth?: number,
+): TextLayout {
+  const lines = wrapTextLines(text, fontSize, wrapWidth);
   const columns = maxGraphemeColumns(lines);
   const width = columns * fontSize * TEXT_WIDTH_FACTOR;
   const height = Math.max(1, lines.length) * fontSize * TEXT_LINE_HEIGHT;
@@ -72,8 +101,9 @@ export function conservativeTextBoundsSize(
   text: string,
   fontSize: number,
   backgroundVisible: boolean,
+  wrapWidth?: number,
 ): TextVisualBoundsSize {
-  const layout = textLayout(text, fontSize);
+  const layout = textLayout(text, fontSize, wrapWidth);
   const columns = maxGraphemeColumns(layout.lines);
   return {
     width: Math.max(

@@ -670,8 +670,8 @@ export const projectV1Schema = {
           layerId: layerIdSchema,
           memberCellIds: {
             type: "array",
-            minItems: 1,
-            maxItems: 2000000,
+            minItems: 2,
+            maxItems: 64,
             uniqueItems: true,
             items: cellId,
           },

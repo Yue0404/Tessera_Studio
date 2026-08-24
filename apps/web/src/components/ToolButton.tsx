@@ -12,7 +12,7 @@ interface Props {
 
 export function ToolButton({
   label,
-  active = false,
+  active,
   disabled = false,
   onClick,
   children,
@@ -23,8 +23,9 @@ export function ToolButton({
         <button
           type="button"
           className={styles.button}
-          data-active={active}
+          data-active={active === true}
           aria-label={label}
+          title={label}
           aria-pressed={active}
           disabled={disabled}
           onClick={onClick}

@@ -38,6 +38,13 @@ export function assertSemVerRange(value: string, path: string): void {
     runtimeError("package-version-invalid", path, { value });
 }
 
+/** 统一比较已验证的 SemVer，避免调用方自行实现先行版本排序。 */
+export function compareSemanticVersions(left: string, right: string): number {
+  assertSemVer(left, "version.left");
+  assertSemVer(right, "version.right");
+  return compare(left, right);
+}
+
 function assertAppVersionRange(
   range: { readonly min: string; readonly maxExclusive?: string },
   path: string,
@@ -172,6 +179,24 @@ function assertUnique(values: readonly string[], path: string): void {
 function assertNamespaced(value: string, moduleId: string, path: string): void {
   if (!value.startsWith(`${moduleId}:`)) {
     runtimeError("package-id-namespace-invalid", path, { value, moduleId });
+  }
+}
+
+function assertLayerNamespaced(
+  value: string,
+  moduleId: string,
+  path: string,
+): void {
+  const expectedPrefix = `${moduleId}.`;
+  if (
+    !value.startsWith(expectedPrefix) ||
+    value.length === expectedPrefix.length
+  ) {
+    runtimeError("package-id-namespace-invalid", path, {
+      value,
+      moduleId,
+      expectedPrefix,
+    });
   }
 }
 
@@ -353,10 +378,14 @@ function validateStyle(element: ModuleElementDefinition, path: string): void {
       readonly representation?: string;
       readonly style?: Readonly<Record<string, unknown>>;
     };
+    const representation = style.representation;
     const allowed =
-      style.representation === undefined
-        ? undefined
-        : STYLE_KEYS[style.representation];
+      representation === "cell-style" ||
+      representation === "edge-style" ||
+      representation === "marker" ||
+      representation === "text"
+        ? STYLE_KEYS[representation]
+        : undefined;
     if (allowed === undefined || style.style === undefined) {
       runtimeError("package-style-invalid", path);
     }
@@ -374,7 +403,15 @@ function validateStyle(element: ModuleElementDefinition, path: string): void {
   }
 }
 
-function styleResourceIds(element: ModuleElementDefinition): readonly string[] {
+interface StyleResourceReference {
+  readonly key: "patternResourceId" | "resourceId" | "fontResourceId";
+  readonly resourceId: string;
+  readonly allowedMimeTypes: readonly ModuleManifest["resources"][number]["mimeType"][];
+}
+
+function styleResourceReferences(
+  element: ModuleElementDefinition,
+): readonly StyleResourceReference[] {
   const style =
     element.primitive === "domain-object"
       ? ((
@@ -383,12 +420,23 @@ function styleResourceIds(element: ModuleElementDefinition): readonly string[] {
           }
         ).style ?? {})
       : (element.defaultStyle as Readonly<Record<string, unknown>>);
-  return ["patternResourceId", "resourceId", "fontResourceId"].flatMap(
-    (key) => {
-      const value = style[key];
-      return typeof value === "string" ? [value] : [];
-    },
-  );
+  const expected = {
+    patternResourceId: ["image/png", "image/webp"],
+    resourceId: ["image/png", "image/webp"],
+    fontResourceId: ["font/woff2"],
+  } as const;
+  return Object.entries(expected).flatMap(([key, allowedMimeTypes]) => {
+    const resourceId = style[key];
+    return typeof resourceId === "string"
+      ? [
+          {
+            key: key as StyleResourceReference["key"],
+            resourceId,
+            allowedMimeTypes,
+          },
+        ]
+      : [];
+  });
 }
 
 function validateConstraintCondition(
@@ -528,9 +576,23 @@ export function validateModuleSemantics(
     manifest.dependencies.map((dependency) => dependency.moduleId),
     "module.json/dependencies",
   );
+  manifest.layers.forEach((layer, index) =>
+    assertLayerNamespaced(
+      layer.layerId,
+      manifest.moduleId,
+      `module.json/layers/${index}/layerId`,
+    ),
+  );
   assertUnique(
     manifest.layers.map((layer) => layer.layerId),
     "module.json/layers",
+  );
+  manifest.resources.forEach((resource, index) =>
+    assertNamespaced(
+      resource.resourceId,
+      manifest.moduleId,
+      `module.json/resources/${index}/resourceId`,
+    ),
   );
   assertUnique(
     manifest.resources.map((resource) => resource.resourceId),
@@ -539,8 +601,8 @@ export function validateModuleSemantics(
   const layers = new Map(
     manifest.layers.map((layer) => [layer.layerId, layer]),
   );
-  const resources = new Set(
-    manifest.resources.map((resource) => resource.resourceId),
+  const resources = new Map(
+    manifest.resources.map((resource) => [resource.resourceId, resource]),
   );
   const elementMap = new Map<string, ModuleElementDefinition>();
   const constraintMap = new Map<string, ModuleConstraintDefinition>();
@@ -624,12 +686,27 @@ export function validateModuleSemantics(
       }
     });
     const declaredElementResources = new Set(element.resourceIds);
-    styleResourceIds(element).forEach((id) => {
-      if (!resources.has(id) || !declaredElementResources.has(id)) {
+    styleResourceReferences(element).forEach((reference) => {
+      const resource = resources.get(reference.resourceId);
+      if (
+        resource === undefined ||
+        !declaredElementResources.has(reference.resourceId)
+      ) {
         runtimeError("package-reference-missing", `${path}/defaultStyle`, {
-          id,
+          id: reference.resourceId,
           reason: "style-resource-not-declared",
         });
+      }
+      if (!reference.allowedMimeTypes.includes(resource.mimeType)) {
+        runtimeError(
+          "package-style-invalid",
+          `${path}/defaultStyle/${reference.key}`,
+          {
+            id: reference.resourceId,
+            actualMimeType: resource.mimeType,
+            expectedMimeTypes: reference.allowedMimeTypes,
+          },
+        );
       }
     });
     assertUnique(

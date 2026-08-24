@@ -10,6 +10,7 @@ import {
   EdgeManagerError,
   EditorStore,
   oddRToAxial,
+  parseCellId,
   SparseChunkStore,
   FillThresholdError,
 } from "./index.js";
@@ -329,6 +330,92 @@ describe("Manager 唯一所有权与原子事务", () => {
     });
     store.undo();
     expect(store.state.edges.get(identity.edgeId)?.lineStyle).toBe("solid");
+  });
+
+  it("共享边样式更新和撤销只推进 owner 分块 revision", () => {
+    const store = new EditorStore(createProject(input));
+    const identity = edgeIdentity(input.grid, { row: 1, column: 1 }, 1);
+    const ownerCellId = identity.adjacentCellIds[0];
+    if (ownerCellId === undefined) throw new Error("edge-owner-missing");
+    const owner = chunkCoordinateOf(parseCellId(ownerCellId));
+    const unrelated = { chunkRow: owner.chunkRow + 1, chunkColumn: 0 };
+    store.paintEdge(identity.edgeId, identity.adjacentCellIds, "#111111FF");
+    const afterPaint = store.state.cells.getRuntimeChunkRevision(
+      owner.chunkRow,
+      owner.chunkColumn,
+    );
+    const unrelatedBefore = store.state.cells.getRuntimeChunkRevision(
+      unrelated.chunkRow,
+      unrelated.chunkColumn,
+    );
+    const original = structuredClone(store.state.edges.get(identity.edgeId));
+    if (original === undefined) throw new Error("edge-not-found");
+
+    store.updateEdgeStyle(identity.edgeId, {
+      strokeColor: "#00FF00FF",
+      strokeWidth: original.strokeWidth,
+      strokeOpacity: original.strokeOpacity,
+      lineStyle: original.lineStyle,
+    });
+    const afterColor = structuredClone(store.state.edges.get(identity.edgeId));
+    if (afterColor === undefined) throw new Error("edge-not-found");
+    const afterColorRevision = store.state.cells.getRuntimeChunkRevision(
+      owner.chunkRow,
+      owner.chunkColumn,
+    );
+    expect(afterColorRevision).toBeGreaterThan(afterPaint);
+    expect(
+      store.state.cells.getRuntimeChunkRevision(
+        unrelated.chunkRow,
+        unrelated.chunkColumn,
+      ),
+    ).toBe(unrelatedBefore);
+
+    store.updateEdgeStyle(identity.edgeId, {
+      strokeColor: afterColor.strokeColor,
+      strokeWidth: 12,
+      strokeOpacity: afterColor.strokeOpacity,
+      lineStyle: afterColor.lineStyle,
+    });
+    const afterWidthRevision = store.state.cells.getRuntimeChunkRevision(
+      owner.chunkRow,
+      owner.chunkColumn,
+    );
+    expect(afterWidthRevision).toBeGreaterThan(afterColorRevision);
+
+    store.undo();
+    expect(store.state.edges.get(identity.edgeId)).toEqual(afterColor);
+    expect(
+      store.state.cells.getRuntimeChunkRevision(
+        owner.chunkRow,
+        owner.chunkColumn,
+      ),
+    ).toBeGreaterThan(afterWidthRevision);
+    expect(
+      store.state.cells.getRuntimeChunkRevision(
+        unrelated.chunkRow,
+        unrelated.chunkColumn,
+      ),
+    ).toBe(unrelatedBefore);
+
+    const afterWidthUndoRevision = store.state.cells.getRuntimeChunkRevision(
+      owner.chunkRow,
+      owner.chunkColumn,
+    );
+    store.undo();
+    expect(store.state.edges.get(identity.edgeId)).toEqual(original);
+    expect(
+      store.state.cells.getRuntimeChunkRevision(
+        owner.chunkRow,
+        owner.chunkColumn,
+      ),
+    ).toBeGreaterThan(afterWidthUndoRevision);
+    expect(
+      store.state.cells.getRuntimeChunkRevision(
+        unrelated.chunkRow,
+        unrelated.chunkColumn,
+      ),
+    ).toBe(unrelatedBefore);
   });
 
   it("删除锚定 Overlay 同步解除分块 owner，撤销可完整恢复", () => {

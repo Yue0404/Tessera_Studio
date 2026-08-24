@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
+import { format as formatWithPrettier } from "prettier";
+import { normalizeLineEndings } from "./line-ending.mjs";
 import ts from "typescript";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -10,6 +12,7 @@ const moduleRuntimeSourceRoot = new URL(
   "../packages/module-runtime/src/",
   import.meta.url,
 );
+const webSourceRoot = new URL("../apps/web/src/", import.meta.url);
 
 function transpile(source) {
   return ts.transpileModule(source, {
@@ -37,6 +40,12 @@ const moduleSchemasSource = transpile(
   await readFile(new URL("schemas.ts", moduleRuntimeSourceRoot), "utf8"),
 );
 const moduleSchemas = await import(dataUrl(moduleSchemasSource));
+const extractorReleaseSchemaSource = transpile(
+  await readFile(new URL("extractor-release-schema.ts", webSourceRoot), "utf8"),
+);
+const extractorReleaseSchema = await import(
+  dataUrl(extractorReleaseSchemaSource)
+);
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -152,12 +161,26 @@ const outputs = [
     generated: generate(moduleSchemas[schemaName], "schemas.ts"),
     label,
   })),
+  {
+    path: new URL("extractor-release-validator.generated.ts", webSourceRoot),
+    // 此生成文件不在 prettierignore 中；在生成阶段固定 LF 并格式化，保证 Windows/Linux 幂等。
+    generated: await formatWithPrettier(
+      generate(
+        extractorReleaseSchema.extractorReleaseCatalogV1Schema,
+        "extractor-release-schema.ts",
+      ),
+      { parser: "typescript", endOfLine: "lf" },
+    ),
+    label: "Extractor release catalog",
+  },
 ];
 
 if (process.argv.includes("--check")) {
   for (const output of outputs) {
     const current = await readFile(output.path, "utf8").catch(() => "");
-    if (current !== output.generated) {
+    if (
+      normalizeLineEndings(current) !== normalizeLineEndings(output.generated)
+    ) {
       console.error(
         `${output.label} validator 与源 Schema 不一致，请运行 pnpm schema:generate。`,
       );

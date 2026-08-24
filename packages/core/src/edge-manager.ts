@@ -76,12 +76,18 @@ export class Edge implements EdgeLike {
 /** Edge 的唯一运行时容器；同一规范 ID 始终复用同一 Edge 实例。 */
 export class EdgeManager implements EdgeManagerContract {
   readonly #edgesById = new Map<string, Edge>();
+  readonly #edgeIdsByInstanceId = new Map<string, string>();
 
   constructor(edges: Iterable<EdgeOverride> = []) {
     for (const edge of edges) {
       if (this.#edgesById.has(edge.edgeId))
         throw new EdgeManagerError("edge-duplicate", { edgeId: edge.edgeId });
+      if (this.#edgeIdsByInstanceId.has(edge.instanceId))
+        throw new EdgeManagerError("edge-instance-duplicate", {
+          instanceId: edge.instanceId,
+        });
       this.#edgesById.set(edge.edgeId, new Edge(edge));
+      this.#edgeIdsByInstanceId.set(edge.instanceId, edge.edgeId);
     }
   }
 
@@ -93,6 +99,10 @@ export class EdgeManager implements EdgeManagerContract {
   }
   get(edgeId: string): Edge | undefined {
     return this.#edgesById.get(edgeId);
+  }
+  getByInstanceId(instanceId: string): Edge | undefined {
+    const edgeId = this.#edgeIdsByInstanceId.get(instanceId);
+    return edgeId === undefined ? undefined : this.#edgesById.get(edgeId);
   }
   values(): IterableIterator<Edge> {
     return this.#edgesById.values();
@@ -108,7 +118,39 @@ export class EdgeManager implements EdgeManagerContract {
       return existing;
     }
     const edge = new Edge(data);
+    const duplicateEdgeId = this.#edgeIdsByInstanceId.get(edge.instanceId);
+    if (duplicateEdgeId !== undefined && duplicateEdgeId !== edge.edgeId)
+      throw new EdgeManagerError("edge-instance-duplicate", {
+        instanceId: edge.instanceId,
+      });
     this.#edgesById.set(edge.edgeId, edge);
+    this.#edgeIdsByInstanceId.set(edge.instanceId, edge.edgeId);
+    return edge;
+  }
+
+  replace(data: EdgeOverride): Edge {
+    const existing = this.#edgesById.get(data.edgeId);
+    if (existing === undefined)
+      throw new EdgeManagerError("edge-not-found", { edgeId: data.edgeId });
+    if (existing.adjacentCellIds.join("|") !== data.adjacentCellIds.join("|"))
+      throw new EdgeManagerError("edge-adjacency-conflict", {
+        edgeId: data.edgeId,
+      });
+    if (existing.instanceId === data.instanceId) {
+      existing.updateStyle(data);
+      existing.setPersistence(data.persistence ?? "explicit-style");
+      return existing;
+    }
+    const duplicateEdgeId = this.#edgeIdsByInstanceId.get(data.instanceId);
+    if (duplicateEdgeId !== undefined && duplicateEdgeId !== data.edgeId)
+      throw new EdgeManagerError("edge-instance-duplicate", {
+        instanceId: data.instanceId,
+      });
+    const edge = new Edge(data);
+    this.#edgesById.set(edge.edgeId, edge);
+    if (existing.instanceId !== edge.instanceId)
+      this.#edgeIdsByInstanceId.delete(existing.instanceId);
+    this.#edgeIdsByInstanceId.set(edge.instanceId, edge.edgeId);
     return edge;
   }
 
@@ -132,6 +174,10 @@ export class EdgeManager implements EdgeManagerContract {
   }
 
   delete(edgeId: string): boolean {
-    return this.#edgesById.delete(edgeId);
+    const edge = this.#edgesById.get(edgeId);
+    if (edge === undefined) return false;
+    this.#edgesById.delete(edgeId);
+    this.#edgeIdsByInstanceId.delete(edge.instanceId);
+    return true;
   }
 }

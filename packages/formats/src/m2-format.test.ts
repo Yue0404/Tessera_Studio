@@ -60,9 +60,12 @@ function expectProjectError(action: () => void, code: string): void {
   }
 }
 
-function edgeReferenceDocument(): any {
+function edgeReferenceDocument(explicitStyle = false): any {
   const store = createStore();
   const edge = edgeIdentity(store.state.grid, { row: 70, column: 70 }, 1);
+  if (explicitStyle) {
+    store.paintEdge(edge.edgeId, edge.adjacentCellIds, "#E3614DFF");
+  }
   store.placeEdgeMarker({
     instanceId: crypto.randomUUID(),
     ...edge,
@@ -278,7 +281,7 @@ describe("M2 Project/Fragment v1 closure", () => {
         groupId,
         elementId: "zz.group:region",
         layerId: "zz.group.region",
-        memberCellIds: ["cell:square:70:70"],
+        memberCellIds: ["cell:square:70:70", "cell:square:70:71"],
         attributes: {},
         styleOverrides: {},
         extensions: {},
@@ -458,13 +461,9 @@ describe("M2 Project/Fragment v1 closure", () => {
     },
   );
 
-  it("未选择 edge-style 时只投影 basic reference-only 结构实例", () => {
-    const source = edgeReferenceDocument();
+  it("未选择 edge-style 时保留无 layer instance 的 reference-only 结构 Edge", () => {
+    const source = edgeReferenceDocument(true);
     source.managers.connectionManager.connections = [];
-    source.managers.edgeManager.edges[0].layerInstances[0].styleOverrides.strokeColor =
-      "#E3614DFF";
-    source.managers.edgeManager.edges[0].layerInstances[0].attributes.persistence =
-      "explicit-style";
     source.contentBounds = computeProjectContentBounds(source);
     const overlay = source.managers.overlayManager.overlays[0];
     const edge = source.managers.edgeManager.edges[0];
@@ -479,16 +478,21 @@ describe("M2 Project/Fragment v1 closure", () => {
     expect(partial.lineage.includedLayerIds).not.toContain(
       "tessera.basic.edge-style",
     );
-    expect(projected.edgeId).toBe(edge.edgeId);
-    expect(projected.layerInstances).toHaveLength(1);
-    expect(projected.layerInstances[0]).toMatchObject({
-      elementId: "tessera.basic:edge.style",
-      layerId: "tessera.basic.edge-style",
-      attributes: { persistence: "reference-only" },
+    expect(edge.layerInstances).toHaveLength(1);
+    expect(edge.layerInstances[0].attributes).toEqual({
+      persistence: "explicit-style",
     });
-    expect(projected.layerInstances[0].styleOverrides).not.toEqual(
-      edge.layerInstances[0].styleOverrides,
-    );
+    expect(projected.edgeId).toBe(edge.edgeId);
+    expect(projected.layerInstances).toEqual([]);
+    expect(
+      partial.chunks.some((chunk: any) =>
+        chunk.ownedEdgeIds.includes(projected.edgeId),
+      ),
+    ).toBe(true);
+    expect(partial.managers.overlayManager.overlays[0]).toMatchObject({
+      kind: "anchored-overlay",
+      anchor: { kind: "edge", edgeId: projected.edgeId },
+    });
   });
 
   it("尖顶六边形 bbox 的空角区域不会误选地格", () => {

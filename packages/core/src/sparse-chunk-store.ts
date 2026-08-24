@@ -1,6 +1,16 @@
-import { chunkCoordinateOf, chunkKeyOf, parseCellId } from "./coordinates.js";
+import {
+  CHUNK_SIZE,
+  assertGridCoordinate,
+  chunkCoordinateOf,
+  chunkKeyOf,
+  parseCellId,
+} from "./coordinates.js";
 import type {
+  CellCoordinate,
   CellOverride,
+  ProjectGrid,
+  RuntimeChunkCacheOptions,
+  RuntimeChunkCacheStats,
   SparseCellStoreContract,
   SparseChunkBucket,
 } from "./types.js";
@@ -18,9 +28,12 @@ interface MutableBucket {
 /** 64×64 稳定文件桶；空白地格从不进入存储。 */
 export class SparseChunkStore implements SparseCellStoreContract {
   readonly #cells = new Map<string, CellOverride>();
+  readonly #cellIdsByInstanceId = new Map<string, string>();
   readonly #buckets = new Map<string, MutableBucket>();
   readonly #runtimeLru = new Map<string, number>();
+  readonly #runtimeChunkRevisions = new Map<string, number>();
   #clock = 0;
+  #contentRevision = 0;
 
   constructor(cells: Iterable<CellOverride> = []) {
     for (const cell of cells) this.set(cell.cellId, cell);
@@ -45,10 +58,22 @@ export class SparseChunkStore implements SparseCellStoreContract {
     return this.#cells.get(cellId);
   }
 
+  getByInstanceId(instanceId: string): CellOverride | undefined {
+    const cellId = this.#cellIdsByInstanceId.get(instanceId);
+    return cellId === undefined ? undefined : this.#cells.get(cellId);
+  }
+
   set(cellId: string, value: CellOverride): this {
     if (cellId !== value.cellId) throw new Error("cell-id-key-mismatch");
+    const duplicateCellId = this.#cellIdsByInstanceId.get(value.instanceId);
+    if (duplicateCellId !== undefined && duplicateCellId !== cellId)
+      throw new Error(`cell-instance-duplicate:${value.instanceId}`);
     const parsed = parseCellId(cellId);
+    const previous = this.#cells.get(cellId);
+    if (previous !== undefined && previous.instanceId !== value.instanceId)
+      this.#cellIdsByInstanceId.delete(previous.instanceId);
     this.#cells.set(cellId, value);
+    this.#cellIdsByInstanceId.set(value.instanceId, cellId);
     this.#ensureBucket(parsed.row, parsed.column).cellIds.add(cellId);
     this.#markDirty(parsed.row, parsed.column);
     return this;
@@ -56,11 +81,14 @@ export class SparseChunkStore implements SparseCellStoreContract {
 
   delete(cellId: string): boolean {
     const parsed = parseCellId(cellId);
-    const deleted = this.#cells.delete(cellId);
-    if (!deleted) return false;
+    const previous = this.#cells.get(cellId);
+    if (previous === undefined) return false;
+    this.#cells.delete(cellId);
+    this.#cellIdsByInstanceId.delete(previous.instanceId);
     const bucket = this.#bucket(parsed.row, parsed.column);
     bucket?.cellIds.delete(cellId);
     if (bucket !== undefined) bucket.dirty = true;
+    this.#bumpRuntimeChunk(parsed.row, parsed.column);
     this.#dropEmptyBucket(parsed.row, parsed.column);
     return true;
   }
@@ -76,15 +104,18 @@ export class SparseChunkStore implements SparseCellStoreContract {
   assignEdge(edgeId: string, ownerCellId: string): void {
     const owner = parseCellId(ownerCellId);
     const bucket = this.#ensureBucket(owner.row, owner.column);
+    if (bucket.ownedEdgeIds.has(edgeId)) return;
     bucket.ownedEdgeIds.add(edgeId);
     bucket.dirty = true;
+    this.#bumpRuntimeChunk(owner.row, owner.column);
   }
 
   unassignEdge(edgeId: string, ownerCellId: string): void {
     const owner = parseCellId(ownerCellId);
     const bucket = this.#bucket(owner.row, owner.column);
-    bucket?.ownedEdgeIds.delete(edgeId);
+    const deleted = bucket?.ownedEdgeIds.delete(edgeId) ?? false;
     if (bucket !== undefined) bucket.dirty = true;
+    if (deleted) this.#bumpRuntimeChunk(owner.row, owner.column);
     this.#dropEmptyBucket(owner.row, owner.column);
   }
 
@@ -93,13 +124,15 @@ export class SparseChunkStore implements SparseCellStoreContract {
     const bucket = this.#ensureBucket(owner.row, owner.column);
     bucket.ownedOverlayIds.add(overlayId);
     bucket.dirty = true;
+    this.#bumpRuntimeChunk(owner.row, owner.column);
   }
 
   unassignOverlay(overlayId: string, ownerCellId: string): void {
     const owner = parseCellId(ownerCellId);
     const bucket = this.#bucket(owner.row, owner.column);
-    bucket?.ownedOverlayIds.delete(overlayId);
+    const deleted = bucket?.ownedOverlayIds.delete(overlayId) ?? false;
     if (bucket !== undefined) bucket.dirty = true;
+    if (deleted) this.#bumpRuntimeChunk(owner.row, owner.column);
     this.#dropEmptyBucket(owner.row, owner.column);
   }
 
@@ -111,6 +144,13 @@ export class SparseChunkStore implements SparseCellStoreContract {
   }
 
   evictRuntimeChunks(maxLoaded: number): readonly string[] {
+    return this.#evictRuntimeChunks(maxLoaded, new Set());
+  }
+
+  #evictRuntimeChunks(
+    maxLoaded: number,
+    protectedKeys: ReadonlySet<string>,
+  ): readonly string[] {
     if (!Number.isInteger(maxLoaded) || maxLoaded < 0) {
       throw new RangeError("runtime-chunk-limit-invalid");
     }
@@ -120,11 +160,104 @@ export class SparseChunkStore implements SparseCellStoreContract {
     );
     for (const [key] of candidates) {
       if (this.#runtimeLru.size <= maxLoaded) break;
+      if (protectedKeys.has(key)) continue;
       if (this.#buckets.get(key)?.dirty === true) continue;
       this.#runtimeLru.delete(key);
       evicted.push(key);
     }
     return evicted;
+  }
+
+  updateRuntimeViewport(
+    grid: ProjectGrid,
+    visibleCells: readonly CellCoordinate[],
+    options: RuntimeChunkCacheOptions = {},
+  ): RuntimeChunkCacheStats {
+    const rings = options.prefetchRings ?? 2;
+    const maxLoaded = options.maxLoaded ?? 256;
+    if (!Number.isInteger(rings) || rings < 0 || rings > 2) {
+      throw new RangeError("runtime-chunk-prefetch-invalid");
+    }
+    if (!Number.isInteger(maxLoaded) || maxLoaded < 0) {
+      throw new RangeError("runtime-chunk-limit-invalid");
+    }
+    if (visibleCells.length === 0) {
+      const evictedChunkKeys = this.evictRuntimeChunks(maxLoaded);
+      return {
+        visibleChunkCount: 0,
+        prefetchedChunkCount: 0,
+        hitCount: 0,
+        missCount: 0,
+        loadedChunkCount: this.#runtimeLru.size,
+        dirtyRetainedCount: this.#dirtyLoadedCount(),
+        evictedChunkKeys,
+      };
+    }
+
+    let minChunkRow = Number.POSITIVE_INFINITY;
+    let maxChunkRow = Number.NEGATIVE_INFINITY;
+    let minChunkColumn = Number.POSITIVE_INFINITY;
+    let maxChunkColumn = Number.NEGATIVE_INFINITY;
+    const visibleKeys = new Set<string>();
+    for (const cell of visibleCells) {
+      assertGridCoordinate(grid, cell);
+      const chunk = chunkCoordinateOf(cell);
+      minChunkRow = Math.min(minChunkRow, chunk.chunkRow);
+      maxChunkRow = Math.max(maxChunkRow, chunk.chunkRow);
+      minChunkColumn = Math.min(minChunkColumn, chunk.chunkColumn);
+      maxChunkColumn = Math.max(maxChunkColumn, chunk.chunkColumn);
+      visibleKeys.add(chunkKeyOf(chunk));
+    }
+
+    const lastChunkRow = Math.floor((grid.height - 1) / CHUNK_SIZE);
+    const lastChunkColumn = Math.floor((grid.width - 1) / CHUNK_SIZE);
+    const workingKeys: string[] = [];
+    for (
+      let chunkRow = Math.max(0, minChunkRow - rings);
+      chunkRow <= Math.min(lastChunkRow, maxChunkRow + rings);
+      chunkRow += 1
+    ) {
+      for (
+        let chunkColumn = Math.max(0, minChunkColumn - rings);
+        chunkColumn <= Math.min(lastChunkColumn, maxChunkColumn + rings);
+        chunkColumn += 1
+      ) {
+        workingKeys.push(chunkKeyOf({ chunkRow, chunkColumn }));
+      }
+    }
+
+    let hitCount = 0;
+    let missCount = 0;
+    for (const key of workingKeys) {
+      if (this.#runtimeLru.has(key)) hitCount += 1;
+      else missCount += 1;
+      this.#runtimeLru.set(key, ++this.#clock);
+    }
+    const evictedChunkKeys = this.#evictRuntimeChunks(
+      Math.max(maxLoaded, workingKeys.length),
+      new Set(workingKeys),
+    );
+    return {
+      visibleChunkCount: visibleKeys.size,
+      prefetchedChunkCount: workingKeys.length - visibleKeys.size,
+      hitCount,
+      missCount,
+      loadedChunkCount: this.#runtimeLru.size,
+      dirtyRetainedCount: this.#dirtyLoadedCount(),
+      evictedChunkKeys,
+    };
+  }
+
+  getRuntimeChunkRevision(chunkRow: number, chunkColumn: number): number {
+    return (
+      this.#runtimeChunkRevisions.get(chunkKeyOf({ chunkRow, chunkColumn })) ??
+      0
+    );
+  }
+
+  invalidateRuntimeChunkForCell(cellId: string): void {
+    const coordinate = parseCellId(cellId);
+    this.#bumpRuntimeChunk(coordinate.row, coordinate.column);
   }
 
   markAllClean(): void {
@@ -154,6 +287,12 @@ export class SparseChunkStore implements SparseCellStoreContract {
 
   #markDirty(row: number, column: number): void {
     this.#ensureBucket(row, column).dirty = true;
+    this.#bumpRuntimeChunk(row, column);
+  }
+
+  #bumpRuntimeChunk(row: number, column: number): void {
+    const key = chunkKeyOf(chunkCoordinateOf({ row, column }));
+    this.#runtimeChunkRevisions.set(key, ++this.#contentRevision);
   }
 
   #dropEmptyBucket(row: number, column: number): void {
@@ -169,5 +308,13 @@ export class SparseChunkStore implements SparseCellStoreContract {
     ) {
       this.#buckets.delete(key);
     }
+  }
+
+  #dirtyLoadedCount(): number {
+    let count = 0;
+    for (const key of this.#runtimeLru.keys()) {
+      if (this.#buckets.get(key)?.dirty === true) count += 1;
+    }
+    return count;
   }
 }

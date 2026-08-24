@@ -1,10 +1,17 @@
 import { assertGridCoordinate, parseCellId } from "./coordinates.js";
 import { ConnectionManager } from "./connection-manager.js";
-import { planFillRegion } from "./fill-region.js";
+import {
+  planFillRegion,
+  startFillRegionTask,
+  type FillRegionTaskOptions,
+} from "./fill-region.js";
+import { BackgroundTaskError, type BackgroundTask } from "./background-task.js";
 import { cellId } from "./geometry.js";
 import { EdgeManager } from "./edge-manager.js";
 import { createFixedLayerMap } from "./layers.js";
+import { ModuleInstanceStore } from "./module-instance-store.js";
 import { OverlayManager } from "./overlay-manager.js";
+import { configureProjectSpatialIndexes } from "./project-spatial-index.js";
 import { normalizeRotationDegrees } from "./rotation.js";
 import { SparseChunkStore } from "./sparse-chunk-store.js";
 import { ToolStateMachine } from "./tool-state-machine.js";
@@ -18,12 +25,14 @@ import type {
   EditorTool,
   FixedLayerState,
   MapPoint,
+  MarkerStyle,
   NewProjectInput,
   OverlayAnchor,
   OverlayData,
   ProjectState,
   SelectedObject,
 } from "./types.js";
+import type { ModuleRuntimeInstance } from "./module-instance-store.js";
 
 export interface TextPlacementStyle {
   fontSize: number;
@@ -39,9 +48,24 @@ export interface ConnectionPlacementOptions {
   label: string | null;
 }
 
+export interface EditorOperationRejection {
+  readonly code:
+    | "layer-locked"
+    | "layer-hidden"
+    | "layer-module-missing"
+    | "layer-unavailable";
+  readonly layerId: string;
+}
+
 type Listener = () => void;
 type ManagerName =
-  "cells" | "edges" | "connections" | "overlays" | "layers" | "chunks";
+  | "cells"
+  | "edges"
+  | "connections"
+  | "overlays"
+  | "module-instances"
+  | "layers"
+  | "chunks";
 
 interface Change {
   readonly managers: ReadonlySet<ManagerName>;
@@ -57,6 +81,10 @@ function newUuid(): string {
   return crypto.randomUUID();
 }
 
+function structureEdgeInstanceId(edgeId: string): string {
+  return `tessera.structure-edge:${edgeId}`;
+}
+
 function cloneEdge(edge: EdgeLike): EdgeOverride {
   return {
     instanceId: edge.instanceId,
@@ -68,6 +96,22 @@ function cloneEdge(edge: EdgeLike): EdgeOverride {
     lineStyle: edge.lineStyle,
     persistence: edge.persistence,
   };
+}
+
+function moduleStructureEdgeIds(
+  instance: ModuleRuntimeInstance,
+): readonly string[] {
+  if (instance.kind === "edge") return [instance.edgeId];
+  if (instance.kind === "overlay")
+    return instance.objectKind === "anchored-overlay" &&
+      instance.anchor?.kind === "edge"
+      ? [instance.anchor.edgeId]
+      : [];
+  if (instance.kind !== "connection") return [];
+  return [
+    ...(instance.start.kind === "edge-midpoint" ? [instance.start.edgeId] : []),
+    ...(instance.end.kind === "edge-midpoint" ? [instance.end.edgeId] : []),
+  ].filter((edgeId, index, values) => values.indexOf(edgeId) === index);
 }
 
 export function createProject(input: NewProjectInput): ProjectState {
@@ -84,6 +128,7 @@ export function createProject(input: NewProjectInput): ProjectState {
     edges: new EdgeManager(),
     connections: new ConnectionManager(),
     overlays: new OverlayManager(),
+    moduleInstances: new ModuleInstanceStore(),
     layers: createFixedLayerMap(),
     formatSource: Object.freeze({
       exportScope: "full",
@@ -100,6 +145,7 @@ export function createProject(input: NewProjectInput): ProjectState {
     configurable: false,
     enumerable: true,
   });
+  configureProjectSpatialIndexes(state);
   return state;
 }
 
@@ -112,6 +158,7 @@ export class EditorStore {
   #state: ProjectState;
   #version = 0;
   #batch: { transactionId: string; changes: Change[] } | undefined;
+  #operationRejection: EditorOperationRejection | null = null;
 
   constructor(state: ProjectState) {
     this.#state = state;
@@ -141,6 +188,16 @@ export class EditorStore {
     return [...this.#selection.values()];
   }
 
+  get operationRejection(): EditorOperationRejection | null {
+    return this.#operationRejection;
+  }
+
+  clearOperationRejection(): void {
+    if (this.#operationRejection === null) return;
+    this.#operationRejection = null;
+    this.#publish(false);
+  }
+
   subscribe = (listener: Listener): (() => void) => {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
@@ -165,6 +222,219 @@ export class EditorStore {
     this.#publish(false);
   }
 
+  addModuleInstance(
+    instance: ModuleRuntimeInstance,
+    structuralEdges: readonly {
+      readonly edgeId: string;
+      readonly adjacentCellIds: readonly string[];
+    }[] = [],
+  ): string {
+    if (instance.elementId.startsWith("tessera.basic:"))
+      throw new Error(`module-instance-basic-owned:${instance.instanceId}`);
+    if (this.#rejectBlockedLayer(instance.layerId)) return "";
+    const layer = this.#state.layers.get(instance.layerId);
+    if (layer === undefined || !layer.allowedKinds.includes(instance.kind))
+      throw new Error(`module-instance-kind-not-allowed:${instance.kind}`);
+    if (
+      this.#state.cells.getByInstanceId(instance.instanceId) !== undefined ||
+      this.#state.edges.getByInstanceId(instance.instanceId) !== undefined ||
+      this.#state.overlays.get(instance.instanceId) !== undefined ||
+      this.#state.connections.get(instance.instanceId) !== undefined
+    )
+      throw new Error(
+        `module-instance-basic-id-conflict:${instance.instanceId}`,
+      );
+    if (this.#state.moduleInstances.get(instance.instanceId) !== undefined)
+      throw new Error(`module-instance-duplicate:${instance.instanceId}`);
+    const edgeById = new Map(
+      structuralEdges.map((edge) => [edge.edgeId, edge]),
+    );
+    if (instance.kind === "edge")
+      edgeById.set(instance.edgeId, {
+        edgeId: instance.edgeId,
+        adjacentCellIds: instance.adjacentCellIds,
+      });
+    const requiredEdgeIds = moduleStructureEdgeIds(instance);
+    for (const edgeId of requiredEdgeIds) {
+      const edge = edgeById.get(edgeId) ?? this.#state.edges.get(edgeId);
+      if (edge === undefined)
+        throw new Error(`module-instance-edge-structure-missing:${edgeId}`);
+      const existing = this.#state.edges.get(edgeId);
+      if (
+        existing !== undefined &&
+        existing.adjacentCellIds.join("|") !== edge.adjacentCellIds.join("|")
+      )
+        throw new Error(`edge-structure-adjacency-conflict:${edgeId}`);
+      edgeById.set(edgeId, edge);
+    }
+    const createdEdges = new Map(
+      requiredEdgeIds.flatMap((edgeId) => {
+        if (this.#state.edges.get(edgeId) !== undefined) return [];
+        const edge = edgeById.get(edgeId);
+        if (edge === undefined)
+          throw new Error(`module-instance-edge-structure-missing:${edgeId}`);
+        return [
+          [
+            edgeId,
+            {
+              instanceId: structureEdgeInstanceId(edgeId),
+              edgeId,
+              adjacentCellIds: [...edge.adjacentCellIds],
+              strokeColor: this.#state.style.defaultEdgeColor,
+              strokeWidth: Math.max(1, this.#state.style.gridWidth),
+              strokeOpacity: 1,
+              lineStyle: "solid" as const,
+              persistence: "reference-only" as const,
+            },
+          ] as const,
+        ];
+      }),
+    );
+    this.#execute({
+      managers: new Set([
+        "module-instances",
+        "chunks",
+        ...(requiredEdgeIds.length > 0 ? (["edges"] as const) : []),
+      ]),
+      apply: () => {
+        for (const edge of createdEdges.values())
+          this.#state.edges.ensure(edge);
+        this.#state.moduleInstances.add(instance);
+        this.#invalidateModuleInstanceCarrier(instance);
+      },
+      revert: () => {
+        this.#state.moduleInstances.delete(instance.instanceId);
+        for (const edgeId of createdEdges.keys())
+          if (!this.#edgeHasReference(edgeId)) this.#state.edges.delete(edgeId);
+        this.#invalidateModuleInstanceCarrier(instance);
+      },
+    });
+    return instance.instanceId;
+  }
+
+  updateModuleInstance(
+    instanceId: string,
+    patch: Readonly<{
+      attributes?: ModuleRuntimeInstance["attributes"];
+      styleOverrides?: ModuleRuntimeInstance["styleOverrides"];
+      label?: string | null;
+    }>,
+  ): void {
+    const previous = this.#state.moduleInstances.get(instanceId);
+    if (previous === undefined)
+      throw new Error(`module-instance-not-found:${instanceId}`);
+    if (previous.runtimeStatus === "missing") {
+      this.#operationRejection = {
+        code: "layer-module-missing",
+        layerId: previous.layerId,
+      };
+      this.#publish(false);
+      return;
+    }
+    if (this.#rejectBlockedLayer(previous.layerId)) return;
+    if (patch.label !== undefined && previous.kind !== "connection")
+      throw new Error(`module-instance-label-unsupported:${instanceId}`);
+    const next = {
+      ...previous,
+      ...(patch.attributes === undefined
+        ? {}
+        : { attributes: structuredClone(patch.attributes) }),
+      ...(patch.styleOverrides === undefined
+        ? {}
+        : { styleOverrides: structuredClone(patch.styleOverrides) }),
+      ...(patch.label === undefined ? {} : { label: patch.label }),
+    } as ModuleRuntimeInstance;
+    this.#execute({
+      managers: new Set(["module-instances", "chunks"]),
+      apply: () => {
+        this.#state.moduleInstances.replace(next);
+        this.#invalidateModuleInstanceCarrier(next);
+      },
+      revert: () => {
+        this.#state.moduleInstances.replace(previous);
+        this.#invalidateModuleInstanceCarrier(previous);
+      },
+    });
+  }
+
+  updateDomainGroupMembers(
+    instanceId: string,
+    memberCellIds: readonly string[],
+  ): void {
+    const previous = this.#state.moduleInstances.get(instanceId);
+    if (previous === undefined)
+      throw new Error(`module-instance-not-found:${instanceId}`);
+    if (previous.kind !== "domain-group")
+      throw new Error(`module-instance-domain-group-required:${instanceId}`);
+    if (previous.runtimeStatus === "missing") {
+      this.#operationRejection = {
+        code: "layer-module-missing",
+        layerId: previous.layerId,
+      };
+      this.#publish(false);
+      return;
+    }
+    if (this.#rejectBlockedLayer(previous.layerId)) return;
+    const next = {
+      ...previous,
+      memberCellIds: [...memberCellIds],
+    };
+    this.#execute({
+      managers: new Set(["module-instances", "chunks"]),
+      apply: () => {
+        this.#state.moduleInstances.replace(next);
+        // 成员集合可跨分块移动，旧、新占用分块都必须在同一事务中失效。
+        this.#invalidateModuleInstanceCarrier(previous);
+        this.#invalidateModuleInstanceCarrier(next);
+      },
+      revert: () => {
+        this.#state.moduleInstances.replace(previous);
+        this.#invalidateModuleInstanceCarrier(next);
+        this.#invalidateModuleInstanceCarrier(previous);
+      },
+    });
+  }
+
+  deleteModuleInstance(instanceId: string): boolean {
+    const previous = this.#state.moduleInstances.get(instanceId);
+    if (previous === undefined) return false;
+    if (this.#rejectBlockedLayer(previous.layerId)) return false;
+    const previousStructures = new Map(
+      moduleStructureEdgeIds(previous).map((edgeId) => {
+        const structure = this.#state.edges.get(edgeId);
+        if (structure === undefined)
+          throw new Error(`module-instance-edge-structure-missing:${edgeId}`);
+        return [edgeId, structure] as const;
+      }),
+    );
+    this.#execute({
+      managers: new Set([
+        "module-instances",
+        "chunks",
+        ...(previousStructures.size > 0 ? (["edges"] as const) : []),
+      ]),
+      apply: () => {
+        this.#state.moduleInstances.delete(instanceId);
+        for (const edgeId of previousStructures.keys()) {
+          const edge = this.#state.edges.get(edgeId);
+          if (
+            edge?.persistence === "reference-only" &&
+            !this.#edgeHasReference(edgeId)
+          )
+            this.#state.edges.delete(edgeId);
+        }
+        this.#invalidateModuleInstanceCarrier(previous);
+      },
+      revert: () => {
+        for (const edge of previousStructures.values())
+          this.#state.edges.ensure(cloneEdge(edge));
+        this.#state.moduleInstances.add(previous);
+        this.#invalidateModuleInstanceCarrier(previous);
+      },
+    });
+    return true;
+  }
+
   pointerDown(point: MapPoint, targetCellId: string | null): void {
     this.#toolMachine.pointerDown(point, targetCellId);
     this.#publish(false);
@@ -187,7 +457,7 @@ export class EditorStore {
       this.cancelBatch();
       throw error;
     }
-    if (this.#layerLocked("tessera.basic.cell-style")) return;
+    if (this.#rejectBlockedLayer("tessera.basic.cell-style")) return;
     const id = cellId(this.#state.grid.type, row, column);
     const previous = this.#state.cells.get(id);
     if (previous?.fillColor === fillColor) return;
@@ -213,8 +483,8 @@ export class EditorStore {
   eraseCell(row: number, column: number): void {
     const id = cellId(this.#state.grid.type, row, column);
     const previous = this.#state.cells.get(id);
-    if (previous === undefined || this.#layerLocked("tessera.basic.cell-style"))
-      return;
+    if (this.#rejectBlockedLayer("tessera.basic.cell-style")) return;
+    if (previous === undefined) return;
     this.#execute({
       managers: new Set(["cells", "chunks"]),
       apply: () => void this.#state.cells.delete(id),
@@ -229,18 +499,58 @@ export class EditorStore {
     limit = 10_000,
   ): number {
     assertGridCoordinate(this.#state.grid, { row, column });
-    if (this.#layerLocked("tessera.basic.cell-style")) return 0;
+    if (this.#rejectBlockedLayer("tessera.basic.cell-style")) return 0;
     const matched = planFillRegion(this.#state, row, column, fillColor, limit);
-    this.beginBatch();
-    try {
-      for (const cell of matched)
-        this.paintCell(cell.row, cell.column, fillColor);
-      this.commitBatch();
-      return matched.length;
-    } catch (error) {
-      this.cancelBatch();
-      throw error;
+    this.#commitFillPlan(matched, fillColor);
+    return matched.length;
+  }
+
+  startFillCells(
+    row: number,
+    column: number,
+    fillColor: string,
+    options: FillRegionTaskOptions = {},
+  ): BackgroundTask<number> {
+    assertGridCoordinate(this.#state.grid, { row, column });
+    if (this.#rejectBlockedLayer("tessera.basic.cell-style")) {
+      const empty = startFillRegionTask(
+        this.#state,
+        row,
+        column,
+        this.#state.cells.get(cellId(this.#state.grid.type, row, column))
+          ?.fillColor ?? this.#state.style.defaultCellColor,
+        options,
+      );
+      return { ...empty, result: empty.result.then(() => 0) };
     }
+    const stateAtStart = this.#state;
+    const revisionAtStart = this.#state.revision;
+    const planning = startFillRegionTask(
+      this.#state,
+      row,
+      column,
+      fillColor,
+      options,
+    );
+    return {
+      taskId: planning.taskId,
+      subscribeProgress: planning.subscribeProgress,
+      cancel: planning.cancel,
+      result: planning.result.then((matched) => {
+        if (
+          this.#state !== stateAtStart ||
+          this.#state.revision !== revisionAtStart
+        ) {
+          throw new BackgroundTaskError(
+            "batch-state-changed",
+            { revisionAtStart, revisionNow: this.#state.revision },
+            "retry",
+          );
+        }
+        this.#commitFillPlan(matched, fillColor);
+        return matched.length;
+      }),
+    };
   }
 
   paintEdge(
@@ -248,7 +558,7 @@ export class EditorStore {
     adjacentCellIds: readonly string[],
     strokeColor: string,
   ): void {
-    if (this.#layerLocked("tessera.basic.edge-style")) return;
+    if (this.#rejectBlockedLayer("tessera.basic.edge-style")) return;
     const previous = this.#state.edges.get(edgeId);
     if (
       previous?.strokeColor === strokeColor &&
@@ -270,58 +580,74 @@ export class EditorStore {
           }
         : {
             ...cloneEdge(previous),
+            instanceId:
+              previous.persistence === "reference-only"
+                ? newUuid()
+                : previous.instanceId,
             strokeColor,
             strokeWidth: width,
             persistence: "explicit-style",
           };
     const ownerCellId = adjacentCellIds[0];
     if (ownerCellId === undefined) throw new Error("edge-owner-missing");
-    this.#executeTransaction([
-      {
-        managers: new Set(["edges"]),
-        apply: () => {
+    const before = previous === undefined ? undefined : cloneEdge(previous);
+    this.#execute({
+      managers: new Set(["edges", "chunks"]),
+      apply: () => {
+        if (before === undefined) {
           this.#state.edges.ensure(next);
-          this.#state.edges.setPersistence(edgeId, "explicit-style");
-          this.#state.edges.updateStyle(edgeId, next);
-        },
-        revert: () => {
-          if (previous === undefined) this.#state.edges.delete(edgeId);
-          else {
-            this.#state.edges.updateStyle(edgeId, previous);
-            this.#state.edges.setPersistence(edgeId, previous.persistence);
-          }
-        },
+          this.#state.cells.assignEdge(edgeId, ownerCellId);
+        } else {
+          this.#state.edges.replace(next);
+          this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
+        }
       },
-      {
-        managers: new Set(["chunks"]),
-        apply: () => this.#state.cells.assignEdge(edgeId, ownerCellId),
-        revert: () => this.#state.cells.unassignEdge(edgeId, ownerCellId),
+      revert: () => {
+        if (before === undefined) {
+          this.#state.edges.delete(edgeId);
+          this.#state.cells.unassignEdge(edgeId, ownerCellId);
+        } else {
+          this.#state.edges.replace(before);
+          this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
+        }
       },
-    ]);
+    });
   }
 
   updateEdgeStyle(edgeId: string, style: EdgeStyle): void {
     const previous = this.#state.edges.get(edgeId);
     if (previous === undefined) throw new Error(`edge-not-found:${edgeId}`);
+    if (this.#rejectBlockedLayer("tessera.basic.edge-style")) return;
     const before = cloneEdge(previous);
+    const ownerCellId = before.adjacentCellIds[0];
+    if (ownerCellId === undefined) throw new Error("edge-owner-missing");
+    const next: EdgeOverride = {
+      ...before,
+      ...style,
+      instanceId:
+        before.persistence === "reference-only" ? newUuid() : before.instanceId,
+      persistence: "explicit-style",
+    };
     this.#execute({
-      managers: new Set(["edges"]),
+      managers: new Set(["edges", "chunks"]),
       apply: () => {
-        this.#state.edges.updateStyle(edgeId, style);
-        this.#state.edges.setPersistence(edgeId, "explicit-style");
+        this.#state.edges.replace(next);
+        // 边几何由 owner 分块批次绘制，样式变化必须精准推进该分块 revision。
+        this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
       },
       revert: () => {
-        this.#state.edges.updateStyle(edgeId, before);
-        this.#state.edges.setPersistence(
-          edgeId,
-          before.persistence ?? "explicit-style",
-        );
+        this.#state.edges.replace(before);
+        this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
       },
     });
   }
 
-  placeMarker(anchor: OverlayAnchor | MapPoint, color = "#D9B866FF"): string {
-    if (this.#layerLocked("tessera.basic.placed-object")) return "";
+  placeMarker(
+    anchor: OverlayAnchor | MapPoint,
+    color = "#D9B866FF",
+    markerShape: MarkerStyle["markerShape"] = "pin",
+  ): string {
+    if (this.#rejectBlockedLayer("tessera.basic.placed-object")) return "";
     const overlayId = newUuid();
     const overlay: OverlayData =
       "kind" in anchor
@@ -338,7 +664,7 @@ export class EditorStore {
               rotation: 0,
               opacity: 1,
               color,
-              markerShape: "pin",
+              markerShape,
             },
             text: null,
           }
@@ -355,7 +681,7 @@ export class EditorStore {
               rotation: 0,
               opacity: 1,
               color,
-              markerShape: "pin",
+              markerShape,
             },
             text: null,
           };
@@ -389,6 +715,7 @@ export class EditorStore {
     text: string,
     style: Partial<TextPlacementStyle> = {},
   ): string {
+    if (this.#rejectBlockedLayer("tessera.basic.annotation")) return "";
     const overlayId = newUuid();
     const base = {
       overlayId,
@@ -444,16 +771,29 @@ export class EditorStore {
     return this.#placeEdgeOverlay(edge, "text", text, style);
   }
 
-  placeEdgeMarker(edge: EdgeOverride, color = "#D9B866FF"): string {
-    return this.#placeEdgeOverlay(edge, "marker", null, { color });
+  placeEdgeMarker(
+    edge: EdgeOverride,
+    color = "#D9B866FF",
+    markerShape: MarkerStyle["markerShape"] = "diamond",
+  ): string {
+    return this.#placeEdgeOverlay(edge, "marker", null, {
+      color,
+      markerShape,
+    });
   }
 
   #placeEdgeOverlay(
     edge: EdgeOverride,
     overlayType: "marker" | "text",
     text: string | null,
-    style: Partial<TextPlacementStyle>,
+    style: Partial<TextPlacementStyle> &
+      Partial<Pick<MarkerStyle, "color" | "markerShape">>,
   ): string {
+    const layerId =
+      overlayType === "marker"
+        ? "tessera.basic.placed-object"
+        : "tessera.basic.annotation";
+    if (this.#rejectBlockedLayer(layerId)) return "";
     const existing = this.#state.edges.get(edge.edgeId);
     const edgeData: EdgeOverride = {
       ...edge,
@@ -478,7 +818,7 @@ export class EditorStore {
               rotation: 0,
               opacity: 1,
               color: style.color ?? "#D9B866FF",
-              markerShape: "diamond",
+              markerShape: style.markerShape ?? "diamond",
             },
             text: null,
           }
@@ -532,6 +872,7 @@ export class EditorStore {
     end: ConnectionEndpoint,
     options: Partial<ConnectionPlacementOptions> | "line" | "arrow" = {},
   ): string {
+    if (this.#rejectBlockedLayer("tessera.basic.connection")) return "";
     const placement = typeof options === "string" ? { kind: options } : options;
     const connectionId = newUuid();
     const base = {
@@ -570,6 +911,7 @@ export class EditorStore {
     const previous = this.#state.overlays.get(overlayId);
     if (previous === undefined || next.overlayId !== overlayId)
       throw new Error(`overlay-not-found:${overlayId}`);
+    if (this.#rejectBlockedLayer(previous.layerId)) return;
     const normalized = {
       ...next,
       style: {
@@ -588,6 +930,7 @@ export class EditorStore {
     const previous = this.#state.connections.get(connectionId);
     if (previous === undefined || next.connectionId !== connectionId)
       throw new Error(`connection-not-found:${connectionId}`);
+    if (this.#rejectBlockedLayer(previous.layerId)) return;
     this.#execute({
       managers: new Set(["connections"]),
       apply: () => void this.#state.connections.replace(next),
@@ -595,11 +938,77 @@ export class EditorStore {
     });
   }
 
+  reverseConnection(connectionId: string): boolean {
+    const previous = this.#state.connections.get(connectionId);
+    if (previous === undefined)
+      throw new Error(`connection-not-found:${connectionId}`);
+    if (this.#rejectBlockedLayer(previous.layerId)) return false;
+    const next: ConnectionData =
+      previous.kind === "arrow"
+        ? {
+            ...previous,
+            start: previous.end,
+            end: previous.start,
+            arrowStart: previous.arrowEnd,
+            arrowEnd: previous.arrowStart,
+          }
+        : { ...previous, start: previous.end, end: previous.start };
+    this.#execute({
+      managers: new Set(["connections"]),
+      apply: () => void this.#state.connections.replace(next),
+      revert: () => void this.#state.connections.replace(previous),
+    });
+    return true;
+  }
+
+  rebindConnectionCellEndpoint(
+    connectionId: string,
+    endpoint: "start" | "end",
+    targetCellId: string,
+  ): boolean {
+    const previous = this.#state.connections.get(connectionId);
+    if (previous === undefined)
+      throw new Error(`connection-not-found:${connectionId}`);
+    if (this.#rejectBlockedLayer(previous.layerId)) return false;
+    const coordinate = parseCellId(targetCellId);
+    if (coordinate.gridType !== this.#state.grid.type) {
+      throw new RangeError("connection-cell-grid-mismatch");
+    }
+    assertGridCoordinate(this.#state.grid, coordinate);
+    const replacement = { kind: "cell-center" as const, cellId: targetCellId };
+    const other = endpoint === "start" ? previous.end : previous.start;
+    if (other.kind === "cell-center" && other.cellId === targetCellId) {
+      throw new Error("connection-self-not-allowed");
+    }
+    const next = { ...previous, [endpoint]: replacement } as ConnectionData;
+    this.#execute({
+      managers: new Set(["connections"]),
+      apply: () => void this.#state.connections.replace(next),
+      revert: () => void this.#state.connections.replace(previous),
+    });
+    return true;
+  }
+
   deleteSelection(): void {
+    for (const selected of this.#selection.values()) {
+      const layerId =
+        selected.kind === "cell"
+          ? "tessera.basic.cell-style"
+          : selected.kind === "edge"
+            ? "tessera.basic.edge-style"
+            : selected.kind === "connection"
+              ? "tessera.basic.connection"
+              : selected.kind === "module-instance"
+                ? this.#state.moduleInstances.get(selected.id)?.layerId
+                : this.#state.overlays.get(selected.id)?.layerId;
+      if (layerId !== undefined && this.#rejectBlockedLayer(layerId)) return;
+    }
     this.beginBatch();
     try {
       for (const selected of [...this.#selection.values()]) {
-        if (selected.kind === "cell") {
+        if (selected.kind === "module-instance") {
+          this.deleteModuleInstance(selected.id);
+        } else if (selected.kind === "cell") {
           const coordinate = parseCellId(selected.id);
           this.eraseCell(coordinate.row, coordinate.column);
         } else if (selected.kind === "edge") {
@@ -608,60 +1017,33 @@ export class EditorStore {
           const snapshot = cloneEdge(edge);
           const ownerCellId = edge.adjacentCellIds[0];
           if (ownerCellId === undefined) throw new Error("edge-owner-missing");
-          const overlays = [...this.#state.overlays.values()].filter(
-            (overlay) =>
-              overlay.kind === "anchored-overlay" &&
-              overlay.anchor.kind === "edge" &&
-              overlay.anchor.edgeId === selected.id,
-          );
-          const connections = [...this.#state.connections.values()].filter(
-            (connection) =>
-              (connection.start.kind === "edge-midpoint" &&
-                connection.start.edgeId === selected.id) ||
-              (connection.end.kind === "edge-midpoint" &&
-                connection.end.edgeId === selected.id),
-          );
-          this.#executeTransaction([
-            ...overlays.flatMap((overlay): Change[] => [
-              {
-                managers: new Set(["overlays"]),
-                apply: () =>
-                  void this.#state.overlays.delete(overlay.overlayId),
-                revert: () => void this.#state.overlays.add(overlay),
-              },
-              {
-                managers: new Set(["chunks"]),
-                apply: () =>
-                  this.#state.cells.unassignOverlay(
-                    overlay.overlayId,
-                    ownerCellId,
-                  ),
-                revert: () =>
-                  this.#state.cells.assignOverlay(
-                    overlay.overlayId,
-                    ownerCellId,
-                  ),
-              },
-            ]),
-            ...connections.map((connection): Change => ({
-              managers: new Set(["connections"]),
-              apply: () =>
-                void this.#state.connections.delete(connection.connectionId),
-              revert: () => void this.#state.connections.add(connection),
-            })),
-            {
-              managers: new Set(["edges"]),
-              apply: () => void this.#state.edges.delete(selected.id),
-              revert: () => void this.#state.edges.ensure(snapshot),
+          const retainStructure = this.#edgeHasReference(selected.id);
+          const structure: EdgeOverride = {
+            ...snapshot,
+            instanceId: structureEdgeInstanceId(selected.id),
+            persistence: "reference-only",
+          };
+          this.#execute({
+            managers: new Set(["edges", "chunks"]),
+            apply: () => {
+              if (retainStructure) {
+                this.#state.edges.replace(structure);
+                this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
+              } else {
+                this.#state.edges.delete(selected.id);
+                this.#state.cells.unassignEdge(selected.id, ownerCellId);
+              }
             },
-            {
-              managers: new Set(["chunks"]),
-              apply: () =>
-                this.#state.cells.unassignEdge(selected.id, ownerCellId),
-              revert: () =>
-                this.#state.cells.assignEdge(selected.id, ownerCellId),
+            revert: () => {
+              if (retainStructure) {
+                this.#state.edges.replace(snapshot);
+                this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
+              } else {
+                this.#state.edges.ensure(snapshot);
+                this.#state.cells.assignEdge(selected.id, ownerCellId);
+              }
             },
-          ]);
+          });
         } else if (selected.kind === "overlay") {
           const overlay = this.#state.overlays.get(selected.id);
           if (overlay === undefined) continue;
@@ -677,19 +1059,15 @@ export class EditorStore {
           const hasOtherReference =
             referencedEdge === undefined
               ? true
-              : [...this.#state.overlays.values()].some(
-                  (candidate) =>
-                    candidate.overlayId !== overlay.overlayId &&
-                    candidate.kind === "anchored-overlay" &&
-                    candidate.anchor.kind === "edge" &&
-                    candidate.anchor.edgeId === referencedEdge.edgeId,
+              : this.#state.overlays.hasEdgeReference(
+                  referencedEdge.edgeId,
+                  overlay.overlayId,
                 ) ||
-                [...this.#state.connections.values()].some(
-                  (connection) =>
-                    (connection.start.kind === "edge-midpoint" &&
-                      connection.start.edgeId === referencedEdge.edgeId) ||
-                    (connection.end.kind === "edge-midpoint" &&
-                      connection.end.edgeId === referencedEdge.edgeId),
+                this.#state.connections.hasEdgeReference(
+                  referencedEdge.edgeId,
+                ) ||
+                this.#state.moduleInstances.hasEdgeReference(
+                  referencedEdge.edgeId,
                 );
           const recycleEdge =
             referencedEdge !== undefined &&
@@ -758,23 +1136,14 @@ export class EditorStore {
             .filter((edge): edge is EdgeLike => {
               if (edge === undefined || edge.persistence !== "reference-only")
                 return false;
-              const usedByOverlay = [...this.#state.overlays.values()].some(
-                (overlay) =>
-                  overlay.kind === "anchored-overlay" &&
-                  overlay.anchor.kind === "edge" &&
-                  overlay.anchor.edgeId === edge.edgeId,
+              return (
+                !this.#state.overlays.hasEdgeReference(edge.edgeId) &&
+                !this.#state.connections.hasEdgeReference(
+                  edge.edgeId,
+                  connection.connectionId,
+                ) &&
+                !this.#state.moduleInstances.hasEdgeReference(edge.edgeId)
               );
-              const usedByOtherConnection = [
-                ...this.#state.connections.values(),
-              ].some(
-                (candidate) =>
-                  candidate.connectionId !== connection.connectionId &&
-                  ((candidate.start.kind === "edge-midpoint" &&
-                    candidate.start.edgeId === edge.edgeId) ||
-                    (candidate.end.kind === "edge-midpoint" &&
-                      candidate.end.edgeId === edge.edgeId)),
-              );
-              return !usedByOverlay && !usedByOtherConnection;
             })
             .map(cloneEdge);
           this.#executeTransaction([
@@ -825,6 +1194,11 @@ export class EditorStore {
   ): string {
     if (this.#toolMachine.state.phase !== "committing") {
       throw new Error("connection-not-ready-to-commit");
+    }
+    if (this.#rejectBlockedLayer("tessera.basic.connection")) {
+      this.#toolMachine.commitFailed();
+      this.#publish(false);
+      return "";
     }
     try {
       this.beginBatch();
@@ -909,6 +1283,17 @@ export class EditorStore {
   }
 
   updateSelectionColor(color: string): void {
+    for (const selected of this.#selection.values()) {
+      const layerId =
+        selected.kind === "cell"
+          ? "tessera.basic.cell-style"
+          : selected.kind === "edge"
+            ? "tessera.basic.edge-style"
+            : selected.kind === "connection"
+              ? "tessera.basic.connection"
+              : this.#state.overlays.get(selected.id)?.layerId;
+      if (layerId !== undefined && this.#rejectBlockedLayer(layerId)) return;
+    }
     this.beginBatch();
     try {
       for (const selected of this.#selection.values()) {
@@ -1005,6 +1390,7 @@ export class EditorStore {
   }
 
   #execute(change: Change): void {
+    this.#operationRejection = null;
     try {
       change.apply();
     } catch (error) {
@@ -1067,9 +1453,107 @@ export class EditorStore {
     this.#redo.length = 0;
   }
 
-  #layerLocked(layerId: string): boolean {
+  #commitFillPlan(
+    matched: readonly { row: number; column: number }[],
+    fillColor: string,
+  ): void {
+    if (matched.length === 0) return;
+    const changes = matched.map(({ row, column }) => {
+      const id = cellId(this.#state.grid.type, row, column);
+      const previous = this.#state.cells.get(id);
+      const next: CellOverride = {
+        instanceId: previous?.instanceId ?? newUuid(),
+        cellId: id,
+        row,
+        column,
+        fillColor,
+        fillOpacity: previous?.fillOpacity ?? 1,
+        ...(previous?.label === undefined ? {} : { label: previous.label }),
+      };
+      return { id, previous, next };
+    });
+    this.#execute({
+      managers: new Set(["cells", "chunks"]),
+      apply: () => {
+        for (const change of changes) {
+          this.#state.cells.set(change.id, change.next);
+        }
+      },
+      revert: () => {
+        for (const change of changes) {
+          if (change.previous === undefined) {
+            this.#state.cells.delete(change.id);
+          } else {
+            this.#state.cells.set(change.id, change.previous);
+          }
+        }
+      },
+    });
+  }
+
+  #rejectBlockedLayer(layerId: string): boolean {
     const layer = this.#state.layers.get(layerId);
-    return layer?.locked === true || layer?.visible === false;
+    const code: EditorOperationRejection["code"] | null =
+      layer === undefined
+        ? "layer-unavailable"
+        : layer.runtimeStatus === "missing"
+          ? "layer-module-missing"
+          : layer.locked
+            ? "layer-locked"
+            : !layer.visible
+              ? "layer-hidden"
+              : null;
+    if (code === null) return false;
+    if (
+      this.#operationRejection?.code !== code ||
+      this.#operationRejection.layerId !== layerId
+    ) {
+      this.#operationRejection = { code, layerId };
+      this.#publish(false);
+    }
+    return true;
+  }
+
+  #invalidateModuleInstanceCarrier(instance: ModuleRuntimeInstance): void {
+    const invalidateEdge = (edgeId: string) => {
+      const ownerCellId = this.#state.edges.get(edgeId)?.adjacentCellIds[0];
+      if (ownerCellId !== undefined)
+        this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
+    };
+    if (instance.kind === "cell") {
+      this.#state.cells.invalidateRuntimeChunkForCell(instance.cellId);
+    } else if (instance.kind === "edge") {
+      const ownerCellId = instance.adjacentCellIds[0];
+      if (ownerCellId !== undefined)
+        this.#state.cells.invalidateRuntimeChunkForCell(ownerCellId);
+    } else if (instance.kind === "overlay") {
+      if (instance.objectKind === "anchored-overlay") {
+        if (instance.anchor?.kind === "cell")
+          this.#state.cells.invalidateRuntimeChunkForCell(
+            instance.anchor.cellId,
+          );
+        else if (instance.anchor?.kind === "edge")
+          invalidateEdge(instance.anchor.edgeId);
+      }
+    } else if (instance.kind === "connection") {
+      for (const endpoint of [instance.start, instance.end]) {
+        if (endpoint.kind === "cell-center")
+          this.#state.cells.invalidateRuntimeChunkForCell(endpoint.cellId);
+        else if (endpoint.kind === "edge-midpoint")
+          invalidateEdge(endpoint.edgeId);
+      }
+    } else {
+      for (const cellId of instance.memberCellIds)
+        this.#state.cells.invalidateRuntimeChunkForCell(cellId);
+    }
+  }
+
+  #edgeHasReference(edgeId: string): boolean {
+    if (this.#state.moduleInstances.hasEdgeReference(edgeId)) return true;
+    return (
+      this.#state.overlays.hasEdgeReference(edgeId) ||
+      this.#state.connections.hasEdgeReference(edgeId)
+    );
   }
 
   #overlayOwnerCellId(anchor: OverlayAnchor): string {

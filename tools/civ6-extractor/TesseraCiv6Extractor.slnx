@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Tessera.Civ6.Extractor.Cli/Tessera.Civ6.Extractor.Cli.csproj" />
+    <Project Path="src/Tessera.Civ6.Extractor.Core/Tessera.Civ6.Extractor.Core.csproj" />
+    <Project Path="src/Tessera.Civ6.Extractor.Gui/Tessera.Civ6.Extractor.Gui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tessera.Civ6.Extractor.Core.Tests/Tessera.Civ6.Extractor.Core.Tests.csproj" />
+    <Project Path="tests/Tessera.Civ6.Extractor.Gui.Tests/Tessera.Civ6.Extractor.Gui.Tests.csproj" />
+  </Folder>
+</Solution>

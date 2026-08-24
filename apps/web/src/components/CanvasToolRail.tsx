@@ -27,7 +27,13 @@ export function CanvasToolRail(props: Props) {
   const { t } = useTranslation();
   return (
     <>
-      <div className={styles.toolRail} data-collapsed={props.catalogCollapsed}>
+      <div
+        className={styles.toolRail}
+        data-collapsed={props.catalogCollapsed}
+        data-testid="canvas-tool-rail"
+        role="toolbar"
+        aria-label={t("toolbar.canvasTools")}
+      >
         <ToolButton
           label={t("tool.select")}
           active={props.tool === "select"}
@@ -78,7 +84,11 @@ export function CanvasToolRail(props: Props) {
           <BoxSelect size={19} />
         </ToolButton>
       </div>
-      <div className={styles.contextRail}>
+      <div
+        className={styles.contextRail}
+        role="toolbar"
+        aria-label={t("toolbar.contextPanels")}
+      >
         <ToolButton
           label={t("tool.properties")}
           onClick={() => props.onContext("properties")}

@@ -357,6 +357,33 @@ function firstRecord(values: Readonly<Record<string, unknown>>, path: string) {
 }
 
 describe("Module Format v1 结构与本地化", () => {
+  it("图层 ID 必须使用所属模块的点分命名空间", () => {
+    const moduleId = "example.layer-owner";
+    expect(parseModule(moduleId).manifest.layers[0]?.layerId).toBe(
+      `${moduleId}.marker`,
+    );
+
+    const invalid = moduleValues(moduleId);
+    const manifest = invalid["module.json"] as ModuleManifest;
+    const layer = manifest.layers[0] as { layerId: string };
+    layer.layerId = "example.other.marker";
+    try {
+      parsePackageFileSetForTests(jsonFiles(invalid));
+      throw new Error("expected ModuleRuntimeError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ModuleRuntimeError);
+      expect(error).toMatchObject({
+        code: "package-id-namespace-invalid",
+        path: "module.json/layers/0/layerId",
+        details: {
+          value: "example.other.marker",
+          moduleId,
+          expectedPrefix: `${moduleId}.`,
+        },
+      });
+    }
+  });
+
   it("内置模块与空白预设通过同一解析器且基础模块不可停用", () => {
     expect(BASIC_MODULE_PACKAGE.artifactId).toBe("tessera.basic");
     expect(BLANK_PRESET_PACKAGE.manifest.modules).toEqual([
@@ -374,6 +401,11 @@ describe("Module Format v1 结构与本地化", () => {
       ["tessera.basic.connection", 4300],
       ["tessera.basic.annotation", 4400],
     ]);
+    expect(
+      BASIC_MODULE_PACKAGE.elements.find(
+        (element) => element.elementId === "tessera.basic:text",
+      )?.attributeSchema.properties.text,
+    ).toMatchObject({ type: "string", maxLength: 256 });
   });
 
   it("literal 模式不需要 locales，key 模式使用默认语言", () => {
@@ -846,11 +878,10 @@ describe("引用闭包、Catalog 与资源", () => {
     });
     const element = firstRecord(values, "elements/marker.json");
     element.resourceIds = ["example.assets:data.marker"];
-    (element.defaultStyle as Record<string, unknown>).resourceId =
-      "example.assets:data.marker";
     values["assets/marker.json"] = asset;
     expect(parsePackageFileSetForTests(jsonFiles(values))).toMatchObject({
       manifest: { resources: [{ bytes: assetBytes }] },
+      elements: [{ resourceIds: ["example.assets:data.marker"] }],
     });
 
     (firstItem(manifest.resources).license as { status: string }).status =
@@ -867,6 +898,45 @@ describe("引用闭包、Catalog 与资源", () => {
     expectCode(
       () => parsePackageFileSetForTests(jsonFiles(undeclaredStyle)),
       "package-reference-missing",
+    );
+  });
+
+  it("资源白名单拒绝脚本、HTML、WASM、SVG 与远程 URL", () => {
+    for (const mimeType of [
+      "text/javascript",
+      "text/html",
+      "application/wasm",
+      "image/svg+xml",
+    ]) {
+      const values = moduleValues("example.blocked-resource");
+      const manifest = values["module.json"] as ModuleManifest;
+      (manifest.resources as unknown[]).push({
+        resourceId: "example.blocked-resource:data.blocked",
+        path: "assets/blocked.bin",
+        mimeType,
+        bytes: 1,
+        license: { status: "redistributable", sourceName: "恶意资源" },
+        extensions: {},
+      });
+      expectCode(
+        () => parsePackageFileSetForTests(jsonFiles(values)),
+        "package-schema-invalid",
+      );
+    }
+
+    const remote = moduleValues("example.remote-resource");
+    const manifest = remote["module.json"] as ModuleManifest;
+    (manifest.resources as unknown[]).push({
+      resourceId: "example.remote-resource:data.remote",
+      path: "https://evil.example/icon.png",
+      mimeType: "image/png",
+      bytes: 8,
+      license: { status: "redistributable", sourceName: "远程资源" },
+      extensions: {},
+    });
+    expectCode(
+      () => parsePackageFileSetForTests(jsonFiles(remote)),
+      "package-path-invalid",
     );
   });
 
@@ -961,6 +1031,25 @@ describe("generated-local 与 Civ6 profile", () => {
       artifactId: "tessera.civ6",
       manifest: { packageSource: { kind: "generated-local" } },
       catalog: { catalogSource: { profileId: "tessera.civ6-extractor" } },
+    });
+  });
+
+  it("来源清单可记录未打包进模块的正式大型只读容器", () => {
+    const values = generatedCiv6Values();
+    const source = values["provenance/source.json"] as {
+      files: Record<string, unknown>[];
+    };
+    source.files = [
+      {
+        relativePath: "Base/Platforms/Windows/BLPs/UI/Icons.blp",
+        resourceId: "tessera.civ6:source.ui-icons",
+        bytes: 229 * 1024 * 1024,
+        extensions: {},
+      },
+    ];
+
+    expect(parsePackageFileSetForTests(jsonFiles(values))).toMatchObject({
+      artifactId: "tessera.civ6",
     });
   });
 

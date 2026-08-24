@@ -1,0 +1,708 @@
+{
+  "schemaVersion": "1",
+  "source": "docs/MVP_REQUIREMENTS_BASELINE.md",
+  "sourceStatus": "本地权威工作文档；本文件是 M6 受跟踪 P0 快照",
+  "p0RequirementIds": [
+    "APP-001",
+    "APP-002",
+    "APP-003",
+    "APP-005",
+    "APP-006",
+    "APP-007",
+    "APP-008",
+    "APP-009",
+    "APP-010",
+    "GEO-001",
+    "GEO-002",
+    "GEO-005",
+    "GEO-006",
+    "GEO-007",
+    "GEO-008",
+    "GEO-009",
+    "GEO-014",
+    "GEO-015",
+    "GEO-016",
+    "GEO-017",
+    "GEO-018",
+    "GEO-019",
+    "VIEW-001",
+    "VIEW-002",
+    "VIEW-003",
+    "VIEW-004",
+    "VIEW-007",
+    "VIEW-008",
+    "VIEW-009",
+    "EDIT-001",
+    "EDIT-003",
+    "EDIT-004",
+    "EDIT-005",
+    "EDIT-006",
+    "EDIT-007",
+    "EDIT-009",
+    "EDIT-010",
+    "EDIT-011",
+    "CONTENT-001",
+    "CONTENT-002",
+    "CONTENT-003",
+    "CONTENT-004",
+    "CONTENT-005",
+    "CONTENT-006",
+    "CONTENT-007",
+    "CONTENT-008",
+    "CONTENT-009",
+    "CONTENT-010",
+    "LINK-001",
+    "LINK-002",
+    "LINK-003",
+    "LINK-004",
+    "LINK-005",
+    "LINK-006",
+    "LINK-008",
+    "LINK-009",
+    "LINK-010",
+    "LINK-011",
+    "LINK-012",
+    "EDGE-001",
+    "EDGE-002",
+    "EDGE-003",
+    "EDGE-004",
+    "EDGE-005",
+    "EDGE-006",
+    "EDGE-007",
+    "MOD-001",
+    "MOD-002",
+    "MOD-003",
+    "MOD-004",
+    "MOD-005",
+    "MOD-006",
+    "MOD-009",
+    "MOD-011",
+    "MOD-012",
+    "MOD-013",
+    "MOD-014",
+    "MOD-015",
+    "MOD-016",
+    "MOD-017",
+    "MOD-018",
+    "MOD-019",
+    "MOD-020",
+    "MOD-021",
+    "MOD-022",
+    "MOD-023",
+    "MOD-024",
+    "MOD-025",
+    "MOD-026",
+    "MOD-027",
+    "CIV-001",
+    "CIV-002",
+    "CIV-003",
+    "CIV-004",
+    "CIV-005",
+    "CIV-006",
+    "CIV-007",
+    "CIV-008",
+    "CIV-009",
+    "LAYER-001",
+    "LAYER-003",
+    "LAYER-006",
+    "LAYER-007",
+    "LAYER-008",
+    "LAYER-009",
+    "LAYER-010",
+    "HIST-001",
+    "HIST-002",
+    "HIST-003",
+    "HIST-005",
+    "SAVE-001",
+    "SAVE-002",
+    "SAVE-003",
+    "SAVE-004",
+    "SAVE-006",
+    "SAVE-007",
+    "SAVE-008",
+    "SAVE-009",
+    "SAVE-010",
+    "DATA-001",
+    "DATA-002",
+    "DATA-003",
+    "DATA-004",
+    "DATA-005",
+    "DATA-007",
+    "DATA-008",
+    "DATA-009",
+    "DATA-010",
+    "DATA-011",
+    "DATA-012",
+    "DATA-013",
+    "DATA-014",
+    "DATA-015",
+    "DATA-016",
+    "EXPORT-001",
+    "EXPORT-002",
+    "EXPORT-003",
+    "EXPORT-004",
+    "EXPORT-005",
+    "EXPORT-007",
+    "EXPORT-008",
+    "UX-001",
+    "UX-003",
+    "UX-004",
+    "UX-005",
+    "I18N-001",
+    "I18N-002",
+    "COMPAT-001",
+    "STAB-001",
+    "STAB-002",
+    "PERF-001",
+    "PERF-005",
+    "PERF-006",
+    "PERF-007",
+    "PERF-008",
+    "PERF-009",
+    "PERF-010"
+  ],
+  "p1RequirementIds": [
+    "APP-004",
+    "VIEW-005",
+    "VIEW-006",
+    "EDIT-002",
+    "LINK-007",
+    "MOD-007",
+    "MOD-008",
+    "LAYER-004",
+    "HIST-004",
+    "SAVE-005",
+    "DATA-006",
+    "EXPORT-006",
+    "UX-002",
+    "UX-006",
+    "UX-007",
+    "A11Y-001",
+    "A11Y-002",
+    "A11Y-003",
+    "A11Y-004",
+    "PERF-002",
+    "PERF-003",
+    "PERF-004"
+  ],
+  "entries": [
+    {
+      "area": "创建与应用壳",
+      "requirementIds": [
+        "APP-001",
+        "APP-002",
+        "APP-003",
+        "APP-005",
+        "APP-006",
+        "APP-007",
+        "APP-008",
+        "APP-009",
+        "APP-010"
+      ],
+      "status": "covered",
+      "implementation": [
+        "apps/web/src/App.tsx",
+        "apps/web/src/components/NewProjectDialog.tsx",
+        "apps/web/src/package-project-runtime.ts"
+      ],
+      "automatedTests": [
+        "apps/web/src/App.test.tsx",
+        "apps/web/src/components/NewProjectDialog.test.tsx",
+        "tests/e2e/vertical-slice.spec.ts",
+        "tests/e2e/package-install-smoke.spec.ts"
+      ],
+      "humanEvidence": ["manual/visual-evidence.json"]
+    },
+    {
+      "area": "几何、视口与分块",
+      "requirementIds": [
+        "GEO-001",
+        "GEO-002",
+        "GEO-005",
+        "GEO-006",
+        "GEO-007",
+        "GEO-008",
+        "GEO-009",
+        "GEO-014",
+        "GEO-015",
+        "GEO-016",
+        "GEO-017",
+        "GEO-018",
+        "GEO-019",
+        "VIEW-001",
+        "VIEW-002",
+        "VIEW-003",
+        "VIEW-004",
+        "VIEW-007",
+        "VIEW-009"
+      ],
+      "status": "covered",
+      "implementation": [
+        "packages/core/src/geometry.ts",
+        "packages/renderer/src/grid-renderer.ts",
+        "apps/web/src/components/EditorView.tsx"
+      ],
+      "automatedTests": [
+        "packages/core/src/domain-model.test.ts",
+        "packages/core/src/viewport-clipping.test.ts",
+        "packages/renderer/src/render-layer-order.test.ts",
+        "tests/e2e/vertical-slice.spec.ts"
+      ],
+      "humanEvidence": ["manual/visual-evidence.json"]
+    },
+    {
+      "area": "视口性能硬门禁",
+      "requirementIds": ["VIEW-008"],
+      "status": "covered",
+      "implementation": [
+        "packages/core/src/sparse-chunk-store.ts",
+        "packages/renderer/src/grid-renderer.ts",
+        "packages/renderer/src/camera-transform.ts"
+      ],
+      "automatedTests": [
+        "tests/benchmarks/browser-runtime-performance.spec.ts",
+        "tests/e2e/runtime-viewport-performance.spec.ts"
+      ],
+      "humanEvidence": ["manual/M4_BROWSER_EVIDENCE.zh-CN.md"]
+    },
+    {
+      "area": "编辑、覆盖物、连接与边",
+      "requirementIds": [
+        "EDIT-001",
+        "EDIT-003",
+        "EDIT-004",
+        "EDIT-005",
+        "EDIT-006",
+        "EDIT-007",
+        "EDIT-009",
+        "EDIT-010",
+        "EDIT-011",
+        "CONTENT-001",
+        "CONTENT-002",
+        "CONTENT-003",
+        "CONTENT-004",
+        "CONTENT-005",
+        "CONTENT-006",
+        "CONTENT-007",
+        "CONTENT-008",
+        "CONTENT-009",
+        "CONTENT-010",
+        "LINK-001",
+        "LINK-002",
+        "LINK-003",
+        "LINK-004",
+        "LINK-005",
+        "LINK-006",
+        "LINK-008",
+        "LINK-009",
+        "LINK-010",
+        "LINK-011",
+        "LINK-012",
+        "EDGE-001",
+        "EDGE-002",
+        "EDGE-003",
+        "EDGE-004",
+        "EDGE-005",
+        "EDGE-006",
+        "EDGE-007"
+      ],
+      "status": "covered",
+      "implementation": [
+        "packages/core/src/editor-store.ts",
+        "packages/renderer/src/connection-renderer.ts",
+        "apps/web/src/components/EditorView.tsx"
+      ],
+      "automatedTests": [
+        "packages/core/src/editor-store.test.ts",
+        "packages/renderer/src/connection-renderer.test.ts",
+        "packages/renderer/src/overlay-renderer.test.ts",
+        "tests/e2e/vertical-slice.spec.ts"
+      ],
+      "humanEvidence": ["manual/visual-evidence.json"]
+    },
+    {
+      "area": "通用模块运行时",
+      "requirementIds": [
+        "MOD-001",
+        "MOD-002",
+        "MOD-003",
+        "MOD-004",
+        "MOD-005",
+        "MOD-006",
+        "MOD-009",
+        "MOD-011",
+        "MOD-012",
+        "MOD-013",
+        "MOD-014",
+        "MOD-015",
+        "MOD-016",
+        "MOD-017",
+        "MOD-023",
+        "MOD-024",
+        "MOD-025",
+        "MOD-026"
+      ],
+      "status": "covered",
+      "implementation": [
+        "packages/module-runtime/src/registry.ts",
+        "apps/web/src/local-package-workflow.ts",
+        "apps/web/src/package-project-runtime.ts",
+        "packages/formats/src/project-format.ts"
+      ],
+      "automatedTests": [
+        "packages/module-runtime/src/module-runtime.test.ts",
+        "apps/web/src/local-package-workflow.test.ts",
+        "apps/web/src/package-project-runtime.test.ts",
+        "tests/e2e/package-install-smoke.spec.ts"
+      ],
+      "humanEvidence": ["manual/USER_GUIDE.zh-CN.md"]
+    },
+    {
+      "area": "文明6条件能力",
+      "requirementIds": [
+        "MOD-018",
+        "MOD-019",
+        "MOD-020",
+        "MOD-021",
+        "MOD-022",
+        "MOD-027",
+        "CIV-001",
+        "CIV-002",
+        "CIV-003",
+        "CIV-004",
+        "CIV-005",
+        "CIV-006",
+        "CIV-007",
+        "CIV-008",
+        "CIV-009"
+      ],
+      "status": "conditional",
+      "implementation": [
+        "tools/civ6-extractor/src/Tessera.Civ6.Extractor.Core/Civ6ExtractionService.cs",
+        "apps/web/src/components/PackageSettingsDialog.tsx",
+        "apps/web/public/extractor-releases.json",
+        "packages/core/src/domain-group.ts",
+        "apps/web/src/active-project-module-session.ts",
+        "packages/renderer/src/generic-module-renderer.ts"
+      ],
+      "automatedTests": [
+        "tools/civ6-extractor/tests/Tessera.Civ6.Extractor.Core.Tests/ExtractionServiceTests.cs",
+        "tests/e2e/package-install-smoke.spec.ts",
+        ".github/workflows/civ6-extractor-windows.yml",
+        "packages/core/src/domain-group.test.ts",
+        "apps/web/src/active-project-module-session.test.ts",
+        "packages/renderer/src/generic-module-renderer.test.ts",
+        "tests/production-e2e/mod003-generic-module.spec.ts"
+      ],
+      "humanEvidence": [
+        "manual/CIV6_WINDOWS_EVIDENCE.zh-CN.md",
+        "https://github.com/Yue0404/Tessera_Studio/issues/14"
+      ],
+      "blocker": "正式提取器 Release 与真实 catalog 的 URL、体积和 SHA-256 回填仍由 Issue #14 跟踪；Windows 11 24H2+ x64 精确目标机证据已闭合，无游戏或无包时不阻塞核心网站。"
+    },
+    {
+      "area": "图层与历史",
+      "requirementIds": [
+        "LAYER-001",
+        "LAYER-003",
+        "LAYER-006",
+        "LAYER-007",
+        "LAYER-008",
+        "LAYER-009",
+        "LAYER-010",
+        "HIST-001",
+        "HIST-002",
+        "HIST-003",
+        "HIST-005"
+      ],
+      "status": "covered",
+      "implementation": [
+        "packages/core/src/editor-store.ts",
+        "packages/renderer/src/render-layer-order.ts",
+        "apps/web/src/components/EditorView.tsx"
+      ],
+      "automatedTests": [
+        "packages/core/src/editor-store.test.ts",
+        "packages/renderer/src/render-layer-order.test.ts",
+        "tests/e2e/vertical-slice.spec.ts"
+      ],
+      "humanEvidence": ["manual/visual-evidence.json"]
+    },
+    {
+      "area": "保存、工程与Fragment",
+      "requirementIds": [
+        "SAVE-001",
+        "SAVE-002",
+        "SAVE-003",
+        "SAVE-004",
+        "SAVE-006",
+        "SAVE-007",
+        "SAVE-008",
+        "SAVE-009",
+        "SAVE-010",
+        "DATA-001",
+        "DATA-002",
+        "DATA-003",
+        "DATA-004",
+        "DATA-005",
+        "DATA-007",
+        "DATA-008",
+        "DATA-009",
+        "DATA-010",
+        "DATA-011",
+        "DATA-012",
+        "DATA-013",
+        "DATA-014",
+        "DATA-015",
+        "DATA-016",
+        "STAB-001",
+        "STAB-002"
+      ],
+      "status": "covered",
+      "implementation": [
+        "packages/formats/src/project-format.ts",
+        "packages/storage/src/project-repository.ts",
+        "apps/web/src/project-file-workflow.ts",
+        "apps/web/src/fragment-file-workflow.ts"
+      ],
+      "automatedTests": [
+        "packages/formats/src/project-format.test.ts",
+        "packages/storage/src/project-repository.test.ts",
+        "apps/web/src/project-file-workflow.test.ts",
+        "apps/web/src/fragment-file-workflow.test.ts",
+        "tests/e2e/data-workflows.spec.ts",
+        "tests/e2e/storage-smoke.spec.ts"
+      ],
+      "humanEvidence": ["manual/BACKUP_AND_RECOVERY.zh-CN.md"]
+    },
+    {
+      "area": "视觉与数据导出",
+      "requirementIds": [
+        "EXPORT-001",
+        "EXPORT-002",
+        "EXPORT-003",
+        "EXPORT-004",
+        "EXPORT-005",
+        "EXPORT-007",
+        "EXPORT-008"
+      ],
+      "status": "covered",
+      "implementation": [
+        "packages/renderer/src/visual-export/canvas-renderer.ts",
+        "apps/web/src/components/VisualExportDialog.tsx",
+        "apps/web/src/components/DataExportDialog.tsx"
+      ],
+      "automatedTests": [
+        "packages/renderer/src/visual-export/visual-export.test.ts",
+        "tests/e2e/visual-export-smoke.spec.ts",
+        "tests/e2e/visual-export-ui.spec.ts",
+        "tests/e2e/data-workflows.spec.ts"
+      ],
+      "humanEvidence": ["manual/USER_GUIDE.zh-CN.md"]
+    },
+    {
+      "area": "用户体验与国际化",
+      "requirementIds": [
+        "UX-001",
+        "UX-003",
+        "UX-004",
+        "UX-005",
+        "I18N-001",
+        "I18N-002"
+      ],
+      "status": "covered",
+      "implementation": [
+        "apps/web/src/components/NewProjectDialog.tsx",
+        "apps/web/src/i18n.ts",
+        "apps/web/src/styles/global.css"
+      ],
+      "automatedTests": [
+        "apps/web/src/components/NewProjectDialog.test.tsx",
+        "tests/e2e/browser-safety-a11y.spec.ts",
+        "tests/e2e/vertical-slice.spec.ts"
+      ],
+      "humanEvidence": ["manual/visual-evidence.json"]
+    },
+    {
+      "area": "浏览器版本矩阵",
+      "requirementIds": ["COMPAT-001"],
+      "status": "blocked",
+      "implementation": [
+        "playwright.cross-browser.config.ts",
+        "scripts/run-browser-support-matrix.mjs"
+      ],
+      "automatedTests": [
+        "tests/e2e/browser-runtime-metadata.spec.ts",
+        "tests/browser-support/support-matrix-v1.schema.json"
+      ],
+      "humanEvidence": [
+        "manual/M4_BROWSER_EVIDENCE.zh-CN.md",
+        "https://github.com/Yue0404/Tessera_Studio/issues/12"
+      ],
+      "blocker": "Edge 151/150 已在同一 GitHub-hosted Windows Server 2022 + SwiftShader runner 完成最终有界 A/B：两侧其余独立用例均为5/5、长生命周期哨兵均为3/3，且无 page、console 或 unhandled 错误；Edge 151 的 data-workflow 与 Edge 150 的 vertical-slice 分别失败于不同等待点，失败跨版本与轮次漂移，不能归因于 Edge 150。停止继续加时，COMPAT-001 保持 blocked，由仓库所有者显式接受证据延期风险。"
+    },
+    {
+      "area": "运行时性能与后台任务",
+      "requirementIds": ["PERF-007", "PERF-008", "PERF-009"],
+      "status": "covered",
+      "implementation": [
+        "packages/core/src/background-task.ts",
+        "apps/web/src/fill-region-worker.ts",
+        "packages/renderer/src/visual-export/task.ts"
+      ],
+      "automatedTests": [
+        "packages/core/src/runtime-performance.test.ts",
+        "tests/e2e/vertical-slice.spec.ts",
+        "tests/e2e/visual-export-ui.spec.ts"
+      ],
+      "humanEvidence": ["https://github.com/Yue0404/Tessera_Studio/issues/12"]
+    },
+    {
+      "area": "最大地图内存与跨块稳定",
+      "requirementIds": ["PERF-005", "PERF-006"],
+      "status": "covered",
+      "implementation": [
+        "packages/core/src/sparse-chunk-store.ts",
+        "packages/renderer/src/grid-renderer.ts"
+      ],
+      "automatedTests": [
+        "tests/benchmarks/browser-runtime-performance.spec.ts",
+        "tests/e2e/runtime-viewport-performance.spec.ts"
+      ],
+      "humanEvidence": ["manual/M4_BROWSER_EVIDENCE.zh-CN.md"]
+    },
+    {
+      "area": "参考档发布性能基准",
+      "requirementIds": ["PERF-001", "PERF-010"],
+      "status": "blocked",
+      "implementation": [
+        "scripts/run-browser-benchmark.mjs",
+        "scripts/benchmark-profile.mjs",
+        "scripts/release-readiness.mjs",
+        "playwright.benchmark.config.ts"
+      ],
+      "automatedTests": [
+        "scripts/benchmark-profile.test.mjs",
+        "scripts/release-readiness.test.mjs",
+        "tests/benchmarks/benchmark-profile-v1.schema.json",
+        "tests/benchmarks/browser-runtime-performance.spec.ts"
+      ],
+      "humanEvidence": [
+        "manual/M4_BROWSER_EVIDENCE.zh-CN.md",
+        "https://github.com/Yue0404/Tessera_Studio/issues/12"
+      ],
+      "blocker": "严格CIM采集、Schema、固定场景、系统Edge msedge、被测提交provenance和release:ready门禁已实现；当前20次冷启动补充证据通过，但机器为14物理核/20逻辑处理器、约39.6 GiB可用内存且headless GPU不可识别，不等同PERF-010冻结参考档。是否扩展为多浏览器性能档仍由Issue #12等待产品决定。"
+    }
+  ],
+  "trackedP1Evidence": [
+    {
+      "requirementIds": [
+        "APP-004",
+        "VIEW-005",
+        "VIEW-006",
+        "MOD-007",
+        "HIST-004",
+        "SAVE-005",
+        "UX-002"
+      ],
+      "implementation": [
+        "apps/web/src/components/ProjectGridPreview.tsx",
+        "apps/web/src/components/EditorStatusBar.tsx",
+        "apps/web/src/editor-shortcuts.ts",
+        "apps/web/src/project-module-references.ts",
+        "apps/web/src/save-recovery.ts",
+        "packages/renderer/src/viewport-navigation.ts"
+      ],
+      "automatedTests": [
+        "apps/web/src/components/ProjectGridPreview.test.tsx",
+        "apps/web/src/editor-shortcuts.test.ts",
+        "apps/web/src/project-module-references.test.ts",
+        "apps/web/src/save-recovery.test.ts",
+        "packages/core/src/editor-store.test.ts",
+        "packages/renderer/src/viewport-navigation.test.ts",
+        "tests/production-e2e/m6-user-flows.spec.ts"
+      ],
+      "humanEvidence": ["manual/REQUIREMENTS_TRACEABILITY.md"],
+      "status": "covered"
+    },
+    {
+      "requirementIds": [
+        "EDIT-002",
+        "LINK-007",
+        "MOD-008",
+        "LAYER-004",
+        "DATA-006",
+        "EXPORT-006",
+        "UX-006",
+        "UX-007"
+      ],
+      "implementation": [
+        "apps/web/src/components/ElementCatalog.tsx",
+        "apps/web/src/components/ContextPanel.tsx",
+        "apps/web/src/components/SelectionInspector.tsx",
+        "packages/formats/src/project-format.ts",
+        "packages/formats/src/embedded-asset-validation.ts",
+        "packages/module-runtime/src/registry.ts",
+        "packages/renderer/src/visual-export/scene.ts"
+      ],
+      "automatedTests": [
+        "apps/web/src/components/ContextPanel.test.tsx",
+        "apps/web/src/components/ElementCatalog.test.tsx",
+        "packages/formats/src/project-content-safety.test.ts",
+        "tests/e2e/vertical-slice.spec.ts",
+        "tests/e2e/visual-export-ui.spec.ts",
+        "tests/e2e/browser-safety-a11y.spec.ts",
+        "packages/module-runtime/src/module-runtime.test.ts"
+      ],
+      "humanEvidence": ["manual/visual-evidence.json"],
+      "status": "covered"
+    },
+    {
+      "requirementIds": ["A11Y-001", "A11Y-002", "A11Y-003", "A11Y-004"],
+      "implementation": [
+        "apps/web/src/components/ElementCatalog.tsx",
+        "apps/web/src/components/EditorView.tsx",
+        "apps/web/src/styles/global.css"
+      ],
+      "automatedTests": ["tests/e2e/browser-safety-a11y.spec.ts"],
+      "humanEvidence": [
+        "manual/visual-evidence.json",
+        "manual/VISUAL_EVIDENCE.md"
+      ],
+      "status": "covered"
+    },
+    {
+      "requirementIds": ["PERF-003", "PERF-004"],
+      "implementation": [
+        "packages/renderer/src/tessera-renderer.ts",
+        "apps/web/src/components/EditorView.tsx"
+      ],
+      "automatedTests": [
+        "tests/benchmarks/browser-runtime-performance.spec.ts",
+        "tests/e2e/vertical-slice.spec.ts",
+        "tests/e2e/visual-export-ui.spec.ts"
+      ],
+      "humanEvidence": ["manual/M4_BROWSER_EVIDENCE.zh-CN.md"],
+      "status": "covered"
+    },
+    {
+      "requirementIds": ["PERF-002"],
+      "implementation": [
+        "scripts/benchmark-profile.mjs",
+        "packages/renderer/src/tessera-renderer.ts",
+        "apps/web/src/components/EditorView.tsx"
+      ],
+      "automatedTests": [
+        "scripts/benchmark-profile.test.mjs",
+        "scripts/release-readiness.test.mjs",
+        "tests/benchmarks/browser-runtime-performance.spec.ts"
+      ],
+      "humanEvidence": [
+        "manual/M4_BROWSER_EVIDENCE.zh-CN.md",
+        "https://github.com/Yue0404/Tessera_Studio/issues/12"
+      ],
+      "status": "blocked",
+      "blocker": "当前1440×900、DPR=1补充实机数据通过但comparable=false；严格系统Edge与被测提交provenance门禁已实现，仍等待PERF-010冻结参考机实跑及Issue #12决定是否扩展浏览器范围。"
+    }
+  ]
+}

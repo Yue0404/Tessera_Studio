@@ -1,0 +1,119 @@
+name: Publish Civilization VI Extractor Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "提取器 SemVer（必须与源码冻结版本一致）"
+        required: true
+        type: string
+      tag:
+        description: "Release tag（必须为 extractor-v<version>）"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  validate-release-source:
+    name: 拒绝非默认分支发布
+    runs-on: windows-2022
+    permissions: {}
+    steps:
+      - name: 验证 workflow_dispatch 来源
+        shell: pwsh
+        env:
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          REPOSITORY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if ($env:RELEASE_REF_NAME -cne $env:REPOSITORY_DEFAULT_BRANCH) {
+            throw "正式 Release 只能从默认分支 $($env:REPOSITORY_DEFAULT_BRANCH) 运行，当前 ref 为 $($env:RELEASE_REF_NAME)。"
+          }
+
+  publish-windows-release:
+    name: 测试、审计并发布 Windows 提取器
+    needs: validate-release-source
+    runs-on: windows-2022
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: 安装锁定依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 验证仓库发布契约
+        run: pnpm release:check
+
+      - name: 测试、构建并审计发布候选
+        shell: pwsh
+        run: >-
+          ./tools/civ6-extractor/scripts/build-release.ps1
+          -OutputRoot "${{ github.workspace }}/local-modules/github-release"
+
+      - name: 验证输入版本与构建版本闭合
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $expected = "tessera-civ6-extractor-v$($env:RELEASE_VERSION)-windows-x64.zip.summary.json"
+          $summaryPath = Join-Path "${{ github.workspace }}/local-modules/github-release" $expected
+          if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
+            throw "输入版本与源码冻结版本不一致，未生成：$expected"
+          }
+          $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+          if ($summary.version -cne $env:RELEASE_VERSION) {
+            throw "输入版本与发布 summary 不一致。"
+          }
+
+      - name: 创建草稿、远端复核并正式发布
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          REPOSITORY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: >-
+          ./tools/civ6-extractor/scripts/publish-github-release.ps1
+          -Version "$env:RELEASE_VERSION"
+          -Tag "$env:RELEASE_TAG"
+          -SourceRefName "$env:RELEASE_REF_NAME"
+          -DefaultBranch "$env:REPOSITORY_DEFAULT_BRANCH"
+          -ArtifactDirectory "${{ github.workspace }}/local-modules/github-release"
+          -CatalogOutputPath "${{ runner.temp }}/extractor-catalog-entry.json"
+
+      - name: 输出确定性 catalog 条目
+        if: success()
+        shell: pwsh
+        run: |
+          $entry = Get-Content -LiteralPath "${{ runner.temp }}/extractor-catalog-entry.json" -Raw
+          "### extractor-releases.json 候选条目" >> $env:GITHUB_STEP_SUMMARY
+          '```json' >> $env:GITHUB_STEP_SUMMARY
+          $entry.TrimEnd() >> $env:GITHUB_STEP_SUMMARY
+          '```' >> $env:GITHUB_STEP_SUMMARY
+
+      - name: 保存 catalog 候选条目（不提交仓库）
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extractor-catalog-entry-${{ inputs.version }}
+          path: ${{ runner.temp }}/extractor-catalog-entry.json
+          if-no-files-found: error
+          retention-days: 30

@@ -17,22 +17,68 @@ import {
 } from "@tessera/core";
 import { ConnectionRenderer } from "./connection-renderer.js";
 import { GridRenderer } from "./grid-renderer.js";
+import {
+  GenericModuleRenderer,
+  type GenericModuleVisualResolver,
+} from "./generic-module-renderer.js";
 import { OverlayRenderer } from "./overlay-renderer.js";
 import { endpointPoint, overlayAnchorPoint } from "./render-utils.js";
-import { hitTestProjectObject } from "./project-hit-test.js";
+import { hitTestProjectObject, topmostProjectHit } from "./project-hit-test.js";
 import { enableRenderLayerSorting } from "./render-layer-order.js";
 import { InteractionRangeState } from "./interaction-range-state.js";
+import {
+  WebGlContextLifecycle,
+  type RendererContextStatus,
+} from "./webgl-context-lifecycle.js";
+import {
+  ZOOM_STEP,
+  clampZoom,
+  mapToScreen,
+  screenToMap,
+  strokeAlignmentOffsetMapUnits,
+  zoomCameraAt,
+} from "./camera-transform.js";
+import type { GridRendererStats } from "./grid-renderer.js";
+import {
+  isEditableShortcutTarget,
+  PanInteractionState,
+} from "./pan-interaction-state.js";
+import {
+  centerBoundsPlan,
+  fitBoundsPlan,
+  gridMapBounds,
+  projectContentBounds,
+  type ViewNavigationPlan,
+} from "./viewport-navigation.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
 export interface OverlayPlacement {
   type: "marker" | "text";
   anchor: "cell" | "edge" | "map-point";
+  markerShape: "circle" | "diamond" | "pin";
 }
 export interface ConnectionPlacement {
   kind: "line" | "arrow";
   endpoint: "cell-center" | "edge-midpoint" | "map-point";
   arrowMode: "end" | "both";
   label: string;
+}
+
+export interface ConnectionRebindTarget {
+  readonly connectionId: string;
+  readonly endpoint: "start" | "end";
+}
+
+export type RendererInteractionRejection =
+  | "connection-self-not-allowed"
+  | "connection-rebind-target-invalid"
+  | "connection-commit-failed";
+
+export interface PointerLogicalStatus {
+  readonly row: number;
+  readonly column: number;
+  readonly cellId: string;
+  readonly objectKind: SelectedObject["kind"] | "cell";
 }
 
 export interface EdgePlacementTarget {
@@ -64,9 +110,27 @@ export interface RendererInteraction {
     start: ConnectionEndpoint,
     end: ConnectionEndpoint,
     edgeReferences: readonly EdgePlacementTarget[],
-  ): void;
+  ): boolean;
+  getConnectionRebind(): ConnectionRebindTarget | null;
+  commitConnectionRebind(
+    target: ConnectionRebindTarget,
+    cellId: string,
+  ): boolean;
+  cancelConnectionRebind(): void;
+  operationRejected(code: RendererInteractionRejection): void;
   select(objects: readonly SelectedObject[], additive: boolean): void;
   cancelTool(): void;
+  contextStatusChanged?(status: RendererContextStatus): void;
+  zoomChanged?(zoom: number): void;
+  pointerStatusChanged?(status: PointerLogicalStatus | null): void;
+}
+
+export interface RendererPerformanceStats {
+  readonly zoom: number;
+  readonly visibleCellCount: number;
+  readonly loadedChunkCount: number;
+  readonly grid: GridRendererStats;
+  readonly renderDurationMs: number;
 }
 
 export class TesseraRenderer {
@@ -81,20 +145,30 @@ export class TesseraRenderer {
   readonly #overlayRenderer: OverlayRenderer;
   readonly #canvasLabel: string;
   readonly #ranges = new InteractionRangeState();
+  readonly #pan = new PanInteractionState();
   #state: Readonly<ProjectState>;
   #visible: VisibleCell[] = [];
   #painting = false;
   #connectionStart: ConnectionEndpoint | null = null;
   #connectionEdges: EdgePlacementTarget[] = [];
   #camera = { x: 0, y: 0 };
-  #lastScreenPoint: MapPoint | null = null;
+  #zoom = 1;
+  #spacePressed = false;
   #resizeObserver: ResizeObserver | undefined;
+  #contextLifecycle: WebGlContextLifecycle | undefined;
+  #contextLost = false;
+  #renderDurationMs = 0;
+  #applicationInitialized = false;
+  #applicationDestroyed = false;
+  #destroyed = false;
+  readonly #genericModuleRenderer: GenericModuleRenderer | undefined;
 
   constructor(
     host: HTMLElement,
     state: Readonly<ProjectState>,
     interaction: RendererInteraction,
     canvasLabel: string,
+    genericModuleVisualResolver?: GenericModuleVisualResolver,
   ) {
     this.#host = host;
     this.#state = state;
@@ -104,21 +178,48 @@ export class TesseraRenderer {
     this.#gridRenderer = new GridRenderer(this.#content);
     this.#connectionRenderer = new ConnectionRenderer(this.#content);
     this.#overlayRenderer = new OverlayRenderer(this.#content);
+    this.#genericModuleRenderer =
+      genericModuleVisualResolver === undefined
+        ? undefined
+        : new GenericModuleRenderer(this.#content, genericModuleVisualResolver);
   }
 
   async initialize(): Promise<void> {
-    await this.#application.init({
-      preference: "webgl",
-      resizeTo: this.#host,
-      antialias: true,
-      autoDensity: true,
-      resolution: Math.min(devicePixelRatio, 2),
-      backgroundAlpha: 1,
-    });
+    try {
+      await this.#application.init({
+        preference: "webgl",
+        resizeTo: this.#host,
+        antialias: true,
+        autoDensity: true,
+        resolution: Math.min(devicePixelRatio, 2),
+        backgroundAlpha: 1,
+      });
+    } catch (error: unknown) {
+      // Pixi 插件可能在 renderer 已创建后才 reject；保留该事实供 pending cleanup 完成释放。
+      this.#applicationInitialized =
+        (this.#application as unknown as { renderer?: unknown }).renderer !==
+        undefined;
+      if (this.#destroyed) this.#destroyApplicationOnce();
+      throw error;
+    }
+    this.#applicationInitialized = true;
+    // React StrictMode 可能在 Pixi 初始化尚未完成时先执行 cleanup。
+    if (this.#destroyed) {
+      this.#destroyApplicationOnce();
+      return;
+    }
     this.#application.canvas.dataset.testid = "map-canvas";
+    this.#application.canvas.dataset.rendererStatus = "available";
     this.#application.canvas.setAttribute("aria-label", this.#canvasLabel);
     this.#application.canvas.tabIndex = 0;
     this.#host.append(this.#application.canvas);
+    this.#contextLifecycle = new WebGlContextLifecycle(
+      this.#application.canvas,
+      {
+        onLost: this.#handleContextLost,
+        onRestored: this.#handleContextRestored,
+      },
+    );
     this.#root.addChild(this.#content, this.#preview);
     this.#application.stage.addChild(this.#root);
     this.#application.canvas.addEventListener(
@@ -130,21 +231,33 @@ export class TesseraRenderer {
       this.#onPointerMove,
     );
     this.#application.canvas.addEventListener(
+      "pointerleave",
+      this.#onPointerLeave,
+    );
+    this.#application.canvas.addEventListener(
       "contextmenu",
       this.#onContextMenu,
     );
+    this.#application.canvas.addEventListener("wheel", this.#onWheel, {
+      passive: false,
+    });
     window.addEventListener("pointerup", this.#onPointerUp);
+    window.addEventListener("pointercancel", this.#onPointerCancel);
     window.addEventListener("keydown", this.#onKeyDown);
+    window.addEventListener("keyup", this.#onKeyUp);
+    window.addEventListener("blur", this.#onWindowBlur);
     this.#resizeObserver = new ResizeObserver(() => this.render(this.#state));
     this.#resizeObserver.observe(this.#host);
     this.render(this.#state);
   }
 
   render(state: Readonly<ProjectState>): void {
+    const startedAt = performance.now();
     this.#state = state;
+    if (this.#contextLost) return;
     const width = Math.max(1, this.#host.clientWidth);
     const height = Math.max(1, this.#host.clientHeight);
-    this.#ranges.updateViewport(this.#camera, width, height);
+    this.#ranges.updateViewport(this.#camera, width, height, this.#zoom);
     const viewport = this.#ranges.getViewportBounds();
     this.#visible = visibleCellsInRect(
       state.grid,
@@ -153,24 +266,74 @@ export class TesseraRenderer {
       viewport.maxX,
       viewport.maxY,
     );
-    for (const cell of this.#visible) {
-      state.cells.touchRuntimeChunk(
-        Math.floor(cell.row / 64),
-        Math.floor(cell.column / 64),
-      );
-    }
+    state.cells.updateRuntimeViewport(state.grid, this.#visible, {
+      prefetchRings: 2,
+      maxLoaded: 256,
+    });
     const background = this.#colorValue(state.style.canvasBackground);
     this.#application.renderer.background.color = background.color;
     this.#application.renderer.background.alpha = background.alpha;
     this.#content.position.set(this.#camera.x, this.#camera.y);
-    this.#gridRenderer.render(state, this.#visible);
+    this.#content.scale.set(this.#zoom);
+    this.#gridRenderer.render(
+      state,
+      this.#visible,
+      strokeAlignmentOffsetMapUnits(
+        this.#zoom,
+        this.#application.renderer.resolution,
+      ),
+    );
     this.#connectionRenderer.render(state, viewport);
-    this.#overlayRenderer.render(state, viewport);
+    this.#overlayRenderer.render(state, viewport, this.#zoom);
+    this.#genericModuleRenderer?.render(
+      state,
+      viewport,
+      this.#visible,
+      this.#zoom,
+    );
     this.#renderPreview();
+    this.#renderDurationMs = performance.now() - startedAt;
+    const stats = this.getPerformanceStats();
+    const canvas = this.#application.canvas;
+    canvas.dataset.zoom = String(this.#zoom);
+    canvas.dataset.cameraX = String(this.#camera.x);
+    canvas.dataset.cameraY = String(this.#camera.y);
+    canvas.dataset.gridCellSize = String(state.grid.cellSize);
+    canvas.dataset.loadedChunkCount = String(stats.loadedChunkCount);
+    canvas.dataset.gridBatchCount = String(stats.grid.batchCount);
+    canvas.dataset.gridRebuiltCount = String(stats.grid.rebuiltCount);
+    canvas.dataset.gridTotalRebuiltCount = String(stats.grid.totalRebuiltCount);
+    canvas.dataset.gridBuildDurationMs = String(stats.grid.buildDurationMs);
+    const resourceStats = this.#genericModuleRenderer?.resourceStats;
+    canvas.dataset.moduleResourceRequestedCount = String(
+      resourceStats?.requested ?? 0,
+    );
+    canvas.dataset.moduleResourceReadyCount = String(resourceStats?.ready ?? 0);
+    canvas.dataset.moduleResourcePlaceholderCount = String(
+      resourceStats?.placeholder ?? 0,
+    );
+    if (stats.grid.rebuiltCount > 0) {
+      canvas.dataset.gridLastRebuildDurationMs = String(
+        stats.grid.buildDurationMs,
+      );
+    }
+    canvas.dataset.renderDurationMs = String(this.#renderDurationMs);
   }
 
   destroy(): void {
+    if (this.#destroyed) return;
+    this.#destroyed = true;
     this.#resizeObserver?.disconnect();
+    this.#contextLifecycle?.destroy();
+    this.#contextLifecycle = undefined;
+    window.removeEventListener("pointerup", this.#onPointerUp);
+    window.removeEventListener("pointercancel", this.#onPointerCancel);
+    window.removeEventListener("keydown", this.#onKeyDown);
+    window.removeEventListener("keyup", this.#onKeyUp);
+    window.removeEventListener("blur", this.#onWindowBlur);
+    this.#genericModuleRenderer?.destroy();
+    // autoDetectRenderer reject 时 Pixi 尚无 renderer/canvas，只清理已创建的 JS 资源。
+    if (!this.#applicationInitialized) return;
     this.#application.canvas.removeEventListener(
       "pointerdown",
       this.#onPointerDown,
@@ -180,11 +343,20 @@ export class TesseraRenderer {
       this.#onPointerMove,
     );
     this.#application.canvas.removeEventListener(
+      "pointerleave",
+      this.#onPointerLeave,
+    );
+    this.#application.canvas.removeEventListener(
       "contextmenu",
       this.#onContextMenu,
     );
-    window.removeEventListener("pointerup", this.#onPointerUp);
-    window.removeEventListener("keydown", this.#onKeyDown);
+    this.#application.canvas.removeEventListener("wheel", this.#onWheel);
+    this.#destroyApplicationOnce();
+  }
+
+  #destroyApplicationOnce(): void {
+    if (!this.#applicationInitialized || this.#applicationDestroyed) return;
+    this.#applicationDestroyed = true;
     this.#application.destroy({ removeView: true }, { children: true });
   }
 
@@ -196,13 +368,87 @@ export class TesseraRenderer {
     return this.#ranges.getSelectionBounds();
   }
 
+  getZoom(): number {
+    return this.#zoom;
+  }
+
+  setZoom(value: number, screenAnchor?: Readonly<MapPoint>): number {
+    const bounds = this.#application.canvas.getBoundingClientRect();
+    const anchor = screenAnchor ?? {
+      x: bounds.width / 2,
+      y: bounds.height / 2,
+    };
+    const next = zoomCameraAt(this.#camera, this.#zoom, value, anchor);
+    if (next.zoom === this.#zoom) return this.#zoom;
+    this.#zoom = next.zoom;
+    this.#camera = next.camera;
+    this.render(this.#state);
+    this.#interaction.zoomChanged?.(this.#zoom);
+    return this.#zoom;
+  }
+
+  zoomByStep(direction: -1 | 1): number {
+    const next = Math.round((this.#zoom + direction * ZOOM_STEP) * 100) / 100;
+    return this.setZoom(next);
+  }
+
+  centerMap(): ViewNavigationPlan {
+    return this.#applyViewPlan(
+      centerBoundsPlan(
+        gridMapBounds(this.#state.grid),
+        this.#host.clientWidth,
+        this.#host.clientHeight,
+        this.#zoom,
+      ),
+    );
+  }
+
+  fitMap(): ViewNavigationPlan {
+    return this.#applyViewPlan(
+      fitBoundsPlan(
+        gridMapBounds(this.#state.grid),
+        this.#host.clientWidth,
+        this.#host.clientHeight,
+      ),
+    );
+  }
+
+  fitContent(): ViewNavigationPlan {
+    return this.#applyViewPlan(
+      fitBoundsPlan(
+        projectContentBounds(this.#state),
+        this.#host.clientWidth,
+        this.#host.clientHeight,
+      ),
+    );
+  }
+
+  #applyViewPlan(plan: ViewNavigationPlan): ViewNavigationPlan {
+    if (plan.status !== "applied") return plan;
+    this.#camera = { ...plan.camera };
+    this.#zoom = plan.zoom;
+    this.render(this.#state);
+    this.#interaction.zoomChanged?.(this.#zoom);
+    return plan;
+  }
+
+  getPerformanceStats(): RendererPerformanceStats {
+    return {
+      zoom: this.#zoom,
+      visibleCellCount: this.#visible.length,
+      loadedChunkCount: this.#state.cells.loadedChunkKeys.length,
+      grid: this.#gridRenderer.stats,
+      renderDurationMs: this.#renderDurationMs,
+    };
+  }
+
   #screenPoint(event: PointerEvent): MapPoint {
     const bounds = this.#application.canvas.getBoundingClientRect();
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
   #mapPoint(screen: MapPoint): MapPoint {
-    return { x: screen.x - this.#camera.x, y: screen.y - this.#camera.y };
+    return screenToMap(screen, this.#camera, this.#zoom);
   }
 
   #target(point: MapPoint): VisibleCell | undefined {
@@ -257,7 +503,16 @@ export class TesseraRenderer {
           cell.center.y <= rect.maxY,
       )
       .map((cell) => ({ kind: "cell", id: cell.cellId }));
-    for (const edge of this.#state.edges.values()) {
+    const visibleEdgeIds = new Set<string>();
+    for (const cell of this.#visible) {
+      const sideCount = this.#state.grid.type === "square" ? 4 : 6;
+      for (let side = 0; side < sideCount; side += 1) {
+        visibleEdgeIds.add(edgeIdentity(this.#state.grid, cell, side).edgeId);
+      }
+    }
+    for (const edgeId of visibleEdgeIds) {
+      const edge = this.#state.edges.get(edgeId);
+      if (edge?.persistence !== "explicit-style") continue;
       const segment = edgeSegment(
         this.#state.grid,
         edge.edgeId,
@@ -270,7 +525,7 @@ export class TesseraRenderer {
         selected.push({ kind: "edge", id: edge.edgeId });
       }
     }
-    for (const connection of this.#state.connections.values()) {
+    for (const connection of this.#state.connections.query(rect)) {
       const points = this.#connectionPoints(connection.start, connection.end);
       if (
         points !== undefined &&
@@ -279,7 +534,7 @@ export class TesseraRenderer {
         selected.push({ kind: "connection", id: connection.connectionId });
       }
     }
-    for (const overlay of this.#state.overlays.values()) {
+    for (const overlay of this.#state.overlays.query(rect)) {
       const point = overlayAnchorPoint(this.#state, overlay);
       if (
         point !== undefined &&
@@ -291,6 +546,11 @@ export class TesseraRenderer {
         selected.push({ kind: "overlay", id: overlay.overlayId });
       }
     }
+    selected.push(
+      ...(this.#genericModuleRenderer
+        ?.boxSelection(this.#state, rect, this.#visible)
+        .map((id) => ({ kind: "module-instance" as const, id })) ?? []),
+    );
     return selected;
   }
 
@@ -334,36 +594,72 @@ export class TesseraRenderer {
       ) {
         const left = Math.min(state.startPoint.x, state.previewPoint.x);
         const top = Math.min(state.startPoint.y, state.previewPoint.y);
+        const start = mapToScreen(
+          { x: left, y: top },
+          this.#camera,
+          this.#zoom,
+        );
         this.#preview
           .rect(
-            left + this.#camera.x,
-            top + this.#camera.y,
-            Math.abs(state.previewPoint.x - state.startPoint.x),
-            Math.abs(state.previewPoint.y - state.startPoint.y),
+            start.x,
+            start.y,
+            Math.abs(state.previewPoint.x - state.startPoint.x) * this.#zoom,
+            Math.abs(state.previewPoint.y - state.startPoint.y) * this.#zoom,
           )
           .stroke({ color: 0x73b7c8, alpha: 0.9, width: 1 });
       }
       return;
     }
+    const start = mapToScreen(state.startPoint, this.#camera, this.#zoom);
+    const end = mapToScreen(state.previewPoint, this.#camera, this.#zoom);
     this.#preview
-      .moveTo(
-        state.startPoint.x + this.#camera.x,
-        state.startPoint.y + this.#camera.y,
-      )
-      .lineTo(
-        state.previewPoint.x + this.#camera.x,
-        state.previewPoint.y + this.#camera.y,
-      )
+      .moveTo(start.x, start.y)
+      .lineTo(end.x, end.y)
       .stroke({ color: 0x73b7c8, alpha: 0.9, width: 2 });
   }
 
   readonly #onPointerDown = (event: PointerEvent): void => {
-    if (event.button !== 0) return;
+    if (this.#contextLost) return;
     const screen = this.#screenPoint(event);
+    const toolBefore = this.#interaction.getToolState();
+    if (
+      this.#pan.begin({
+        pointerId: event.pointerId,
+        button: event.button,
+        screenPoint: screen,
+        tool: toolBefore.tool,
+        spacePressed: this.#spacePressed,
+      })
+    ) {
+      event.preventDefault();
+      this.#application.canvas.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (event.button !== 0) return;
     const point = this.#mapPoint(screen);
     const cell = this.#target(point);
-    const toolBefore = this.#interaction.getToolState();
-    this.#lastScreenPoint = screen;
+    const rebind = this.#interaction.getConnectionRebind();
+    if (rebind !== null) {
+      event.preventDefault();
+      if (cell === undefined) {
+        this.#interaction.operationRejected("connection-rebind-target-invalid");
+        return;
+      }
+      try {
+        if (this.#interaction.commitConnectionRebind(rebind, cell.cellId)) {
+          this.#interaction.cancelConnectionRebind();
+        }
+      } catch (error) {
+        this.#interaction.operationRejected(
+          error instanceof Error &&
+            error.message === "connection-self-not-allowed"
+            ? "connection-self-not-allowed"
+            : "connection-commit-failed",
+        );
+      }
+      this.render(this.#state);
+      return;
+    }
     if (toolBefore.tool === "brush" || toolBefore.tool === "edge") {
       this.#painting = true;
       this.#interaction.beginStroke();
@@ -380,7 +676,18 @@ export class TesseraRenderer {
           : connectionTarget?.endpoint.kind === "cell-center"
             ? connectionTarget.endpoint.cellId
             : (cell?.cellId ?? null);
-    this.#interaction.pointerDown(point, targetToken);
+    try {
+      this.#interaction.pointerDown(point, targetToken);
+    } catch (error) {
+      this.#interaction.operationRejected(
+        error instanceof Error &&
+          error.message === "connection-self-not-allowed"
+          ? "connection-self-not-allowed"
+          : "connection-commit-failed",
+      );
+      this.render(this.#state);
+      return;
+    }
     if (toolBefore.tool === "brush" || toolBefore.tool === "edge")
       this.#paintAt(point);
     else if (toolBefore.tool === "marker") {
@@ -390,7 +697,17 @@ export class TesseraRenderer {
         this.#interaction.placeOverlay(point, cell?.cellId ?? null, edge);
       }
     } else if (toolBefore.tool === "select") {
-      const hit = hitTestProjectObject(this.#state, point, cell);
+      const moduleHit = this.#genericModuleRenderer?.hitTest(
+        this.#state,
+        point,
+        cell,
+        this.#zoom,
+      );
+      const hit = topmostProjectHit(
+        this.#state,
+        hitTestProjectObject(this.#state, point, cell, this.#zoom),
+        moduleHit ?? null,
+      );
       this.#interaction.select(hit === null ? [] : [hit], event.shiftKey);
     } else if (
       toolBefore.tool === "connection" &&
@@ -407,41 +724,70 @@ export class TesseraRenderer {
       connectionTarget !== null &&
       this.#connectionStart !== null
     ) {
-      this.#interaction.commitConnection(
-        this.#connectionStart,
-        connectionTarget.endpoint,
-        [
-          ...this.#connectionEdges,
-          ...(connectionTarget.edge ? [connectionTarget.edge] : []),
-        ],
-      );
-      this.#connectionStart = null;
-      this.#connectionEdges = [];
+      try {
+        const committed = this.#interaction.commitConnection(
+          this.#connectionStart,
+          connectionTarget.endpoint,
+          [
+            ...this.#connectionEdges,
+            ...(connectionTarget.edge ? [connectionTarget.edge] : []),
+          ],
+        );
+        if (committed) {
+          this.#connectionStart = null;
+          this.#connectionEdges = [];
+        }
+      } catch {
+        this.#interaction.operationRejected("connection-commit-failed");
+      }
     }
     this.#application.canvas.setPointerCapture(event.pointerId);
     this.render(this.#state);
   };
 
   readonly #onPointerMove = (event: PointerEvent): void => {
+    if (this.#contextLost) return;
     const screen = this.#screenPoint(event);
-    const point = this.#mapPoint(screen);
-    const tool = this.#interaction.getToolState().tool;
-    if (
-      tool === "pan" &&
-      this.#lastScreenPoint !== null &&
-      (event.buttons & 1) === 1
-    ) {
-      this.#camera.x += screen.x - this.#lastScreenPoint.x;
-      this.#camera.y += screen.y - this.#lastScreenPoint.y;
-      this.#lastScreenPoint = screen;
-    } else {
-      this.#interaction.pointerMove(point);
-      if (this.#painting) this.#paintAt(point);
+    this.#reportPointerStatus(screen);
+    const panDelta = this.#pan.move(event.pointerId, event.buttons, screen);
+    if (panDelta !== null) {
+      this.#camera.x += panDelta.x;
+      this.#camera.y += panDelta.y;
+      this.render(this.#state);
+      return;
     }
+    const point = this.#mapPoint(screen);
+    this.#interaction.pointerMove(point);
+    if (this.#painting) this.#paintAt(point);
     this.render(this.#state);
   };
 
+  readonly #onPointerLeave = (): void => {
+    this.#interaction.pointerStatusChanged?.(null);
+  };
+
+  #reportPointerStatus(screen: MapPoint): void {
+    const point = this.#mapPoint(screen);
+    const cell = this.#target(point);
+    if (cell === undefined) {
+      this.#interaction.pointerStatusChanged?.(null);
+      return;
+    }
+    const hit = hitTestProjectObject(this.#state, point, cell, this.#zoom);
+    this.#interaction.pointerStatusChanged?.({
+      row: cell.row,
+      column: cell.column,
+      cellId: cell.cellId,
+      objectKind: hit?.kind ?? "cell",
+    });
+  }
+
   readonly #onPointerUp = (event: PointerEvent): void => {
+    if (this.#contextLost) return;
+    if (this.#pan.end(event.pointerId)) {
+      this.render(this.#state);
+      return;
+    }
     const screen = this.#screenPoint(event);
     const point = this.#mapPoint(screen);
     const toolState = this.#interaction.getToolState();
@@ -456,12 +802,20 @@ export class TesseraRenderer {
         event.shiftKey,
       );
     }
-    this.#lastScreenPoint = null;
     this.render(this.#state);
+  };
+
+  readonly #onPointerCancel = (event: PointerEvent): void => {
+    if (this.#pan.end(event.pointerId)) {
+      this.render(this.#state);
+      return;
+    }
+    this.#cancelTransientInteraction();
   };
 
   readonly #onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
+    if (this.#contextLost) return;
     if (this.#painting) this.#interaction.cancelStroke();
     this.#painting = false;
     this.#connectionStart = null;
@@ -470,13 +824,39 @@ export class TesseraRenderer {
     this.render(this.#state);
   };
 
+  readonly #onWheel = (event: WheelEvent): void => {
+    if (this.#contextLost) return;
+    event.preventDefault();
+    const bounds = this.#application.canvas.getBoundingClientRect();
+    const anchor = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    const factor = Math.exp(-event.deltaY * 0.0015);
+    this.setZoom(clampZoom(this.#zoom * factor), anchor);
+  };
+
   readonly #onKeyDown = (event: KeyboardEvent): void => {
-    const target = event.target;
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      (target instanceof HTMLElement && target.isContentEditable)
-    ) {
+    if (this.#contextLost) return;
+    if (isEditableShortcutTarget(event.target)) return;
+    if (event.code === "Space") {
+      event.preventDefault();
+      this.#spacePressed = true;
+      return;
+    }
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      this.zoomByStep(1);
+      return;
+    }
+    if (event.key === "-") {
+      event.preventDefault();
+      this.zoomByStep(-1);
+      return;
+    }
+    if (event.key === "0") {
+      event.preventDefault();
+      this.setZoom(1);
       return;
     }
     if (event.key !== "Escape") return;
@@ -484,9 +864,33 @@ export class TesseraRenderer {
     this.#painting = false;
     this.#connectionStart = null;
     this.#connectionEdges = [];
+    this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.render(this.#state);
   };
+
+  readonly #onKeyUp = (event: KeyboardEvent): void => {
+    if (event.code !== "Space" || !this.#spacePressed) return;
+    event.preventDefault();
+    this.#spacePressed = false;
+    if (this.#pan.releaseSpace()) this.render(this.#state);
+  };
+
+  readonly #onWindowBlur = (): void => {
+    this.#spacePressed = false;
+    this.#pan.cancel();
+    this.#cancelTransientInteraction();
+  };
+
+  #cancelTransientInteraction(): void {
+    if (this.#painting) this.#interaction.cancelStroke();
+    this.#painting = false;
+    this.#connectionStart = null;
+    this.#connectionEdges = [];
+    this.#interaction.cancelConnectionRebind();
+    this.#interaction.cancelTool();
+    this.render(this.#state);
+  }
 
   #colorValue(color: string): { color: number; alpha: number } {
     const normalized = color.replace("#", "");
@@ -498,4 +902,31 @@ export class TesseraRenderer {
           : 1,
     };
   }
+
+  readonly #handleContextLost = (): void => {
+    this.#contextLost = true;
+    this.#application.stop();
+    if (this.#painting) this.#interaction.cancelStroke();
+    this.#painting = false;
+    this.#connectionStart = null;
+    this.#connectionEdges = [];
+    this.#spacePressed = false;
+    this.#pan.cancel();
+    this.#interaction.cancelConnectionRebind();
+    this.#interaction.cancelTool();
+    this.#application.canvas.dataset.rendererStatus = "context-lost";
+    this.#application.canvas.setAttribute("aria-disabled", "true");
+    this.#interaction.contextStatusChanged?.("lost");
+  };
+
+  readonly #handleContextRestored = (): void => {
+    this.#contextLost = false;
+    this.#application.canvas.dataset.rendererStatus = "available";
+    this.#application.canvas.removeAttribute("aria-disabled");
+    // Pixi 的 contextChange 已重建底层 GPU 系统；重新生成全部场景指令和可见缓存。
+    this.#gridRenderer.invalidateAll();
+    this.render(this.#state);
+    this.#application.start();
+    this.#interaction.contextStatusChanged?.("available");
+  };
 }

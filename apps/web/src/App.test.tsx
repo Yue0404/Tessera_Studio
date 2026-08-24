@@ -4,36 +4,86 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { StrictMode } from "react";
 import { createProject, EditorStore, type ProjectState } from "@tessera/core";
 import {
   createFragmentFromStateV1,
+  restoreProjectV1,
   stringifyFragmentV1,
+  stringifyProjectDocumentV1,
   stringifyProjectV1,
+  toProjectV1,
 } from "@tessera/formats";
 import { describe, expect, it, vi } from "vitest";
 import i18n from "./i18n.js";
 import { App } from "./App.js";
 
+const resourceRuntimeInstances = vi.hoisted(
+  () =>
+    [] as {
+      readonly packages: readonly unknown[];
+      readonly dispose: ReturnType<typeof vi.fn>;
+    }[],
+);
+
+vi.mock("./project-module-resource-runtime.js", () => ({
+  ProjectModuleResourceRuntime: class {
+    readonly dispose = vi.fn();
+
+    constructor(readonly packages: readonly unknown[]) {
+      resourceRuntimeInstances.push(this);
+    }
+  },
+}));
+
 vi.mock("./components/EditorView.js", () => ({
   EditorView: ({
     store,
+    repository,
     externalErrorKey,
     onOpenFile,
     onOpenFragmentFile,
+    onOpenPackageSettings,
+    onNew,
   }: {
     store: EditorStore;
+    repository: { save(state: Readonly<ProjectState>): Promise<unknown> };
     externalErrorKey?: string | null;
     onOpenFile(file: File): Promise<void>;
     onOpenFragmentFile(file: File): Promise<void>;
+    onOpenPackageSettings?(): void;
+    onNew(): void;
   }) => (
     <div>
       <span data-testid="editor-project">{store.state.name}</span>
       <span data-testid="editor-cells">
         {[...store.state.cells.values()].length}
       </span>
+      <button
+        type="button"
+        onClick={() => {
+          store.paintCell(0, 0, "#336699FF");
+        }}
+      >
+        测试编辑工程
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void repository.save(store.state);
+        }}
+      >
+        测试保存当前工程
+      </button>
+      <button type="button" onClick={onOpenPackageSettings}>
+        测试打开包设置
+      </button>
+      <button type="button" onClick={onNew}>
+        测试新建工程
+      </button>
       <input
         aria-label="编辑器打开工程"
         type="file"
@@ -69,6 +119,35 @@ function project(name: string) {
       gridWidth: 1,
       defaultEdgeColor: "#59656AFF",
     },
+  });
+}
+
+function missingModuleProject(name: string, moduleId: string): ProjectState {
+  const document = toProjectV1(project(name));
+  document.modules.push({
+    moduleId,
+    version: "1.0.0",
+    packageSourceKind: "user-file",
+    extensions: {},
+  });
+  document.modules.sort((left, right) =>
+    left.moduleId.localeCompare(right.moduleId),
+  );
+  document.layerStates.push({
+    layerId: moduleId + ".surface",
+    moduleVersion: "1.0.0",
+    zIndex: 2500,
+    visible: true,
+    locked: false,
+    opacity: 1,
+    extensions: {},
+  });
+  document.layerStates.sort(
+    (left, right) =>
+      left.zIndex - right.zIndex || left.layerId.localeCompare(right.layerId),
+  );
+  return restoreProjectV1(stringifyProjectDocumentV1(document), {
+    moduleResolutionMode: "tolerant",
   });
 }
 
@@ -176,6 +255,7 @@ describe("App recovery", () => {
   });
 
   it("StrictMode 模拟 cleanup 不关闭复用实例，真实卸载才关闭", async () => {
+    const resourceStart = resourceRuntimeInstances.length;
     const close = vi.fn();
     const owned = {
       loadLatest: vi.fn(async () => null),
@@ -194,8 +274,29 @@ describe("App recovery", () => {
     );
     await Promise.resolve();
     expect(close).not.toHaveBeenCalled();
+    const resourceRuntimes = resourceRuntimeInstances.slice(resourceStart);
+    expect(resourceRuntimes.length).toBeGreaterThan(0);
+    expect(
+      resourceRuntimes.reduce(
+        (count, runtime) => count + runtime.dispose.mock.calls.length,
+        0,
+      ),
+    ).toBe(0);
     view.unmount();
     await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        resourceRuntimes.reduce(
+          (count, runtime) => count + runtime.dispose.mock.calls.length,
+          0,
+        ),
+      ).toBe(1),
+    );
+    expect(
+      resourceRuntimes.every(
+        (runtime) => runtime.dispose.mock.calls.length <= 1,
+      ),
+    ).toBe(true);
   });
 
   it("初次保存失败被捕获并呈现，不产生未处理 Promise", async () => {
@@ -217,10 +318,12 @@ describe("App recovery", () => {
       target: { value: "初次保存失败" },
     });
     fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("editor-error").textContent).toBe(
-        "error.projectFileSaveFailed",
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("editor-error").textContent).toBe(
+          "error.projectFileSaveFailed",
+        ),
+      { timeout: 5_000 },
     );
   });
 
@@ -303,8 +406,11 @@ describe("App recovery", () => {
     });
     const copy = await screen.findByRole("button", { name: "作为副本打开" });
     fireEvent.click(copy);
-    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    expect((save.mock.calls[0]?.[0] as ProjectState).projectId).not.toBe(
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect((save.mock.calls[0]?.[0] as ProjectState).projectId).toBe(
+      current.projectId,
+    );
+    expect((save.mock.calls[1]?.[0] as ProjectState).projectId).not.toBe(
       current.projectId,
     );
   });
@@ -349,8 +455,11 @@ describe("App recovery", () => {
       await screen.findByRole("button", { name: "替换本地工程" }),
     );
     fireEvent.click(screen.getByRole("button", { name: "确认替换本地工程" }));
-    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
     expect((save.mock.calls[0]?.[0] as ProjectState).projectId).toBe(
+      current.projectId,
+    );
+    expect((save.mock.calls[1]?.[0] as ProjectState).projectId).toBe(
       current.projectId,
     );
     view.unmount();
@@ -674,10 +783,263 @@ describe("App recovery", () => {
         new Event("submit", { bubbles: true, cancelable: true }),
       );
     });
-    expect(save).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     release();
     await waitFor(() =>
       expect(screen.getByTestId("editor-project")).toBeDefined(),
     );
+  });
+
+  it("新建校验模块加载失败时复位 guard 并允许再次创建", async () => {
+    const save = vi.fn(async () => undefined);
+    const validate = vi.fn();
+    const createValidationLoader = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("chunk-load-failed"))
+      .mockResolvedValueOnce({
+        validateActiveProjectModuleInstances: validate,
+      });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{ loadLatest: async () => null, save }}
+          createValidationLoader={createValidationLoader}
+        />
+      </I18nextProvider>,
+    );
+    const name = await screen.findByLabelText("工程名称");
+    fireEvent.change(name, { target: { value: "加载恢复" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "工程创建校验失败",
+      ),
+    );
+    expect(save).not.toHaveBeenCalled();
+    expect(
+      (screen.getByRole("button", { name: "创建工程" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("editor-project").textContent).toBe("加载恢复");
+  });
+
+  it("新建候选验证失败时不保存、不切换且保留已打开工程", async () => {
+    const current = project("已打开工程");
+    const save = vi.fn(async () => undefined);
+    const validate = vi.fn(() => {
+      throw new Error("candidate-invalid");
+    });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{ loadLatest: async () => current, save }}
+          createValidationLoader={async () => ({
+            validateActiveProjectModuleInstances: validate,
+          })}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByTestId("editor-project");
+    fireEvent.click(screen.getByRole("button", { name: "测试新建工程" }));
+    const name = await screen.findByLabelText("工程名称");
+    fireEvent.change(name, { target: { value: "无效候选" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建工程" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "工程创建校验失败",
+      ),
+    );
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(save).not.toHaveBeenCalled();
+    expect(
+      (screen.getByRole("button", { name: "创建工程" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.getByTestId("editor-project").textContent).toBe("已打开工程");
+  });
+
+  it("提取器目录只在打开包设置后加载，失败不影响基础新建流程", async () => {
+    const extractorCatalogLoader = vi.fn(async () => {
+      throw new Error("catalog-offline");
+    });
+    const packageRepository = {
+      async recover() {
+        return {
+          completedCommitIds: [],
+          rolledBackCommitIds: [],
+          deletedOrphanCommitIds: [],
+          issues: [],
+        };
+      },
+      async listRegistrations() {
+        return [];
+      },
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{
+            loadLatest: async () => null,
+            save: vi.fn(async () => undefined),
+          }}
+          packageRepository={packageRepository as never}
+          extractorCatalogLoader={extractorCatalogLoader}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByRole("heading", { name: "新建地图" });
+    expect(extractorCatalogLoader).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "管理模块与预设包" }));
+    await waitFor(() =>
+      expect(extractorCatalogLoader).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      await screen.findByText(/基础网站和本地包导入仍可正常使用/),
+    ).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.getByRole("button", { name: "创建工程" })).toBeDefined();
+  });
+
+  it("动态目录匹配后才在文明6卡片显示外部下载链接", async () => {
+    const assetUrl =
+      "https://github.com/Yue0404/Tessera_Studio/releases/download/extractor-v0.1.0-preview.1/tessera-civ6-extractor-v0.1.0-preview.1-windows-x64.zip";
+    const packageRepository = {
+      async recover() {
+        return {
+          completedCommitIds: [],
+          rolledBackCommitIds: [],
+          deletedOrphanCommitIds: [],
+          issues: [],
+        };
+      },
+      async listRegistrations() {
+        return [];
+      },
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <App
+          repository={{
+            loadLatest: async () => null,
+            save: vi.fn(async () => undefined),
+          }}
+          packageRepository={packageRepository as never}
+          extractorCatalogLoader={async () => ({
+            extractorId: "tessera.civ6-extractor",
+            version: "0.1.0-preview.1",
+            os: "windows",
+            arch: "x64",
+            minOsBuild: 26100,
+            artifactType: "portable-zip",
+            entrypoint: "TesseraCiv6Extractor.exe",
+            bytes: 51_549_893,
+            sha256: "1".repeat(64),
+            outputModuleId: "tessera.civ6",
+            outputModuleVersion: "1.0.0",
+            minAppVersion: "0.1.0",
+            assetUrl,
+          })}
+        />
+      </I18nextProvider>,
+    );
+    await screen.findByRole("heading", { name: "新建地图" });
+    fireEvent.click(screen.getByRole("button", { name: "管理模块与预设包" }));
+    const link = await screen.findByRole("link", {
+      name: "下载匹配版本提取器",
+    });
+    expect(link.getAttribute("href")).toBe(assetUrl);
+  });
+
+  it("旧自动保存与缺包停用串行，重载后模块消失且即时编辑不丢", async () => {
+    const moduleId = "example.missing-race";
+    let latest = missingModuleProject("保存竞态", moduleId);
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    let saveCount = 0;
+    const save = vi.fn(async (state: Readonly<ProjectState>) => {
+      const snapshot = stringifyProjectV1(state, { mode: "preserve" });
+      saveCount += 1;
+      if (saveCount === 1) {
+        markFirstStarted();
+        await firstGate;
+      }
+      latest = restoreProjectV1(snapshot, {
+        moduleResolutionMode: "tolerant",
+      });
+    });
+    const repository = {
+      loadLatest: async () => latest,
+      save,
+    };
+    const packageRepository = {
+      async recover() {
+        return {
+          completedCommitIds: [],
+          rolledBackCommitIds: [],
+          deletedOrphanCommitIds: [],
+          issues: [],
+        };
+      },
+      async listRegistrations() {
+        return [];
+      },
+    };
+    const renderApp = () =>
+      render(
+        <I18nextProvider i18n={i18n}>
+          <App
+            repository={repository}
+            packageRepository={packageRepository as never}
+            extractorCatalogLoader={async () => null}
+          />
+        </I18nextProvider>,
+      );
+    const view = renderApp();
+    await screen.findByTestId("editor-project");
+    fireEvent.click(screen.getByRole("button", { name: "测试编辑工程" }));
+    fireEvent.click(screen.getByRole("button", { name: "测试打开包设置" }));
+    const missingStatus = await screen.findByText("本地包缺失");
+    const article = missingStatus.closest("article");
+    if (article === null) throw new Error("缺少缺包占位卡片");
+    const disable = within(article).getByRole("button", {
+      name: "在当前工程停用",
+    });
+    await waitFor(() => expect(disable.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(disable);
+    await firstStarted;
+    fireEvent.click(screen.getByRole("button", { name: "测试保存当前工程" }));
+    expect(save).toHaveBeenCalledTimes(1);
+
+    releaseFirst();
+    await waitFor(() => expect(screen.queryByText("本地包缺失")).toBeNull());
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("editor-cells").textContent).toBe("1");
+    expect(
+      toProjectV1(latest).modules.some(
+        (module) => module.moduleId === moduleId,
+      ),
+    ).toBe(false);
+    expect(latest.cells.get("cell:square:0:0")?.fillColor).toBe("#336699FF");
+
+    view.unmount();
+    renderApp();
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-cells").textContent).toBe("1"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "测试打开包设置" }));
+    await screen.findByRole("dialog", { name: "包设置" });
+    expect(screen.queryByText(moduleId, { exact: false })).toBeNull();
   });
 });

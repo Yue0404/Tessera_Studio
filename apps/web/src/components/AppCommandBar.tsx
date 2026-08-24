@@ -30,7 +30,11 @@ interface Props {
 export function AppCommandBar(props: Props) {
   const { t } = useTranslation();
   return (
-    <div className={styles.wrap}>
+    <div
+      className={styles.wrap}
+      role="toolbar"
+      aria-label={t("toolbar.project")}
+    >
       <div className={styles.brand}>
         <span>{t("app.name")}</span>
         <small>{t("app.englishName")}</small>

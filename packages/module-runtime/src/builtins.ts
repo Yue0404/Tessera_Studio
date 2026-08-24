@@ -119,7 +119,7 @@ export const BASIC_ELEMENTS: readonly ModuleElementDefinition[] = Object.freeze(
       attributeSchema: {
         type: "object",
         properties: {
-          text: { type: "string", minLength: 0, maxLength: 2048, default: "" },
+          text: { type: "string", minLength: 0, maxLength: 256, default: "" },
         },
         required: ["text"],
         additionalProperties: false,

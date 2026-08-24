@@ -13,12 +13,16 @@ import { SameProjectConflictDialog } from "./components/SameProjectConflictDialo
 import type {
   FragmentModuleResolver,
   FragmentTranslation,
+  ProjectV1Document,
 } from "@tessera/formats";
 import type {
   LocalPackageRegistration,
   LocalPackageRepository,
 } from "@tessera/storage";
-import type { ParsedExtensionPackage } from "@tessera/module-runtime";
+import type {
+  ParsedExtensionPackage,
+  ParsedModulePackage,
+} from "@tessera/module-runtime";
 import { PackageSettingsDialog } from "./components/PackageSettingsDialog.js";
 import type {
   PreparedFragmentMerge,
@@ -36,6 +40,14 @@ import type {
 } from "./project-file-workflow.js";
 import type { InstalledPackageCatalog } from "./local-package-workflow.js";
 import type { InstalledPresetAvailability } from "./package-project-runtime.js";
+import type {
+  ExtractorRelease,
+  ExtractorReleaseCatalog,
+} from "./extractor-release-catalog.js";
+import { countProjectModuleObjectReferences } from "./project-module-references.js";
+import { ProjectSaveCoordinator } from "./project-save-coordinator.js";
+import type { validateActiveProjectModuleInstances } from "./active-project-module-session.js";
+import { ProjectModuleResourceRuntime } from "./project-module-resource-runtime.js";
 
 interface AppRepository extends ProjectSaveTarget {
   loadLatest(): Promise<ProjectState | null>;
@@ -72,6 +84,34 @@ type ProjectWorkflowLoader = () => Promise<ProjectWorkflowModule>;
 const loadProjectWorkflowDefault: ProjectWorkflowLoader = () =>
   import("./project-file-workflow.js");
 
+type CreateValidationLoader = () => Promise<{
+  readonly validateActiveProjectModuleInstances: typeof validateActiveProjectModuleInstances;
+}>;
+
+const loadCreateValidationDefault: CreateValidationLoader = () =>
+  import("./active-project-module-session.js");
+
+type ExtractorCatalogLoader = (
+  signal: AbortSignal,
+  installedModuleVersions: ReadonlySet<string>,
+) => Promise<ExtractorRelease | null>;
+
+const loadExtractorCatalogDefault: ExtractorCatalogLoader = async (
+  signal,
+  installedModuleVersions,
+) => {
+  const runtime = await import("./extractor-release-catalog.js");
+  const catalog: ExtractorReleaseCatalog =
+    await runtime.fetchExtractorReleaseCatalog({ signal });
+  return (
+    runtime.selectCiv6ExtractorRelease(
+      catalog,
+      TESSERA_APP_VERSION,
+      installedModuleVersions,
+    ) ?? null
+  );
+};
+
 interface Props {
   repository?: AppRepository;
   repositoryFactory?: () => OwnedAppRepository;
@@ -81,6 +121,8 @@ interface Props {
   fragmentWorkflowLoader?: FragmentWorkflowLoader;
   projectWorkflowLoader?: ProjectWorkflowLoader;
   packageRepository?: LocalPackageRepository;
+  extractorCatalogLoader?: ExtractorCatalogLoader;
+  createValidationLoader?: CreateValidationLoader;
 }
 
 interface PackageCatalogState {
@@ -143,27 +185,42 @@ function packageIdentityKey(item: ParsedExtensionPackage): string {
   return `${item.kind}:${item.artifactId}@${item.version}`;
 }
 
-function projectModuleIdentityKeys(
+interface ProjectModuleReference {
+  readonly moduleId: string;
+  readonly version: string;
+  readonly packageSourceKind: "built-in" | "user-file" | "generated-local";
+}
+
+function projectModules(
   state: ProjectState | null,
-): ReadonlySet<string> {
+): readonly ProjectModuleReference[] {
   const document = state?.formatSource.opaqueDocument;
-  if (typeof document !== "object" || document === null) return new Set();
+  if (typeof document !== "object" || document === null) return [];
   const modules = (document as { readonly modules?: unknown }).modules;
-  if (!Array.isArray(modules)) return new Set();
-  return new Set(
-    modules.flatMap((item) => {
-      if (
-        typeof item !== "object" ||
-        item === null ||
-        typeof (item as { moduleId?: unknown }).moduleId !== "string" ||
-        typeof (item as { version?: unknown }).version !== "string"
-      )
-        return [];
-      return [
-        `module:${(item as { moduleId: string }).moduleId}@${(item as { version: string }).version}`,
-      ];
-    }),
-  );
+  if (!Array.isArray(modules)) return [];
+  return modules.flatMap((item) => {
+    if (typeof item !== "object" || item === null) return [];
+    const module = item as {
+      readonly moduleId?: unknown;
+      readonly version?: unknown;
+      readonly packageSourceKind?: unknown;
+    };
+    if (
+      typeof module.moduleId !== "string" ||
+      typeof module.version !== "string" ||
+      (module.packageSourceKind !== "built-in" &&
+        module.packageSourceKind !== "user-file" &&
+        module.packageSourceKind !== "generated-local")
+    )
+      return [];
+    return [
+      {
+        moduleId: module.moduleId,
+        version: module.version,
+        packageSourceKind: module.packageSourceKind,
+      },
+    ];
+  });
 }
 
 export function App({
@@ -173,6 +230,8 @@ export function App({
   fragmentWorkflowLoader = loadFragmentWorkflowDefault,
   projectWorkflowLoader = loadProjectWorkflowDefault,
   packageRepository,
+  extractorCatalogLoader = loadExtractorCatalogDefault,
+  createValidationLoader = loadCreateValidationDefault,
 }: Props = {}) {
   const { t } = useTranslation();
   const repositoryHolder = useMemo(() => {
@@ -186,6 +245,10 @@ export function App({
     return { repository: owned, owned };
   }, [repositoryFactory, suppliedRepository]);
   const repository = repositoryHolder.repository;
+  const saveTarget = useMemo(
+    () => new ProjectSaveCoordinator(repository),
+    [repository],
+  );
   const [store, setStore] = useState<EditorStore | null>(null);
   const [loading, setLoading] = useState(true);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -195,6 +258,9 @@ export function App({
   const fileOperation = useRef(0);
   const importQueue = useRef<Promise<void>>(Promise.resolve());
   const ownedCloseTokens = useRef(new Map<OwnedAppRepository, symbol>());
+  const resourceCloseTokens = useRef(
+    new Map<ProjectModuleResourceRuntime, symbol>(),
+  );
   const [sameIdConflict, setSameIdConflict] = useState<{
     context: SameProjectIdContext;
     confirmingReplace: boolean;
@@ -218,18 +284,42 @@ export function App({
     presetAvailability: new Map(),
   });
   const [packageSettingsOpen, setPackageSettingsOpen] = useState(false);
+  const [packageReferenceDocument, setPackageReferenceDocument] =
+    useState<ProjectV1Document | null>(null);
   const [packageBusy, setPackageBusy] = useState(false);
   const [packageErrorKey, setPackageErrorKey] = useState<string | null>(null);
+  const [extractorCatalog, setExtractorCatalog] = useState<{
+    readonly status: "loading" | "ready" | "error";
+    readonly release: ExtractorRelease | null;
+  }>({ status: "loading", release: null });
+  const extractorCatalogOperation = useRef(0);
   const createInFlight = useRef(false);
   const [createBusy, setCreateBusy] = useState(false);
+  const projectResourcePackages = useMemo(() => {
+    const exactModules = new Set(
+      projectModules(store?.state ?? null).map(
+        (item) => `${item.moduleId}@${item.version}`,
+      ),
+    );
+    return packageCatalog.packages.filter(
+      (item): item is ParsedModulePackage =>
+        item.kind === "module" &&
+        exactModules.has(`${item.artifactId}@${item.version}`),
+    );
+  }, [packageCatalog.packages, store]);
+  const projectModuleResourceRuntime = useMemo(
+    () => new ProjectModuleResourceRuntime(projectResourcePackages),
+    [projectResourcePackages],
+  );
 
   const refreshPackages = useCallback(
     async (rehydrateCurrent: boolean) => {
       if (packageRepository === undefined) return;
-      const [workflow, media, runtime] = await Promise.all([
+      const [workflow, media, runtime, moduleSession] = await Promise.all([
         import("./local-package-workflow.js"),
         import("./package-media-decoder.js"),
         import("./package-project-runtime.js"),
+        import("./active-project-module-session.js"),
       ]);
       const catalog = await workflow.loadInstalledPackageCatalog(
         packageRepository,
@@ -249,6 +339,10 @@ export function App({
             currentAppVersion: TESSERA_APP_VERSION,
             moduleResolutionMode: "tolerant",
           },
+        );
+        moduleSession.validateActiveProjectModuleInstances(
+          new EditorStore(restored),
+          catalog.packages,
         );
         if (mounted.current) setStore(new EditorStore(restored));
       }
@@ -298,6 +392,20 @@ export function App({
   }, [repositoryHolder]);
 
   useEffect(() => {
+    const closeTokens = resourceCloseTokens.current;
+    const token = Symbol("project-module-resource-runtime-lifetime");
+    closeTokens.set(projectModuleResourceRuntime, token);
+    return () => {
+      // 等 Editor 的 Pixi Texture 先释放 GPU 引用，再一次关闭 ImageBitmap/FontFace。
+      queueMicrotask(() => {
+        if (closeTokens.get(projectModuleResourceRuntime) !== token) return;
+        closeTokens.delete(projectModuleResourceRuntime);
+        projectModuleResourceRuntime.dispose();
+      });
+    };
+  }, [projectModuleResourceRuntime]);
+
+  useEffect(() => {
     let active = true;
     mounted.current = true;
     repository.setModuleResolutionProvider?.(() => ({
@@ -308,6 +416,7 @@ export function App({
       moduleResolutionMode: "tolerant",
     }));
     void (async () => {
+      let validationPackages: readonly ParsedExtensionPackage[] = [];
       if (packageRepository !== undefined) {
         try {
           const [workflow, media, runtime] = await Promise.all([
@@ -323,12 +432,22 @@ export function App({
           moduleResolverRef.current = runtime.createInstalledModuleResolver(
             catalog.packages,
           );
+          validationPackages = catalog.packages;
           if (active) setPackageCatalog(catalogState);
         } catch {
           if (active) setPackageErrorKey("package.error.recovery");
         }
       }
-      return repository.loadLatest();
+      const project = await repository.loadLatest();
+      if (project !== null) {
+        const moduleSession =
+          await import("./active-project-module-session.js");
+        moduleSession.validateActiveProjectModuleInstances(
+          new EditorStore(project),
+          validationPackages,
+        );
+      }
+      return project;
     })()
       .then((project) => {
         if (!active) return;
@@ -349,6 +468,63 @@ export function App({
     };
   }, [packageRepository, repository]);
 
+  useEffect(() => {
+    if (!packageSettingsOpen) return;
+    const operation = extractorCatalogOperation.current + 1;
+    extractorCatalogOperation.current = operation;
+    const controller = new AbortController();
+    const installedVersions = new Set(
+      packageCatalog.entries
+        .filter(
+          (entry) =>
+            entry.registration.identity.kind === "module" &&
+            entry.registration.identity.artifactId === "tessera.civ6",
+        )
+        .map((entry) => entry.registration.identity.version),
+    );
+    setExtractorCatalog({ status: "loading", release: null });
+    void extractorCatalogLoader(controller.signal, installedVersions).then(
+      (release) => {
+        if (
+          !mounted.current ||
+          controller.signal.aborted ||
+          extractorCatalogOperation.current !== operation
+        )
+          return;
+        setExtractorCatalog({ status: "ready", release });
+      },
+      () => {
+        if (
+          !mounted.current ||
+          controller.signal.aborted ||
+          extractorCatalogOperation.current !== operation
+        )
+          return;
+        setExtractorCatalog({ status: "error", release: null });
+      },
+    );
+    return () => controller.abort();
+  }, [extractorCatalogLoader, packageCatalog.entries, packageSettingsOpen]);
+
+  useEffect(() => {
+    if (!packageSettingsOpen || store === null) {
+      setPackageReferenceDocument(null);
+      return;
+    }
+    setPackageReferenceDocument(null);
+    let current = true;
+    void import("@tessera/formats").then(({ toProjectV1 }) => {
+      if (current && mounted.current) {
+        setPackageReferenceDocument(
+          toProjectV1(store.state, { mode: "preserve" }),
+        );
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [packageSettingsOpen, store]);
+
   const create = async (
     project: ProjectState,
     packageSelection?: {
@@ -357,6 +533,7 @@ export function App({
     },
   ) => {
     if (createInFlight.current) return;
+    const previousState = store?.state ?? null;
     createInFlight.current = true;
     setCreateBusy(true);
     let configured = project;
@@ -405,12 +582,32 @@ export function App({
       if (mounted.current) setCreateBusy(false);
       return;
     }
-    const next = new EditorStore(configured);
+    let next: EditorStore;
+    try {
+      next = new EditorStore(configured);
+      const moduleSession = await createValidationLoader();
+      moduleSession.validateActiveProjectModuleInstances(
+        next,
+        packageCatalog.packages,
+      );
+    } catch {
+      // 候选构造或严格验证失败时，保留当前工程且绝不进入保存队列。
+      if (mounted.current) setFileErrorKey("error.projectCreateFailed");
+      createInFlight.current = false;
+      if (mounted.current) setCreateBusy(false);
+      return;
+    }
     setStore(next);
     setNewProjectOpen(false);
     setStartupErrorKey(null);
     setFileErrorKey(null);
-    void repository
+    const createSaveTarget =
+      previousState === null
+        ? saveTarget
+        : saveTarget.replacementTarget(previousState, {
+            candidateIncludesPrevious: false,
+          });
+    void createSaveTarget
       .save(next.state)
       .catch(() => {
         if (!mounted.current) return;
@@ -468,6 +665,55 @@ export function App({
     }
   };
 
+  const changeProjectModule = async (
+    registration: LocalPackageRegistration,
+    enabled: boolean,
+  ) => {
+    if (
+      store === null ||
+      packageBusy ||
+      registration.identity.kind !== "module"
+    )
+      return;
+    setPackageBusy(true);
+    setPackageErrorKey(null);
+    try {
+      const [workflow, moduleSession] = await Promise.all([
+        import("./project-module-settings-workflow.js"),
+        import("./active-project-module-session.js"),
+      ]);
+      const nextStore = await workflow.commitProjectModuleChange(
+        store.state,
+        packageCatalog.packages,
+        {
+          moduleId: registration.identity.artifactId,
+          version: registration.identity.version,
+          enabled,
+        },
+        TESSERA_APP_VERSION,
+        saveTarget.replacementTarget(store.state, {
+          candidateIncludesPrevious: true,
+        }),
+        (candidate) =>
+          moduleSession.validateActiveProjectModuleInstances(
+            new EditorStore(candidate),
+            packageCatalog.packages,
+          ),
+      );
+      if (mounted.current) setStore(nextStore);
+    } catch {
+      if (mounted.current) {
+        setPackageErrorKey(
+          enabled
+            ? "package.error.moduleEnable"
+            : "package.error.moduleDisable",
+        );
+      }
+    } finally {
+      if (mounted.current) setPackageBusy(false);
+    }
+  };
+
   const openFile = async (file: File) => {
     const operation = fileOperation.current + 1;
     fileOperation.current = operation;
@@ -480,18 +726,31 @@ export function App({
       if (!mounted.current || fileOperation.current !== operation) {
         return { status: "cancelled" as const };
       }
-      const workflow = await loadWorkflow();
+      const [workflow, moduleSession] = await Promise.all([
+        loadWorkflow(),
+        import("./active-project-module-session.js"),
+      ]);
       return workflow.importProjectFile(
         {
           file,
           currentProjectId: store?.state.projectId ?? null,
-          repository,
+          repository:
+            store === null
+              ? saveTarget
+              : saveTarget.replacementTarget(store.state, {
+                  candidateIncludesPrevious: false,
+                }),
           decideSameProjectId: decideSameProjectId ?? requestSameIdDecision,
           ...(moduleResolverRef.current === undefined
             ? {}
             : { moduleResolver: moduleResolverRef.current }),
         },
         {
+          validateState: (candidate) =>
+            moduleSession.validateActiveProjectModuleInstances(
+              new EditorStore(candidate),
+              packageCatalog.packages,
+            ),
           beforeSave: () =>
             mounted.current && fileOperation.current === operation,
         },
@@ -630,7 +889,7 @@ export function App({
   };
 
   const confirmFragmentMerge = async () => {
-    if (fragmentMerge === null) return;
+    if (fragmentMerge === null || store === null) return;
     const operation = fileOperation.current;
     setFragmentBusy(true);
     setFragmentErrorKey(null);
@@ -638,7 +897,9 @@ export function App({
       const workflow = await fragmentWorkflowLoader();
       const nextStore = await workflow.commitFragmentMerge(
         fragmentMerge,
-        repository,
+        saveTarget.replacementTarget(store.state, {
+          candidateIncludesPrevious: true,
+        }),
         moduleResolverRef.current,
       );
       if (!mounted.current || fileOperation.current !== operation) return;
@@ -660,8 +921,60 @@ export function App({
     }
   };
 
-  const currentDependencies = projectModuleIdentityKeys(store?.state ?? null);
-  const packageDialogItems = packageCatalog.entries.map((entry) => {
+  const currentModules = projectModules(store?.state ?? null);
+  const currentDependencies = new Set(
+    currentModules.map(
+      (module) => `module:${module.moduleId}@${module.version}`,
+    ),
+  );
+  const registeredIdentities = new Set(
+    packageCatalog.entries.map(
+      (entry) =>
+        `${entry.registration.identity.kind}:${entry.registration.identity.artifactId}@${entry.registration.identity.version}`,
+    ),
+  );
+  const missingEntries: (PackageCatalogState["entries"][number] & {
+    readonly canDeleteLocalPackage: boolean;
+    readonly missingPlaceholder: boolean;
+  })[] = currentModules
+    .filter(
+      (module) =>
+        module.moduleId !== "tessera.basic" &&
+        !registeredIdentities.has(
+          `module:${module.moduleId}@${module.version}`,
+        ),
+    )
+    .map((module) => ({
+      registration: {
+        identity: {
+          kind: "module",
+          artifactId: module.moduleId,
+          version: module.version,
+        },
+        sourceKind:
+          module.packageSourceKind === "user-file"
+            ? "user-file"
+            : "generated-local",
+        package: null,
+        status: "corrupted",
+        reasonCode: null,
+      },
+      parsed: null,
+      statusKey: "package.status.missing",
+      displayName: module.moduleId,
+      sourceDetails: [],
+      canDeleteLocalPackage: false,
+      missingPlaceholder: true,
+    }));
+  const packageDialogEntries = [
+    ...packageCatalog.entries.map((entry) => ({
+      ...entry,
+      canDeleteLocalPackage: true,
+      missingPlaceholder: false,
+    })),
+    ...missingEntries,
+  ];
+  const packageDialogItems = packageDialogEntries.map((entry) => {
     const gridSupported =
       store === null ||
       entry.parsed === null ||
@@ -669,22 +982,65 @@ export function App({
         ? entry.parsed.manifest.supportedGrids
         : entry.parsed.manifest.grid.supportedGrids
       ).includes(store.state.grid.type);
+    const projectEnabled = currentDependencies.has(
+      `module:${entry.registration.identity.artifactId}@${entry.registration.identity.version}`,
+    );
     return {
       ...entry,
       statusKey: gridSupported
         ? entry.statusKey
         : "package.status.incompatible",
-      currentDependency: currentDependencies.has(
-        `module:${entry.registration.identity.artifactId}@${entry.registration.identity.version}`,
-      ),
-      reasonKey:
-        entry.registration.reasonCode === "local-package-not-ready"
+      projectEnabled,
+      canDeleteLocalPackage: entry.canDeleteLocalPackage,
+      canToggleProjectModule:
+        entry.registration.identity.kind === "module" &&
+        (projectEnabled
+          ? packageReferenceDocument !== null
+          : entry.parsed?.kind === "module" &&
+            gridSupported &&
+            entry.statusKey === "package.status.ready"),
+      referenceCount:
+        packageReferenceDocument === null ||
+        entry.registration.identity.kind !== "module"
+          ? 0
+          : countProjectModuleObjectReferences(
+              packageReferenceDocument,
+              entry.registration.identity.artifactId,
+              entry.registration.identity.version,
+            ),
+      reasonKey: entry.missingPlaceholder
+        ? "package.reason.missing"
+        : entry.registration.reasonCode === "local-package-not-ready"
           ? "package.reason.notReady"
           : entry.registration.reasonCode === "local-package-storage-corrupted"
             ? "package.reason.storageCorrupted"
             : null,
     };
   });
+  const civ6Items = packageDialogItems.filter(
+    (item) =>
+      item.canDeleteLocalPackage &&
+      item.registration.identity.kind === "module" &&
+      item.registration.identity.artifactId === "tessera.civ6",
+  );
+  const readyCiv6Items = civ6Items.filter(
+    (item) => item.statusKey === "package.status.ready",
+  );
+  const civ6Versions = (readyCiv6Items.length > 0 ? readyCiv6Items : civ6Items)
+    .map((item) => item.registration.identity.version)
+    .sort();
+  const civ6StatusKey =
+    civ6Items.length === 0
+      ? "package.civ6.status.notInstalled"
+      : readyCiv6Items.length > 0
+        ? "package.civ6.status.installed"
+        : civ6Items.some(
+              (item) =>
+                item.statusKey === "package.status.corrupted" ||
+                item.statusKey === "package.status.pending",
+            )
+          ? "package.civ6.status.corrupted"
+          : "package.civ6.status.incompatible";
   const installedPresets = packageCatalog.packages
     .filter((item) => item.kind === "preset")
     .map((item) => {
@@ -757,9 +1113,24 @@ export function App({
           registrations={packageDialogItems}
           busy={packageBusy}
           errorKey={packageErrorKey}
+          civ6={{
+            statusKey: civ6StatusKey,
+            installedVersions: civ6Versions,
+            catalogStatus: extractorCatalog.status,
+            release: extractorCatalog.release,
+          }}
           onImport={(file) => void importPackage(file)}
+          onEnableModule={(registration) =>
+            void changeProjectModule(registration, true)
+          }
+          onDisableModule={(registration) =>
+            void changeProjectModule(registration, false)
+          }
           onDelete={(registration) => void deletePackage(registration)}
-          onClose={() => setPackageSettingsOpen(false)}
+          onClose={() => {
+            extractorCatalogOperation.current += 1;
+            setPackageSettingsOpen(false);
+          }}
         />
       )}
     </>
@@ -794,7 +1165,9 @@ export function App({
     <>
       <LazyEditorView
         store={store}
-        repository={repository}
+        repository={saveTarget}
+        packages={packageCatalog.packages}
+        resourceRuntime={projectModuleResourceRuntime}
         onNew={() => setNewProjectOpen(true)}
         onOpenFile={openFile}
         onOpenFragmentFile={openFragmentFile}

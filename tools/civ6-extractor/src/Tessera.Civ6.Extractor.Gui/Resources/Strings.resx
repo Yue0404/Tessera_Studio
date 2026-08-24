@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
+  <data name="AppTitle" xml:space="preserve"><value>密铺地图工坊 · 文明 6 资源提取器</value></data>
+  <data name="Intro" xml:space="preserve"><value>本工具只读检查文明 6 正式游戏，并在你选择的位置生成本地 tessera.civ6 模块包。</value></data>
+  <data name="InputGroup" xml:space="preserve"><value>1. 检查正式游戏安装</value></data>
+  <data name="InputPath" xml:space="preserve"><value>游戏安装根目录</value></data>
+  <data name="AutoDetect" xml:space="preserve"><value>自动探测</value></data>
+  <data name="ChooseInput" xml:space="preserve"><value>选择目录…</value></data>
+  <data name="Inspect" xml:space="preserve"><value>检查</value></data>
+  <data name="InspectionGroup" xml:space="preserve"><value>2. 安装与内容状态</value></data>
+  <data name="GameVersion" xml:space="preserve"><value>游戏版本</value></data>
+  <data name="Storefront" xml:space="preserve"><value>发行渠道</value></data>
+  <data name="SupportStatus" xml:space="preserve"><value>支持状态</value></data>
+  <data name="ContentTotal" xml:space="preserve"><value>内容总数</value></data>
+  <data name="Category" xml:space="preserve"><value>类别</value></data>
+  <data name="Count" xml:space="preserve"><value>数量</value></data>
+  <data name="Category_terrain" xml:space="preserve"><value>地形</value></data>
+  <data name="Category_feature" xml:space="preserve"><value>地貌</value></data>
+  <data name="Category_resource" xml:space="preserve"><value>资源</value></data>
+  <data name="Category_improvement" xml:space="preserve"><value>改良设施</value></data>
+  <data name="Category_district" xml:space="preserve"><value>区域</value></data>
+  <data name="Category_route" xml:space="preserve"><value>路线</value></data>
+  <data name="Category_wonder" xml:space="preserve"><value>奇观</value></data>
+  <data name="Category_city" xml:space="preserve"><value>城市核心</value></data>
+  <data name="OutputGroup" xml:space="preserve"><value>3. 选择输出并生成模块包</value></data>
+  <data name="OutputParent" xml:space="preserve"><value>本地输出位置</value></data>
+  <data name="ChooseOutput" xml:space="preserve"><value>选择位置…</value></data>
+  <data name="Generate" xml:space="preserve"><value>生成 tessera.civ6</value></data>
+  <data name="Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="OpenOutput" xml:space="preserve"><value>打开输出目录</value></data>
+  <data name="NotChecked" xml:space="preserve"><value>尚未检查</value></data>
+  <data name="NotSelected" xml:space="preserve"><value>尚未选择</value></data>
+  <data name="StatusIdle" xml:space="preserve"><value>请选择或自动探测正式游戏安装目录。</value></data>
+  <data name="StatusBusy" xml:space="preserve"><value>正在处理，请稍候…</value></data>
+  <data name="StatusReady" xml:space="preserve"><value>检查完成，可以选择输出位置并生成。</value></data>
+  <data name="StatusCompleted" xml:space="preserve"><value>模块包生成完成。</value></data>
+  <data name="StatusCancelled" xml:space="preserve"><value>操作已取消，未发布半成品。</value></data>
+  <data name="VersionSupported" xml:space="preserve"><value>已验证支持</value></data>
+  <data name="VersionCompatibleUnknown" xml:space="preserve"><value>结构兼容，版本未验证</value></data>
+  <data name="StoreSteam" xml:space="preserve"><value>Steam</value></data>
+  <data name="StoreEpic" xml:space="preserve"><value>Epic Games Store</value></data>
+  <data name="StoreMicrosoft" xml:space="preserve"><value>Microsoft Store</value></data>
+  <data name="StoreUnknown" xml:space="preserve"><value>未知渠道</value></data>
+  <data name="SelectGameFolderTitle" xml:space="preserve"><value>选择 Civilization VI 正式游戏安装根目录</value></data>
+  <data name="SelectOutputFolderTitle" xml:space="preserve"><value>选择 tessera.civ6 的本地输出父目录</value></data>
+  <data name="ErrorTitle" xml:space="preserve"><value>无法完成操作</value></data>
+  <data name="ErrorUnknownAction" xml:space="preserve"><value>操作失败，请检查输入后重试。</value></data>
+  <data name="ErrorCodeLine" xml:space="preserve"><value>错误码：{0}</value></data>
+  <data name="ErrorFieldLine" xml:space="preserve"><value>位置/字段：{0}</value></data>
+  <data name="FieldInputDirectory" xml:space="preserve"><value>游戏安装根目录</value></data>
+  <data name="FieldOutputDirectory" xml:space="preserve"><value>本地输出位置</value></data>
+  <data name="FieldModuleVersion" xml:space="preserve"><value>模块版本</value></data>
+  <data name="FieldGeneratorVersion" xml:space="preserve"><value>生成器版本</value></data>
+  <data name="FieldInternalHidden" xml:space="preserve"><value>内部位置（已隐藏）</value></data>
+  <data name="ErrorGameNotFound" xml:space="preserve"><value>未在有界的已知位置找到正式游戏安装。请手动选择安装根目录。</value></data>
+  <data name="ErrorGameBase" xml:space="preserve"><value>所选目录不是完整的文明 6 正式游戏安装，缺少 Base 基线。</value></data>
+  <data name="ErrorExpansion" xml:space="preserve"><value>所选安装缺少 Rise and Fall 或 Gathering Storm 正式扩展基线。</value></data>
+  <data name="ErrorOutputRequired" xml:space="preserve"><value>请先选择本地输出位置。</value></data>
+  <data name="ErrorOverlap" xml:space="preserve"><value>输出位置不能与正式游戏安装目录重叠。</value></data>
+  <data name="ErrorOperationInvalid" xml:space="preserve"><value>所选路径无效，请重新选择可访问的目录。</value></data>
+  <data name="ErrorOpenOutput" xml:space="preserve"><value>无法打开输出目录。</value></data>
+  <data name="ProgressChecking" xml:space="preserve"><value>正在检查正式游戏安装…</value></data>
+  <data name="ProgressScanning" xml:space="preserve"><value>正在读取内容目录…</value></data>
+  <data name="ProgressStrategic" xml:space="preserve"><value>正在提取战略视图资源…</value></data>
+  <data name="ProgressIcons" xml:space="preserve"><value>正在提取可验证的界面图标…</value></data>
+  <data name="ProgressWriting" xml:space="preserve"><value>正在原子写入模块包…</value></data>
+  <data name="ProgressValidating" xml:space="preserve"><value>正在验证生成的模块包…</value></data>
+  <data name="ProgressArchive" xml:space="preserve"><value>正在生成网站可导入的模块归档…</value></data>
+  <data name="ErrorWindowsRequired" xml:space="preserve"><value>此提取器只能在 64 位 Windows 11 24H2 或更高版本上运行。</value></data>
+  <data name="ErrorWindowsBuildUnsupported" xml:space="preserve"><value>当前 Windows 版本不受支持。最低需要系统内部版本 {0}，检测到 {1}。</value></data>
+</root>
