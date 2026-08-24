@@ -75,6 +75,8 @@ Microsoft 官方 Edge Enterprise API 提供上一主版本 `150.0.4078.144` 的 
 
 首次 A/B run [32700237225](https://github.com/Yue0404/Tessera_Studio/actions/runs/32700237225) 的 Edge 151 独立用例为 5/6 通过，长生命周期哨兵 3/3 通过；`data-workflow` 在 Windows Server 2022 + SwiftShader 上耗尽 90 秒测试总时限，`setInputFiles` 因 test ended 被取消，期间 pageerror、console error 与 unhandled rejection 均为空。旧工作流随后错误继承 pnpm 非零退出码并跳过 Edge 150，汇总又因跨行 `>>` 触发 PowerShell `Missing file specification`；因此该 run 只证明 Edge 151 的其余代表路径，不构成版本 A/B 结论。诊断现将每用例测试总时限提高到 180 秒、单动作与导航仍限制为 30 秒，并确保两阶段完成身份检查后由最终汇总统一裁决；修订后的首次 A/B run 仍待执行，COMPAT-001 阻塞不变。
 
+第二次 A/B run [32702840670](https://github.com/Yue0404/Tessera_Studio/actions/runs/32702840670) 已完整执行两个版本：Edge 151 与 Edge 150 的其余独立用例均为 5/5 通过，长生命周期哨兵均为 3/3 通过；两者唯一失败仍是 `data-workflow`。Edge 151 在 112.66 秒后失败于等待 `input[accept=".tessera-project.json"]` 的 30 秒动作上限，Edge 150 在 152.62 秒后失败于导入后等待地图画布可见的 30 秒上限；两侧 pageerror、console error 与 unhandled rejection 均为空。最后一次有界复测仅把该用例总时限设为 300 秒：设计隐藏的导入 input 只等待附着最多 90 秒，导入后的 loading 隐藏与地图画布可见各等待最多 90 秒；全局动作/导航 30 秒与 job 45 分钟门禁保持不变。若该次仍失败，则判定 GitHub-hosted Windows Server 2022 + SwiftShader 不适合作为此流程的验收环境，不再继续加时；COMPAT-001 仍不据此关闭。
+
 可选 Civ6 提取器已在 Windows 11 专业工作站版 25H2 x64（build 26200.9168）完成无系统 `dotnet` 的自包含 GUI、ZIP 闭包和禁止资产审计；该结果满足 24H2+（build 26100+）目标机下限，完整记录见 [Civ6 Windows 目标机证据](./CIV6_WINDOWS_EVIDENCE.zh-CN.md)。它不替代仍未发布的正式 Release/catalog。
 
 ## 仍未闭合

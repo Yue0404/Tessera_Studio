@@ -193,6 +193,43 @@ test("Edge 诊断总预算留足余量且单动作与导航仍有独立上限", 
   assert.match(config, /navigationTimeout:\s*30_000/u);
 });
 
+test("data-workflow 只等待隐藏input附着，导入后两个就绪事实各90秒", async () => {
+  const diagnosticSpec = await readFile(
+    new URL(
+      "../tests/edge-diagnostic/edge-browser-diagnostic.spec.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const dataStart = diagnosticSpec.indexOf("[edge-diag:data-workflow]");
+  const nextTest = diagnosticSpec.indexOf("[edge-diag:zoom-hit]", dataStart);
+  const dataWorkflow = diagnosticSpec.slice(dataStart, nextTest);
+  assert.equal(
+    diagnosticSpec.match(/test\.setTimeout\(300_000\)/gu)?.length,
+    1,
+  );
+  assert.match(dataWorkflow, /test\.setTimeout\(300_000\)/u);
+  assert.match(
+    dataWorkflow,
+    /importInput\.waitFor\(\{ state: "attached", timeout: 90_000 \}\)/u,
+  );
+  assert.doesNotMatch(
+    dataWorkflow,
+    /importInput\.waitFor\(\{ state: "visible"/u,
+  );
+  const importedReady = diagnosticSpec.slice(
+    diagnosticSpec.indexOf("async function waitForImportedEditorReady"),
+    diagnosticSpec.indexOf("[edge-diag:baseline]"),
+  );
+  assert.equal(importedReady.match(/timeout: 90_000/gu)?.length, 2);
+
+  const workflow = await readFile(
+    new URL("../.github/workflows/edge-previous-major.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(workflow, /timeout-minutes:\s*45/u);
+});
+
 test("跨 context 下载使用本用例持久路径且手册锁定真实 run 地址", async () => {
   const diagnosticSpec = await readFile(
     new URL(

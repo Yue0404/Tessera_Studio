@@ -138,6 +138,18 @@ async function createSquareProject(
   await waitForEditorReady(page);
 }
 
+async function waitForImportedEditorReady(page: Page): Promise<void> {
+  // Windows hosted runner 首次编译导入后的编辑器 chunk 明显慢于普通动作；
+  // 只为该诊断边界放宽就绪等待，不改变其它用例的全局动作上限。
+  await page
+    .getByRole("status")
+    .filter({ hasText: "正在加载编辑器" })
+    .waitFor({ state: "hidden", timeout: 90_000 });
+  await expect(page.getByLabel("地图编辑画布")).toBeVisible({
+    timeout: 90_000,
+  });
+}
+
 test("[edge-diag:baseline] 编辑器与 WebGL 基线可用", async ({
   page,
   browser,
@@ -156,6 +168,7 @@ test("[edge-diag:data-workflow] Project 下载后可在新上下文导入", asyn
   browser,
   diagnostic,
 }, testInfo) => {
+  test.setTimeout(300_000);
   await createSquareProject(page, "Edge 数据工作流");
   await page.getByRole("button", { name: "画刷" }).click();
   await page.getByLabel("地图编辑画布").click({
@@ -177,10 +190,12 @@ test("[edge-diag:data-workflow] Project 下载后可在新上下文导入", asyn
     const importedPage = await context.newPage();
     await diagnostic.observe(importedPage);
     await importedPage.goto("/");
-    await importedPage
-      .locator('input[accept=".tessera-project.json"]')
-      .setInputFiles(downloadPath);
-    await waitForEditorReady(importedPage);
+    const importInput = importedPage.locator(
+      'input[accept=".tessera-project.json"]',
+    );
+    await importInput.waitFor({ state: "attached", timeout: 90_000 });
+    await importInput.setInputFiles(downloadPath);
+    await waitForImportedEditorReady(importedPage);
     await expect(importedPage.getByTestId("cell-count")).toContainText("1");
   } finally {
     await context.close();
