@@ -7,6 +7,7 @@
   "required": [
     "profile",
     "generatedAt",
+    "versionScope",
     "environment",
     "coverage",
     "runs",
@@ -14,6 +15,9 @@
   ],
   "properties": {
     "profile": { "const": "support-matrix-v1" },
+    "versionScope": {
+      "enum": ["current", "previous", "supplemental"]
+    },
     "generatedAt": { "type": "string", "format": "date-time" },
     "environment": {
       "type": "object",
@@ -110,7 +114,7 @@
       "additionalProperties": false,
       "required": ["status", "reason", "automation"],
       "properties": {
-        "status": { "const": "not-tested" },
+        "status": { "enum": ["tested", "not-tested"] },
         "reason": { "type": "string", "minLength": 1 },
         "automation": { "type": "string", "minLength": 1 }
       }

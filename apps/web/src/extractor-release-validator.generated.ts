@@ -47,7 +47,7 @@ const schema46 = {
           },
           os: { const: "windows" },
           arch: { const: "x64" },
-          minOsBuild: { type: "integer", minimum: 19045 },
+          minOsBuild: { type: "integer", minimum: 26100 },
           artifactType: { const: "portable-zip" },
           entrypoint: { const: "TesseraCiv6Extractor.exe" },
           bytes: { type: "integer", minimum: 1, maximum: 9007199254740991 },
@@ -79,8 +79,8 @@ const pattern6 = new RegExp(
   "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
   "u",
 );
-const pattern166 = new RegExp("^[0-9a-f]{64}$", "u");
-const pattern169 = new RegExp(
+const pattern165 = new RegExp("^[0-9a-f]{64}$", "u");
+const pattern168 = new RegExp(
   "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[^/?#]+/[^/?#]+\\.zip$",
   "u",
 );
@@ -528,15 +528,15 @@ function validate39(
                 errors++;
               }
               if (typeof data7 == "number") {
-                if (data7 < 19045 || isNaN(data7)) {
+                if (data7 < 26100 || isNaN(data7)) {
                   const err25 = {
                     instancePath:
                       instancePath + "/releases/" + i0 + "/minOsBuild",
                     schemaPath:
                       "#/properties/releases/items/properties/minOsBuild/minimum",
                     keyword: "minimum",
-                    params: { comparison: ">=", limit: 19045 },
-                    message: "must be >= 19045",
+                    params: { comparison: ">=", limit: 26100 },
+                    message: "must be >= 26100",
                   };
                   if (vErrors === null) {
                     vErrors = [err25];
@@ -645,7 +645,7 @@ function validate39(
             if (data2.sha256 !== undefined) {
               let data11 = data2.sha256;
               if (typeof data11 === "string") {
-                if (!pattern166.test(data11)) {
+                if (!pattern165.test(data11)) {
                   const err31 = {
                     instancePath: instancePath + "/releases/" + i0 + "/sha256",
                     schemaPath:
@@ -805,7 +805,7 @@ function validate39(
                   }
                   errors++;
                 }
-                if (!pattern169.test(data15)) {
+                if (!pattern168.test(data15)) {
                   const err39 = {
                     instancePath:
                       instancePath + "/releases/" + i0 + "/assetUrl",

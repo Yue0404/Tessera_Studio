@@ -5,9 +5,10 @@ import {
   edgeIdentity,
   edgeSegment,
   EditorStore,
+  type FixedLayerState,
   visibleCells,
 } from "@tessera/core";
-import { hitTestProjectObject } from "./project-hit-test.js";
+import { hitTestProjectObject, topmostProjectHit } from "./project-hit-test.js";
 
 function store() {
   return new EditorStore(
@@ -77,5 +78,256 @@ describe("固定图层直接命中", () => {
         cell,
       ),
     ).toEqual({ kind: "overlay", id: overlayId });
+  });
+
+  it("reference-only 结构边不会伪装成基础边命中", () => {
+    const edgeStore = store();
+    const cell = visibleCells(edgeStore.state.grid, 640, 640).find(
+      (item) => item.row === 2 && item.column === 2,
+    );
+    if (cell === undefined) throw new Error("missing-cell");
+    const identity = edgeIdentity(edgeStore.state.grid, cell, 1);
+    edgeStore.state.edges.ensure({
+      instanceId: `tessera.structure-edge:${identity.edgeId}`,
+      edgeId: identity.edgeId,
+      adjacentCellIds: identity.adjacentCellIds,
+      strokeColor: edgeStore.state.style.defaultEdgeColor,
+      strokeWidth: 2,
+      strokeOpacity: 1,
+      lineStyle: "solid",
+      persistence: "reference-only",
+    });
+    const segment = edgeSegment(
+      edgeStore.state.grid,
+      identity.edgeId,
+      identity.adjacentCellIds,
+    );
+    if (segment === undefined) throw new Error("missing-segment");
+    const midpoint = {
+      x: (segment[0].x + segment[1].x) / 2,
+      y: (segment[0].y + segment[1].y) / 2,
+    };
+
+    expect(hitTestProjectObject(edgeStore.state, midpoint, cell)).toEqual({
+      kind: "cell",
+      id: cell.cellId,
+    });
+  });
+
+  it.each(["line", "arrow"] as const)(
+    "%s 显示时优先命中连接，隐藏后跨 zoom 稳定命中其引用的显式边",
+    (kind) => {
+      const editor = store();
+      const cell = visibleCells(editor.state.grid, 640, 640).find(
+        (item) => item.row === 2 && item.column === 2,
+      );
+      if (cell === undefined) throw new Error("missing-cell");
+      const identity = edgeIdentity(editor.state.grid, cell, 1);
+      editor.paintEdge(identity.edgeId, identity.adjacentCellIds, "#FFFFFFFF");
+      const segment = edgeSegment(
+        editor.state.grid,
+        identity.edgeId,
+        identity.adjacentCellIds,
+      );
+      if (segment === undefined) throw new Error("missing-segment");
+      const midpoint = {
+        x: (segment[0].x + segment[1].x) / 2,
+        y: (segment[0].y + segment[1].y) / 2,
+      };
+      const connectionId = editor.createConnection(
+        { kind: "map-point", point: segment[0] },
+        { kind: "map-point", point: segment[1] },
+        kind,
+      );
+      const connectionLayer = editor.state.layers.get(
+        "tessera.basic.connection",
+      );
+      if (connectionLayer === undefined)
+        throw new Error("connection-layer-missing");
+
+      for (const zoom of [0.25, 1, 4]) {
+        (editor.state.layers as Map<string, FixedLayerState>).set(
+          connectionLayer.layerId,
+          { ...connectionLayer, visible: true },
+        );
+        expect(
+          hitTestProjectObject(editor.state, midpoint, cell, zoom),
+        ).toEqual({
+          kind: "connection",
+          id: connectionId,
+        });
+        (editor.state.layers as Map<string, FixedLayerState>).set(
+          connectionLayer.layerId,
+          { ...connectionLayer, visible: false },
+        );
+        expect(
+          hitTestProjectObject(editor.state, midpoint, cell, zoom),
+        ).toEqual({
+          kind: "edge",
+          id: identity.edgeId,
+        });
+      }
+    },
+  );
+
+  it("基础与 generic 重叠时按全局图层 zIndex 选择最上层对象", () => {
+    const editor = store();
+    const cell = visibleCells(editor.state.grid, 640, 640).find(
+      (item) => item.row === 2 && item.column === 2,
+    );
+    if (cell === undefined) throw new Error("missing-cell");
+    const layerId = "example.weather.surface";
+    (editor.state.layers as Map<string, FixedLayerState>).set(layerId, {
+      layerId,
+      moduleVersion: "1.0.0",
+      zIndex: 100,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      allowedKinds: ["cell"],
+      runtimeStatus: "available",
+    });
+    editor.state.moduleInstances.add({
+      kind: "cell",
+      instanceId: "generic-cell",
+      elementId: "example.weather:cell.rain",
+      layerId,
+      cellId: cell.cellId,
+      attributes: {},
+      styleOverrides: {},
+      extensions: {},
+      runtimeStatus: "available",
+    });
+    const basic = { kind: "cell" as const, id: cell.cellId };
+    expect(topmostProjectHit(editor.state, basic, "generic-cell")).toEqual(
+      basic,
+    );
+
+    const sameZLayer = editor.state.layers.get(layerId);
+    if (sameZLayer === undefined) throw new Error("generic-layer-missing");
+    (editor.state.layers as Map<string, FixedLayerState>).set(layerId, {
+      ...sameZLayer,
+      zIndex: 500,
+    });
+    expect(topmostProjectHit(editor.state, basic, "generic-cell")).toEqual(
+      basic,
+    );
+
+    const upperSameZLayerId = "zzz.weather.surface";
+    (editor.state.layers as Map<string, FixedLayerState>).set(
+      upperSameZLayerId,
+      { ...sameZLayer, layerId: upperSameZLayerId, zIndex: 500 },
+    );
+    const generic = editor.state.moduleInstances.get("generic-cell");
+    if (generic === undefined || generic.kind !== "cell")
+      throw new Error("generic-instance-missing");
+    editor.state.moduleInstances.replace({
+      ...generic,
+      layerId: upperSameZLayerId,
+    });
+    expect(topmostProjectHit(editor.state, basic, "generic-cell")).toEqual({
+      kind: "module-instance",
+      id: "generic-cell",
+    });
+
+    const lowerLayer = editor.state.layers.get(upperSameZLayerId);
+    if (lowerLayer === undefined) throw new Error("generic-layer-missing");
+    (editor.state.layers as Map<string, FixedLayerState>).set(
+      upperSameZLayerId,
+      {
+        ...lowerLayer,
+        zIndex: 800,
+      },
+    );
+    expect(topmostProjectHit(editor.state, basic, "generic-cell")).toEqual({
+      kind: "module-instance",
+      id: "generic-cell",
+    });
+  });
+
+  it("基础候选跨类型按图层和层内稳定顺序选择", () => {
+    const editor = store();
+    const point = { x: 96, y: 96 };
+    const first = editor.placeMarker(point);
+    const second = editor.placeMarker(point);
+    const firstOverlay = editor.state.overlays.get(first);
+    const secondOverlay = editor.state.overlays.get(second);
+    if (firstOverlay === undefined || secondOverlay === undefined)
+      throw new Error("overlay-missing");
+    editor.state.overlays.replace({ ...firstOverlay, orderInLayer: 1 });
+    editor.state.overlays.replace({ ...secondOverlay, orderInLayer: 2 });
+    expect(hitTestProjectObject(editor.state, point, undefined)).toEqual({
+      kind: "overlay",
+      id: second,
+    });
+
+    editor.state.overlays.replace({ ...firstOverlay, orderInLayer: 2 });
+    expect(hitTestProjectObject(editor.state, point, undefined)).toEqual({
+      kind: "overlay",
+      id: [first, second].sort().at(-1),
+    });
+
+    const connectionId = editor.createConnection(
+      { kind: "map-point", point: { x: 32, y: 96 } },
+      { kind: "map-point", point: { x: 160, y: 96 } },
+      "line",
+    );
+    expect(hitTestProjectObject(editor.state, point, undefined)).toEqual({
+      kind: "connection",
+      id: connectionId,
+    });
+  });
+
+  it("基础 marker 与 text 命中遵守跨 zoom 的 CSS 尺寸钳制", () => {
+    const markerStore = store();
+    const markerId = markerStore.placeMarker({ x: 100, y: 100 });
+    const marker = markerStore.state.overlays.get(markerId);
+    if (marker === undefined || marker.overlayType !== "marker")
+      throw new Error("marker-missing");
+    markerStore.state.overlays.replace({
+      ...marker,
+      style: { ...marker.style, size: 1 },
+    });
+    expect(
+      hitTestProjectObject(
+        markerStore.state,
+        { x: 130, y: 100 },
+        undefined,
+        0.1,
+      ),
+    ).toEqual({ kind: "overlay", id: markerId });
+    markerStore.state.overlays.replace({
+      ...marker,
+      style: { ...marker.style, size: 10_000 },
+    });
+    expect(
+      hitTestProjectObject(markerStore.state, { x: 220, y: 100 }, undefined, 1),
+    ).toEqual({ kind: "overlay", id: markerId });
+    expect(
+      hitTestProjectObject(
+        markerStore.state,
+        { x: 120, y: 100 },
+        undefined,
+        10,
+      ),
+    ).toBeNull();
+
+    const textStore = store();
+    const textId = textStore.placeText({ x: 300, y: 100 }, "可读文字", {
+      fontSize: 1,
+    });
+    expect(
+      hitTestProjectObject(textStore.state, { x: 350, y: 100 }, undefined, 0.1),
+    ).toEqual({ kind: "overlay", id: textId });
+    const text = textStore.state.overlays.get(textId);
+    if (text === undefined || text.overlayType !== "text")
+      throw new Error("text-missing");
+    textStore.state.overlays.replace({
+      ...text,
+      style: { ...text.style, fontSize: 10_000 },
+    });
+    expect(
+      hitTestProjectObject(textStore.state, { x: 320, y: 100 }, undefined, 10),
+    ).toBeNull();
   });
 });

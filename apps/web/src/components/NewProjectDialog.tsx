@@ -8,6 +8,7 @@ import {
 } from "@tessera/module-runtime";
 import { createProject, type GridType, type ProjectState } from "@tessera/core";
 import type { InstalledPresetAvailability } from "../package-project-runtime.js";
+import { ProjectGridPreview } from "./ProjectGridPreview.js";
 import styles from "./NewProjectDialog.module.css";
 
 interface Props {
@@ -319,6 +320,17 @@ export function NewProjectDialog({
                 </label>
               </div>
             </section>
+            <ProjectGridPreview
+              gridType={gridType}
+              width={Number(width) || 1}
+              height={Number(height) || 1}
+              cellSize={Number(cellSize) || 36}
+              background={background}
+              cellColor={cellColor}
+              gridColor={gridColor}
+              gridOpacity={Number(gridOpacity) || 0.7}
+              gridWidth={Number(gridWidth) || 1}
+            />
           </div>
           <section className={styles.packages}>
             <h2>{t("new.packages")}</h2>

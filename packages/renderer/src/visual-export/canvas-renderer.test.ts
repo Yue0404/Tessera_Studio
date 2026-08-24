@@ -62,8 +62,11 @@ describe("Canvas2D 视觉图元绘制", () => {
       strokeWidth: 2,
       opacity: 1,
       lineStyle: "dashed",
+      dashPattern: [3, 5],
+      lineCap: "square",
     });
-    expect(context.setLineDash).toHaveBeenCalledWith([8, 6]);
+    expect(context.setLineDash).toHaveBeenCalledWith([3, 5]);
+    expect(context.lineCap).toBe("square");
     expect(context.lineDashOffset).toBe(-10);
   });
 
@@ -92,7 +95,7 @@ describe("Canvas2D 视觉图元绘制", () => {
       ...base,
       kind: "text",
       point: { x: 30, y: 40 },
-      text: "中文\nemoji😀",
+      text: "abcdef",
       fontSize: 20,
       fontWeight: "bold",
       align: "center",
@@ -100,10 +103,11 @@ describe("Canvas2D 视觉图元绘制", () => {
       color: "#FFFFFFFF",
       opacity: 0.75,
       backgroundColor: "#112233CC",
+      wrapWidth: 24,
     };
     drawVisualPrimitiveToCanvas(context, primitive);
     expect(calls.some(([name]) => name === "roundRect")).toBe(true);
-    expect(calls.filter(([name]) => name === "fillText")).toHaveLength(2);
+    expect(calls.filter(([name]) => name === "fillText")).toHaveLength(3);
     expect(calls).toContainEqual(["rotate", Math.PI / 4]);
   });
 
@@ -131,5 +135,51 @@ describe("Canvas2D 视觉图元绘制", () => {
     expect(checkpoint).toHaveBeenCalledTimes(2);
     expect(checkpoint).toHaveBeenNthCalledWith(1, 2, 5);
     expect(checkpoint).toHaveBeenNthCalledWith(2, 4, 5);
+  });
+
+  it("共享资源占位绘制 pattern 描边、marker 叉号并保留 text", () => {
+    const { context, calls } = recordingContext();
+    drawVisualPrimitiveToCanvas(context, {
+      ...base,
+      kind: "polygon",
+      points: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 10 },
+      ],
+      fillColor: "#FF00FFFF",
+      opacity: 1,
+      resourcePlaceholder: "pattern",
+    });
+    drawVisualPrimitiveToCanvas(context, {
+      ...base,
+      kind: "marker",
+      point: { x: 10, y: 10 },
+      shape: "diamond",
+      size: 12,
+      rotation: 0,
+      color: "#FF00FFFF",
+      opacity: 1,
+      resourcePlaceholder: "marker",
+    });
+    drawVisualPrimitiveToCanvas(context, {
+      ...base,
+      kind: "text",
+      point: { x: 20, y: 20 },
+      text: "资源文字",
+      fontSize: 12,
+      fontWeight: "normal",
+      align: "center",
+      rotation: 0,
+      color: "#202020FF",
+      opacity: 1,
+      backgroundColor: "#FF00FFFF",
+      resourcePlaceholder: "text",
+    });
+
+    expect(calls.filter(([name]) => name === "stroke")).toHaveLength(2);
+    expect(
+      calls.some(([name, text]) => name === "fillText" && text === "资源文字"),
+    ).toBe(true);
   });
 });

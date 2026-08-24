@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { format as formatWithPrettier } from "prettier";
+import { normalizeLineEndings } from "./line-ending.mjs";
 import ts from "typescript";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -177,7 +178,9 @@ const outputs = [
 if (process.argv.includes("--check")) {
   for (const output of outputs) {
     const current = await readFile(output.path, "utf8").catch(() => "");
-    if (current !== output.generated) {
+    if (
+      normalizeLineEndings(current) !== normalizeLineEndings(output.generated)
+    ) {
       console.error(
         `${output.label} validator 与源 Schema 不一致，请运行 pnpm schema:generate。`,
       );

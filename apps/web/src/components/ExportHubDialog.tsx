@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProjectState } from "@tessera/core";
+import type { VisualExportCaptureOptions } from "@tessera/renderer/visual-export";
 import type { DataExportBounds } from "../data-export-workflow.js";
 import { DataExportDialog } from "./DataExportDialog.js";
 import { VisualExportDialog } from "./VisualExportDialog.js";
@@ -11,6 +12,7 @@ interface Props {
   selectionBounds: DataExportBounds | null;
   viewportBounds: DataExportBounds;
   onClose(): void;
+  captureOptions?: VisualExportCaptureOptions;
 }
 
 export function ExportHubDialog({
@@ -18,6 +20,7 @@ export function ExportHubDialog({
   selectionBounds,
   viewportBounds,
   onClose,
+  captureOptions,
 }: Props) {
   const { t } = useTranslation();
   const [kind, setKind] = useState<"data" | "visual" | null>(null);
@@ -40,6 +43,7 @@ export function ExportHubDialog({
           selectionBounds,
         }}
         initialCustomBounds={viewportBounds}
+        {...(captureOptions === undefined ? {} : { captureOptions })}
         onClose={onClose}
       />
     );

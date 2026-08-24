@@ -30,6 +30,7 @@ public sealed class PackageOutputValidator : IPackageOutputValidator
             "catalog/content-catalog.json",
             "provenance/source-manifest.json",
             "elements/content.json",
+            "constraints/content.json",
             "locales/zh-CN.json",
         })
         {

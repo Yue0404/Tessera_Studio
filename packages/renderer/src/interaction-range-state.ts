@@ -34,14 +34,18 @@ export class InteractionRangeState {
     camera: Readonly<MapPoint>,
     width: number,
     height: number,
+    zoom = 1,
   ): void {
     const safeWidth = Math.max(1, width);
     const safeHeight = Math.max(1, height);
+    if (!Number.isFinite(zoom) || zoom <= 0) {
+      throw new RangeError("viewport-zoom-invalid");
+    }
     this.#viewport = {
-      minX: -camera.x,
-      minY: -camera.y,
-      maxX: safeWidth - camera.x,
-      maxY: safeHeight - camera.y,
+      minX: -camera.x / zoom,
+      minY: -camera.y / zoom,
+      maxX: (safeWidth - camera.x) / zoom,
+      maxY: (safeHeight - camera.y) / zoom,
     };
   }
 

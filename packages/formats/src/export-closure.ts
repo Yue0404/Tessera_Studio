@@ -172,30 +172,6 @@ function collectAssetReferences(
   }
 }
 
-function referenceOnlyInstance(sourceEdge: any, project: any): any {
-  const instance = sourceEdge.layerInstances.find(
-    (candidate: any) =>
-      candidate.elementId === "tessera.basic:edge.style" &&
-      candidate.layerId === "tessera.basic.edge-style",
-  );
-  if (instance === undefined) {
-    throw new ProjectFormatError("export-edge-structural-instance-missing", {
-      edgeId: sourceEdge.edgeId,
-    });
-  }
-  return {
-    ...structuredClone(instance),
-    styleOverrides: {
-      strokeColor: project.mapStyle.defaultEdgeStyle.strokeColor,
-      strokeOpacity: project.mapStyle.defaultEdgeStyle.strokeOpacity,
-      strokeWidth: project.mapStyle.defaultEdgeStyle.strokeWidth,
-      lineCap: project.mapStyle.defaultEdgeStyle.lineCap,
-      lineStyle: "solid",
-    },
-    attributes: { persistence: "reference-only" },
-  };
-}
-
 function selectObjects(
   source: ProjectV1Document,
   selection: ExportClosureSelection,
@@ -317,10 +293,8 @@ function selectObjects(
         .map((instance: any) => structuredClone(instance));
       selectedEdges.set(edgeId, {
         ...structuredClone(sourceEdge),
-        layerInstances:
-          selectedInstances.length > 0
-            ? selectedInstances
-            : [referenceOnlyInstance(sourceEdge, project)],
+        // 结构 Edge 由引用闭包保留；reference-only 不伪造 basic 样式实例。
+        layerInstances: selectedInstances,
       });
     }
   }

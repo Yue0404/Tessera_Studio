@@ -1,5 +1,9 @@
 import { CHUNK_SIZE, parseCellId } from "./coordinates.js";
-import { cellCenter, edgeSegment } from "./geometry.js";
+import { cellCenter, cellPolygon, edgeSegment } from "./geometry.js";
+import type {
+  ModuleConnectionInstance,
+  ModuleDomainGroupInstance,
+} from "./module-instance-store.js";
 import type {
   ConnectionData,
   ConnectionEndpoint,
@@ -120,6 +124,38 @@ function connectionBounds(
   };
 }
 
+function moduleConnectionBounds(
+  state: Readonly<ProjectState>,
+  connection: ModuleConnectionInstance,
+): MapRect | undefined {
+  const start = projectConnectionEndpointPoint(state, connection.start);
+  const end = projectConnectionEndpointPoint(state, connection.end);
+  if (start === undefined || end === undefined) return undefined;
+  return {
+    minX: Math.min(start.x, end.x),
+    minY: Math.min(start.y, end.y),
+    maxX: Math.max(start.x, end.x),
+    maxY: Math.max(start.y, end.y),
+  };
+}
+
+function moduleDomainGroupBounds(
+  state: Readonly<ProjectState>,
+  group: ModuleDomainGroupInstance,
+): MapRect | undefined {
+  const points = group.memberCellIds.flatMap((cellId) => {
+    const coordinate = parseCellId(cellId);
+    return cellPolygon(state.grid, coordinate.row, coordinate.column);
+  });
+  if (points.length === 0) return undefined;
+  return {
+    minX: Math.min(...points.map((point) => point.x)),
+    minY: Math.min(...points.map((point) => point.y)),
+    maxX: Math.max(...points.map((point) => point.x)),
+    maxY: Math.max(...points.map((point) => point.y)),
+  };
+}
+
 /** 工程构造或恢复后调用一次；后续 Manager 写操作会同步维护索引。 */
 export function configureProjectSpatialIndexes(state: ProjectState): void {
   const bucketSize = Math.max(1, state.grid.cellSize * CHUNK_SIZE);
@@ -128,5 +164,12 @@ export function configureProjectSpatialIndexes(state: ProjectState): void {
   );
   state.overlays.configureSpatialIndex(bucketSize, (overlay) =>
     overlayBounds(state, overlay),
+  );
+  state.moduleInstances.configureConnectionSpatialIndex(
+    bucketSize,
+    (connection) => moduleConnectionBounds(state, connection),
+  );
+  state.moduleInstances.configureDomainGroupSpatialIndex(bucketSize, (group) =>
+    moduleDomainGroupBounds(state, group),
   );
 }

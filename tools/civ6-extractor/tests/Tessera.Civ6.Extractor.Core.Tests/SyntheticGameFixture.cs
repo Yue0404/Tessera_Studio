@@ -149,7 +149,10 @@ internal sealed class SyntheticGameFixture : IDisposable
         ]);
 
         WriteEntityFile("DLC/Expansion1/Data/Expansion1_Features.xml", "Features", "FeatureType",
-            ["FEATURE_GEOTHERMAL_FISSURE|LOC_FEATURE_GEOTHERMAL_FISSURE_NAME||"]);
+        [
+            "FEATURE_GEOTHERMAL_FISSURE|LOC_FEATURE_GEOTHERMAL_FISSURE_NAME||",
+            "FEATURE_SYNTHETIC_NATURAL_WONDER|LOC_FEATURE_SYNTHETIC_NATURAL_WONDER_NAME|LOC_FEATURE_SYNTHETIC_NATURAL_WONDER_DESCRIPTION|NaturalWonder=true;Tiles=3",
+        ]);
         WriteEntityFile("DLC/Expansion1/Data/Expansion1_Resources.xml", "Resources", "ResourceType",
             ["RESOURCE_AMBER|LOC_RESOURCE_AMBER_NAME||"]);
         WriteEntityFile("DLC/Expansion1/Data/Expansion1_Improvements.xml", "Improvements", "ImprovementType",
@@ -206,7 +209,10 @@ internal sealed class SyntheticGameFixture : IDisposable
         ]);
         WriteLocalization("DLC/Expansion1/Text/Expansion1_Translations_Text.xml",
         [
-            ("LOC_FEATURE_GEOTHERMAL_FISSURE_NAME", "地热裂缝"), ("LOC_RESOURCE_AMBER_NAME", "琥珀"),
+            ("LOC_FEATURE_GEOTHERMAL_FISSURE_NAME", "地热裂缝"),
+            ("LOC_FEATURE_SYNTHETIC_NATURAL_WONDER_NAME", "合成多格自然奇观"),
+            ("LOC_FEATURE_SYNTHETIC_NATURAL_WONDER_DESCRIPTION", "用于验证域组输出"),
+            ("LOC_RESOURCE_AMBER_NAME", "琥珀"),
             ("LOC_IMPROVEMENT_FISHERY_NAME", "渔场"), ("LOC_IMPROVEMENT_FISHERY_DESCRIPTION", "水上改良"),
             ("LOC_DISTRICT_GOVERNMENT_NAME", "市政广场"), ("LOC_DISTRICT_GOVERNMENT_DESCRIPTION", "政府区域"),
             ("LOC_DISTRICT_CAMPUS_EXP1_DESCRIPTION", "扩展后的学院"),
@@ -252,7 +258,10 @@ internal sealed class SyntheticGameFixture : IDisposable
             </m_Values></m_Fields><m_ChildCollections/><m_Name text="CLUTTER_WHEAT"/></Element>
             """));
 
-        WriteArtDef("DLC/Expansion1/ArtDefs/Features.artdef", "Feature", ["FEATURE_GEOTHERMAL_FISSURE"]);
+        WriteArtDef(
+            "DLC/Expansion1/ArtDefs/Features.artdef",
+            "Feature",
+            ["FEATURE_GEOTHERMAL_FISSURE", "FEATURE_SYNTHETIC_NATURAL_WONDER"]);
         WriteArtDef("DLC/Expansion1/ArtDefs/Resources.artdef", "Resource", ["RESOURCE_AMBER"]);
         WriteArtDef("DLC/Expansion1/ArtDefs/Improvements.artdef", "Improvement", ["IMPROVEMENT_FISHERY"]);
         WriteArtDef("DLC/Expansion1/ArtDefs/Districts.artdef", "District", ["DISTRICT_GOVERNMENT"]);

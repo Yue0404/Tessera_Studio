@@ -9,8 +9,8 @@ public sealed class ArtAssetProbeTests
 
         var result = await Service().InspectArtAssetsAsync(fixture.Input);
 
-        Assert.Equal(18, result.TotalContentCount);
-        Assert.Equal(18, result.MappedContentCount);
+        Assert.Equal(19, result.TotalContentCount);
+        Assert.Equal(19, result.MappedContentCount);
         Assert.True(result.StaticImageExtractionAvailable);
         Assert.Equal("partial-strategicview-only", result.StaticImageBlockerCode);
         Assert.Equal(8, result.Categories.Count);

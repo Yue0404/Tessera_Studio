@@ -153,7 +153,7 @@ function Test-ReleasePayload {
         $manifest.version -ne $releaseVersion -or
         $manifest.os -ne 'windows' -or
         $manifest.arch -ne 'x64' -or
-        $manifest.minOsBuild -ne 19045 -or
+        $manifest.minOsBuild -ne 26100 -or
         $manifest.entrypoint -ne $entrypoint -or
         $manifest.outputModuleId -ne 'tessera.civ6' -or
         $manifest.outputModuleVersion -ne '1.0.0' -or
@@ -187,7 +187,8 @@ function Test-ReleasePayload {
         $text = Get-Content -LiteralPath (Join-Path $PayloadDirectory $relativePath) -Raw
         if ($text.Contains($RepositoryRoot, [StringComparison]::OrdinalIgnoreCase) -or
             $text.Contains($DotnetRoot, [StringComparison]::OrdinalIgnoreCase) -or
-            $text -match '-----BEGIN [A-Z ]*PRIVATE KEY-----|github_pat_|ghp_[A-Za-z0-9]+|password\s*=') {
+            $text -match '(?i)(?:[a-z]:[\\/]|\\\\)[^\r\n"]*(?:Sid Meier''s Civilization VI|SteamLibrary|steamapps[\\/]common)' -or
+            $text -match '-----BEGIN [A-Z ]*PRIVATE KEY-----|github_pat_|gh[pousr]_[A-Za-z0-9]+|Authorization:\s*Bearer\s+\S+|password\s*[:=]') {
             throw "发布文本包含绝对路径或疑似秘密：$relativePath"
         }
     }
@@ -352,7 +353,7 @@ try {
         version = $releaseVersion
         os = 'windows'
         arch = 'x64'
-        minOsBuild = 19045
+        minOsBuild = 26100
         artifactType = 'portable-zip'
         entrypoint = $entrypoint
         outputModuleId = 'tessera.civ6'
@@ -396,7 +397,7 @@ try {
         version = $releaseVersion
         os = 'windows'
         arch = 'x64'
-        minOsBuild = 19045
+        minOsBuild = 26100
         bytes = $archiveBytes
         sha256 = $sha256
         entrypoint = $entrypoint

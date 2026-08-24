@@ -8,6 +8,10 @@ import type {
   ProjectGrid,
   ProjectState,
 } from "@tessera/core";
+import type {
+  GenericModuleResourceIdentity,
+  GenericModuleResourceState,
+} from "../generic-module-assets.js";
 
 export const PNG_MAX_SIDE = 8192;
 export const PNG_MAX_PIXELS = 67_108_864;
@@ -15,6 +19,34 @@ export const SVG_MAX_PRIMITIVES = 250_000;
 export const SVG_MAX_UTF8_BYTES = 50 * 1024 * 1024;
 export const VISUAL_EXPORT_MAX_DERIVED_CELLS = 2_000_000;
 export const VISUAL_EXPORT_MAX_PRIMITIVES = 2_000_000;
+export const VISUAL_EXPORT_MAX_RESOURCE_BYTES = 32 * 1024 * 1024;
+
+export interface VisualExportResourceReference {
+  readonly identity: GenericModuleResourceIdentity;
+}
+
+export interface VisualExportPatternReference extends VisualExportResourceReference {
+  readonly scale: number;
+}
+
+export type VisualExportResourceSnapshot =
+  | {
+      readonly key: string;
+      readonly identity: GenericModuleResourceIdentity;
+      readonly kind: "image";
+      readonly mimeType: "image/png" | "image/webp";
+      readonly bytes: Uint8Array;
+      readonly width: number;
+      readonly height: number;
+    }
+  | {
+      readonly key: string;
+      readonly identity: GenericModuleResourceIdentity;
+      readonly kind: "font";
+      readonly mimeType: "font/woff2";
+      readonly bytes: Uint8Array;
+      readonly family: string;
+    };
 
 export type VisualExportUiAction =
   "reduce-scale" | "reduce-range" | "tile-export";
@@ -71,6 +103,8 @@ export interface SnapshotEdge {
   readonly strokeWidth: number;
   readonly strokeOpacity: number;
   readonly lineStyle: "solid" | "dashed";
+  readonly dashPattern?: readonly number[];
+  readonly lineCap?: "butt" | "round" | "square";
   readonly persistence: "explicit-style" | "reference-only";
 }
 
@@ -83,6 +117,7 @@ export interface VisualPrimitiveBase {
   readonly orderInLayer: number;
   readonly stableId: string;
   readonly partRank: number;
+  readonly resourcePlaceholder?: "pattern" | "marker" | "text";
 }
 
 export interface PolygonPrimitive extends VisualPrimitiveBase {
@@ -90,6 +125,9 @@ export interface PolygonPrimitive extends VisualPrimitiveBase {
   readonly points: readonly Point[];
   readonly fillColor: string;
   readonly opacity: number;
+  readonly patternResource?: VisualExportPatternReference;
+  readonly patternResourceKey?: string;
+  readonly patternScale?: number;
 }
 
 export interface StrokePrimitive extends VisualPrimitiveBase {
@@ -102,6 +140,8 @@ export interface StrokePrimitive extends VisualPrimitiveBase {
   readonly strokeWidth: number;
   readonly opacity: number;
   readonly lineStyle: "solid" | "dashed";
+  readonly dashPattern?: readonly number[];
+  readonly lineCap?: "butt" | "round" | "square";
 }
 
 export interface OutlinePrimitive extends VisualPrimitiveBase {
@@ -112,6 +152,8 @@ export interface OutlinePrimitive extends VisualPrimitiveBase {
   readonly strokeWidth: number;
   readonly opacity: number;
   readonly lineStyle: "solid" | "dashed";
+  readonly dashPattern?: readonly number[];
+  readonly lineCap?: "butt" | "round" | "square";
 }
 
 export interface MarkerPrimitive extends VisualPrimitiveBase {
@@ -122,6 +164,8 @@ export interface MarkerPrimitive extends VisualPrimitiveBase {
   readonly rotation: number;
   readonly color: string;
   readonly opacity: number;
+  readonly imageResource?: GenericModuleResourceIdentity;
+  readonly imageResourceKey?: string;
 }
 
 export interface TextPrimitive extends VisualPrimitiveBase {
@@ -135,6 +179,9 @@ export interface TextPrimitive extends VisualPrimitiveBase {
   readonly color: string;
   readonly opacity: number;
   readonly backgroundColor: string | null;
+  readonly wrapWidth?: number;
+  readonly fontResource?: GenericModuleResourceIdentity;
+  readonly fontResourceKey?: string;
 }
 
 export type VisualPrimitive =
@@ -159,6 +206,14 @@ export interface VisualExportExtensionCaptureRenderer {
 export interface VisualExportCaptureOptions {
   readonly requiredExtensionElementIds?: readonly string[];
   readonly extensionRenderers?: readonly VisualExportExtensionCaptureRenderer[];
+  /** 仅捕获精确资源 identity，稍后再按裁剪后的快照显式注入资源字节。 */
+  readonly deferResourceCapture?: boolean;
+  readonly resolveResource?: (
+    identity: GenericModuleResourceIdentity,
+  ) => GenericModuleResourceState<unknown, unknown> | undefined;
+  readonly prepareResource?: (
+    identity: GenericModuleResourceIdentity,
+  ) => Promise<unknown>;
 }
 
 export interface VisualExportSnapshot {
@@ -172,6 +227,7 @@ export interface VisualExportSnapshot {
   readonly connections: readonly SnapshotConnection[];
   readonly overlays: readonly SnapshotOverlay[];
   readonly extensions: readonly VisualExportExtensionSnapshot[];
+  readonly resources: readonly VisualExportResourceSnapshot[];
 }
 
 export interface VisualExportPlan {

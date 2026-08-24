@@ -1,16 +1,20 @@
 import {
   ConnectionManager,
   EdgeManager,
+  ModuleInstanceStore,
   OverlayManager,
   SparseChunkStore,
   TESSERA_APP_VERSION,
   configureProjectSpatialIndexes,
   createFixedLayerMap,
+  domainGroupGeometry,
+  DomainGroupError,
   type CellOverride,
   type ConnectionData,
   type EdgeOverride,
   type OverlayData,
   type ProjectState,
+  type ModuleRuntimeInstance,
 } from "@tessera/core";
 import type { ErrorObject } from "ajv";
 import {
@@ -25,7 +29,11 @@ import {
 } from "./deterministic-order.js";
 import { validateEmbeddedAssets } from "./embedded-asset-validation.js";
 import type { ProjectV1Document } from "./format-types.js";
-import type { FragmentModuleResolver } from "./fragment-merge.js";
+import type {
+  FragmentModuleResolver,
+  ResolvedElementContract,
+  ResolvedModuleContract,
+} from "./fragment-merge.js";
 import { parseJsonWithSafetyLimits } from "./json-input.js";
 import {
   ProjectReconcileError,
@@ -531,13 +539,13 @@ function validateSemanticClosure(project: Record<string, any>): void {
   ) {
     throw new ProjectFormatError("manager-array-order-invalid");
   }
-  const edgeIds = new Set<string>();
+  const edgeById = new Map<string, any>();
   for (const edge of project.managers.edgeManager.edges as any[]) {
-    if (edgeIds.has(edge.edgeId) || !ownedEdges.has(edge.edgeId))
+    if (edgeById.has(edge.edgeId) || !ownedEdges.has(edge.edgeId))
       throw new ProjectFormatError("edge-reference-closure-invalid", {
         edgeId: edge.edgeId,
       });
-    edgeIds.add(edge.edgeId);
+    edgeById.set(edge.edgeId, edge);
     for (const id of edge.adjacentCellIds as string[]) {
       const coordinate = parseCellId(id);
       if (
@@ -596,7 +604,7 @@ function validateSemanticClosure(project: Record<string, any>): void {
       );
     }
   }
-  if (edgeIds.size !== ownedEdges.size)
+  if (edgeById.size !== ownedEdges.size)
     throw new ProjectFormatError("chunk-edge-reference-missing");
 
   const overlayIds = new Set<string>();
@@ -660,15 +668,13 @@ function validateSemanticClosure(project: Record<string, any>): void {
           expectedOwner,
         });
       }
-    } else if (!edgeIds.has(overlay.anchor.edgeId)) {
+    } else if (!edgeById.has(overlay.anchor.edgeId)) {
       throw new ProjectFormatError("overlay-edge-reference-missing", {
         overlayId: overlay.overlayId,
       });
     } else {
       referencedEdgeIds.add(overlay.anchor.edgeId);
-      const edge = project.managers.edgeManager.edges.find(
-        (candidate: any) => candidate.edgeId === overlay.anchor.edgeId,
-      );
+      const edge = edgeById.get(overlay.anchor.edgeId);
       const owner = parseCellId(edge.adjacentCellIds[0]);
       const expectedOwner = chunkKey(owner.row, owner.column);
       if (ownedOverlayChunks.get(overlay.overlayId) !== expectedOwner) {
@@ -742,7 +748,7 @@ function validateSemanticClosure(project: Record<string, any>): void {
         }
       } else if (
         endpoint.kind === "edge-midpoint" &&
-        !edgeIds.has(endpoint.edgeId)
+        !edgeById.has(endpoint.edgeId)
       ) {
         throw new ProjectFormatError("connection-edge-reference-missing", {
           connectionId: connection.connectionId,
@@ -813,6 +819,16 @@ function validateSemanticClosure(project: Record<string, any>): void {
           cellId: memberCellId,
         });
       }
+    }
+    try {
+      domainGroupGeometry(project.grid, group.memberCellIds);
+    } catch (error) {
+      if (error instanceof DomainGroupError)
+        throw new ProjectFormatError(error.code, {
+          groupId: group.groupId,
+          ...error.details,
+        });
+      throw error;
     }
     const ownerCellId = group.memberCellIds[0] as string | undefined;
     if (ownerCellId === undefined) {
@@ -993,22 +1009,25 @@ export function toProjectV1(
             kind: "edge",
             edgeId: edge.edgeId,
             adjacentCellIds: [...edge.adjacentCellIds],
-            layerInstances: [
-              {
-                instanceId: edge.instanceId,
-                elementId: "tessera.basic:edge.style",
-                layerId: "tessera.basic.edge-style",
-                styleOverrides: {
-                  strokeColor: edge.strokeColor,
-                  strokeOpacity: edge.strokeOpacity,
-                  strokeWidth: edge.strokeWidth,
-                  lineCap: "round",
-                  lineStyle: edge.lineStyle,
-                },
-                attributes: { persistence: edge.persistence },
-                extensions: {},
-              },
-            ],
+            layerInstances:
+              edge.persistence === "explicit-style"
+                ? [
+                    {
+                      instanceId: edge.instanceId,
+                      elementId: "tessera.basic:edge.style",
+                      layerId: "tessera.basic.edge-style",
+                      styleOverrides: {
+                        strokeColor: edge.strokeColor,
+                        strokeOpacity: edge.strokeOpacity,
+                        strokeWidth: edge.strokeWidth,
+                        lineCap: "round",
+                        lineStyle: edge.lineStyle,
+                      },
+                      attributes: { persistence: edge.persistence },
+                      extensions: {},
+                    },
+                  ]
+                : [],
             extensions: {},
           })),
         extensions: {},
@@ -1117,6 +1136,114 @@ function runtimeAllowedKinds(
   return [...result];
 }
 
+interface ProjectElementFact {
+  readonly instanceId: string;
+  readonly elementId: string;
+  readonly layerId: string;
+  readonly primitive: ResolvedElementContract["primitive"];
+  readonly anchors: readonly string[];
+  readonly endpoints: readonly string[];
+}
+
+function projectElementFacts(project: ProjectV1Document): ProjectElementFact[] {
+  const document = project as any;
+  const result: ProjectElementFact[] = [];
+  for (const chunk of document.chunks) {
+    for (const cell of chunk.cellOverrides) {
+      for (const instance of cell.layerInstances) {
+        result.push({
+          instanceId: instance.instanceId,
+          elementId: instance.elementId,
+          layerId: instance.layerId,
+          primitive: "cell",
+          anchors: ["cell"],
+          endpoints: [],
+        });
+      }
+    }
+  }
+  for (const edge of document.managers.edgeManager.edges) {
+    for (const instance of edge.layerInstances) {
+      result.push({
+        instanceId: instance.instanceId,
+        elementId: instance.elementId,
+        layerId: instance.layerId,
+        primitive: "edge",
+        anchors: ["edge"],
+        endpoints: [],
+      });
+    }
+  }
+  for (const overlay of document.managers.overlayManager.overlays) {
+    result.push({
+      instanceId: overlay.overlayId,
+      elementId: overlay.elementId,
+      layerId: overlay.layerId,
+      primitive:
+        overlay.overlayType === "marker" ? "marker-overlay" : "text-overlay",
+      anchors: [
+        overlay.kind === "free-overlay" ? "map-point" : overlay.anchor.kind,
+      ],
+      endpoints: [],
+    });
+  }
+  for (const connection of document.managers.connectionManager.connections) {
+    result.push({
+      instanceId: connection.connectionId,
+      elementId: connection.elementId,
+      layerId: connection.layerId,
+      primitive: connection.kind,
+      anchors: [],
+      endpoints: [connection.start.kind, connection.end.kind],
+    });
+  }
+  for (const group of document.domainGroups) {
+    result.push({
+      instanceId: group.groupId,
+      elementId: group.elementId,
+      layerId: group.layerId,
+      primitive: "domain-group",
+      anchors: [],
+      endpoints: [],
+    });
+  }
+  return result.filter((fact) => !fact.elementId.startsWith("tessera.basic:"));
+}
+
+function elementContractMismatch(
+  project: ProjectV1Document,
+  contract: ResolvedModuleContract,
+  facts: readonly ProjectElementFact[],
+): ProjectElementFact | undefined {
+  const elements = new Map(
+    contract.elements.map((element) => [element.elementId, element]),
+  );
+  for (const fact of facts) {
+    const element = elements.get(fact.elementId);
+    if (
+      element === undefined ||
+      element.layerId !== fact.layerId ||
+      element.primitive !== fact.primitive ||
+      !element.supportedGrids.includes(project.grid.type) ||
+      fact.anchors.some(
+        (anchor) =>
+          !element.anchors?.includes(anchor as never) &&
+          !(
+            anchor === "cell" &&
+            (fact.primitive === "marker-overlay" ||
+              fact.primitive === "text-overlay") &&
+            element.anchors?.includes("cell-center" as never)
+          ),
+      ) ||
+      fact.endpoints.some(
+        (endpoint) => !element.endpoints?.includes(endpoint as never),
+      )
+    )
+      return fact;
+  }
+  return undefined;
+}
+
 function resolvedProjectLayers(
   project: ProjectV1Document,
   options: ProjectModuleResolutionOptions,
@@ -1134,6 +1261,14 @@ function resolvedProjectLayers(
     }
     const resolvedLayers = new Map<string, any>();
     const placeholderLayers = new Map<string, any>();
+    const resolvedContracts = new Map<string, ResolvedModuleContract>();
+    const factsByModule = new Map<string, ProjectElementFact[]>();
+    for (const fact of projectElementFacts(project)) {
+      const moduleId = fact.elementId.split(":", 1)[0] ?? "";
+      const bucket = factsByModule.get(moduleId) ?? [];
+      bucket.push(fact);
+      factsByModule.set(moduleId, bucket);
+    }
     for (const module of project.modules) {
       if (module.moduleId === "tessera.basic") continue;
       const contract = resolver?.resolve({
@@ -1173,6 +1308,7 @@ function resolvedProjectLayers(
         }
         continue;
       }
+      resolvedContracts.set(module.moduleId, contract);
       for (const layer of contract.layers) {
         if (resolvedLayers.has(layer.layerId) || layers.has(layer.layerId)) {
           throw new ProjectFormatError("project-module-layer-conflict", {
@@ -1188,6 +1324,44 @@ function resolvedProjectLayers(
           opacity: 1,
           allowedKinds: runtimeAllowedKinds(layer.allowedPrimitives),
         });
+      }
+    }
+    for (const module of project.modules) {
+      if (module.moduleId === "tessera.basic") continue;
+      const contract = resolvedContracts.get(module.moduleId);
+      if (contract === undefined) continue;
+      const mismatch = elementContractMismatch(
+        project,
+        contract,
+        factsByModule.get(module.moduleId) ?? [],
+      );
+      if (mismatch === undefined) continue;
+      if ((options.moduleResolutionMode ?? "tolerant") === "strict") {
+        throw new ProjectFormatError("project-module-element-mismatch", {
+          moduleId: module.moduleId,
+          instanceId: mismatch.instanceId,
+          elementId: mismatch.elementId,
+          layerId: mismatch.layerId,
+          primitive: mismatch.primitive,
+        });
+      }
+      for (const layer of contract.layers) resolvedLayers.delete(layer.layerId);
+      for (const layer of project.layerStates) {
+        if (
+          layer.moduleVersion === module.version &&
+          layer.layerId.startsWith(module.moduleId + ".")
+        ) {
+          placeholderLayers.set(layer.layerId, {
+            layerId: layer.layerId,
+            moduleVersion: layer.moduleVersion,
+            zIndex: layer.zIndex,
+            visible: layer.visible,
+            locked: true,
+            opacity: layer.opacity,
+            allowedKinds: [],
+            runtimeStatus: "missing",
+          });
+        }
       }
     }
     const actualExternalLayerIds = new Set(
@@ -1240,6 +1414,52 @@ function stateFromProjectDocument(
   options: ProjectModuleResolutionOptions = {},
 ): ProjectState {
   const project = projectInput as Record<string, any>;
+  const layers = resolvedProjectLayers(projectInput, options);
+  const moduleById = new Map(
+    projectInput.modules.map((module) => [module.moduleId, module]),
+  );
+  const modulesWithLayers = new Set<string>();
+  const unavailableModules = new Set<string>();
+  for (const layerState of projectInput.layerStates) {
+    let namespace = layerState.layerId;
+    while (namespace.includes(".")) {
+      namespace = namespace.slice(0, namespace.lastIndexOf("."));
+      const module = moduleById.get(namespace);
+      if (module === undefined) continue;
+      if (layerState.moduleVersion === module.version) {
+        modulesWithLayers.add(namespace);
+        if (layers.get(layerState.layerId)?.runtimeStatus === "missing")
+          unavailableModules.add(namespace);
+      }
+      break;
+    }
+  }
+  for (const moduleId of moduleById.keys()) {
+    if (!modulesWithLayers.has(moduleId)) unavailableModules.add(moduleId);
+  }
+  const runtimeStatus = (elementId: string, layerId: string) => {
+    const targetLayer = layers.get(layerId);
+    const moduleId = elementId.split(":", 1)[0] ?? "";
+    const ownerUnavailable =
+      !moduleById.has(moduleId) || unavailableModules.has(moduleId);
+    return targetLayer === undefined ||
+      targetLayer.runtimeStatus === "missing" ||
+      ownerUnavailable
+      ? "missing"
+      : "available";
+  };
+  const edgeDocuments = project.managers.edgeManager.edges as any[];
+  const overlayDocuments = project.managers.overlayManager.overlays as any[];
+  const connectionDocuments = project.managers.connectionManager
+    .connections as any[];
+  // Manager 数组只遍历一次建索引；后续 chunk owner 恢复不再按每个 ID 全表扫描。
+  const edgeById = new Map<string, any>(
+    edgeDocuments.map((edge) => [edge.edgeId, edge]),
+  );
+  const overlayById = new Map<string, any>(
+    overlayDocuments.map((overlay) => [overlay.overlayId, overlay]),
+  );
+  const moduleInstances: ModuleRuntimeInstance[] = [];
   const cells = new Map<string, CellOverride>();
   for (const chunk of project.chunks as any[]) {
     for (const cell of chunk.cellOverrides as any[]) {
@@ -1261,16 +1481,30 @@ function stateFromProjectDocument(
             : {}),
         });
       }
+      for (const candidate of cell.layerInstances as any[]) {
+        if (candidate.elementId.startsWith("tessera.basic:")) continue;
+        moduleInstances.push({
+          kind: "cell",
+          instanceId: candidate.instanceId,
+          elementId: candidate.elementId,
+          layerId: candidate.layerId,
+          cellId: cell.cellId,
+          styleOverrides: structuredClone(candidate.styleOverrides),
+          attributes: structuredClone(candidate.attributes),
+          extensions: structuredClone(candidate.extensions),
+          runtimeStatus: runtimeStatus(candidate.elementId, candidate.layerId),
+        });
+      }
     }
   }
   const edgeValues: EdgeOverride[] = [];
-  for (const edge of project.managers.edgeManager.edges as any[]) {
+  for (const edge of edgeDocuments) {
     const instance = edge.layerInstances.find(
       (item: any) =>
         item.elementId === "tessera.basic:edge.style" &&
         item.layerId === "tessera.basic.edge-style",
     );
-    if (instance !== undefined)
+    if (instance !== undefined) {
       edgeValues.push({
         instanceId: instance.instanceId,
         edgeId: edge.edgeId,
@@ -1281,21 +1515,45 @@ function stateFromProjectDocument(
         lineStyle: instance.styleOverrides.lineStyle ?? "solid",
         persistence: instance.attributes.persistence ?? "explicit-style",
       });
+    } else {
+      edgeValues.push({
+        // Project v1 的真实 instanceId 均为 UUID；该稳定前缀仅用于运行时结构 surrogate。
+        instanceId: `tessera.structure-edge:${edge.edgeId}`,
+        edgeId: edge.edgeId,
+        adjacentCellIds: edge.adjacentCellIds,
+        strokeColor: project.mapStyle.defaultEdgeStyle.strokeColor,
+        strokeWidth: project.mapStyle.defaultEdgeStyle.strokeWidth,
+        strokeOpacity: project.mapStyle.defaultEdgeStyle.strokeOpacity,
+        lineStyle: "solid",
+        persistence: "reference-only",
+      });
+    }
+    for (const candidate of edge.layerInstances as any[]) {
+      if (candidate.elementId.startsWith("tessera.basic:")) continue;
+      moduleInstances.push({
+        kind: "edge",
+        instanceId: candidate.instanceId,
+        elementId: candidate.elementId,
+        layerId: candidate.layerId,
+        edgeId: edge.edgeId,
+        adjacentCellIds: [...edge.adjacentCellIds],
+        styleOverrides: structuredClone(candidate.styleOverrides),
+        attributes: structuredClone(candidate.attributes),
+        extensions: structuredClone(candidate.extensions),
+        runtimeStatus: runtimeStatus(candidate.elementId, candidate.layerId),
+      });
+    }
   }
   const cellStore = new SparseChunkStore(cells.values());
   for (const chunk of project.chunks as any[]) {
     for (const edgeId of chunk.ownedEdgeIds as string[]) {
-      const edge = project.managers.edgeManager.edges.find(
-        (candidate: any) => candidate.edgeId === edgeId,
-      );
+      const edge = edgeById.get(edgeId);
       const ownerCellId = edge?.adjacentCellIds?.[0];
       if (typeof ownerCellId === "string")
         cellStore.assignEdge(edgeId, ownerCellId);
     }
     for (const overlayId of chunk.ownedOverlayIds as string[]) {
-      const overlay = project.managers.overlayManager.overlays.find(
-        (candidate: any) => candidate.overlayId === overlayId,
-      );
+      const overlay = overlayById.get(overlayId);
       if (
         overlay?.kind === "anchored-overlay" &&
         overlay.anchor?.kind === "cell"
@@ -1305,9 +1563,7 @@ function stateFromProjectDocument(
         overlay?.kind === "anchored-overlay" &&
         overlay.anchor?.kind === "edge"
       ) {
-        const edge = project.managers.edgeManager.edges.find(
-          (candidate: any) => candidate.edgeId === overlay.anchor.edgeId,
-        );
+        const edge = edgeById.get(overlay.anchor.edgeId);
         const ownerCellId = edge?.adjacentCellIds?.[0];
         if (typeof ownerCellId === "string") {
           cellStore.assignOverlay(overlayId, ownerCellId);
@@ -1315,7 +1571,61 @@ function stateFromProjectDocument(
       }
     }
   }
-  const layers = resolvedProjectLayers(projectInput, options);
+  for (const overlay of overlayDocuments) {
+    if (overlay.elementId.startsWith("tessera.basic:")) continue;
+    moduleInstances.push({
+      kind: "overlay",
+      instanceId: overlay.overlayId,
+      elementId: overlay.elementId,
+      layerId: overlay.layerId,
+      objectKind: overlay.kind,
+      overlayType: overlay.overlayType,
+      ...(overlay.kind === "anchored-overlay"
+        ? { anchor: structuredClone(overlay.anchor) }
+        : { point: structuredClone(overlay.point) }),
+      orderInLayer: overlay.orderInLayer,
+      styleOverrides: structuredClone(overlay.styleOverrides),
+      attributes: structuredClone(overlay.attributes),
+      extensions: structuredClone(overlay.extensions),
+      runtimeStatus: runtimeStatus(overlay.elementId, overlay.layerId),
+    });
+  }
+  for (const connection of connectionDocuments) {
+    if (connection.elementId.startsWith("tessera.basic:")) continue;
+    moduleInstances.push({
+      kind: "connection",
+      instanceId: connection.connectionId,
+      elementId: connection.elementId,
+      layerId: connection.layerId,
+      objectKind: connection.kind,
+      start: structuredClone(connection.start),
+      end: structuredClone(connection.end),
+      label: connection.label,
+      ...(connection.kind === "arrow"
+        ? {
+            arrowStart: connection.arrowStart,
+            arrowEnd: connection.arrowEnd,
+          }
+        : {}),
+      styleOverrides: structuredClone(connection.styleOverrides),
+      attributes: structuredClone(connection.attributes),
+      extensions: structuredClone(connection.extensions),
+      runtimeStatus: runtimeStatus(connection.elementId, connection.layerId),
+    });
+  }
+  for (const group of project.domainGroups as any[]) {
+    moduleInstances.push({
+      kind: "domain-group",
+      instanceId: group.groupId,
+      elementId: group.elementId,
+      layerId: group.layerId,
+      memberCellIds: [...group.memberCellIds],
+      styleOverrides: structuredClone(group.styleOverrides),
+      attributes: structuredClone(group.attributes),
+      extensions: structuredClone(group.extensions),
+      runtimeStatus: runtimeStatus(group.elementId, group.layerId),
+    });
+  }
   const state: ProjectState = {
     projectId: project.projectId,
     name: project.name,
@@ -1338,7 +1648,7 @@ function stateFromProjectDocument(
     cells: cellStore,
     edges: new EdgeManager(edgeValues),
     connections: new ConnectionManager(
-      project.managers.connectionManager.connections
+      connectionDocuments
         .filter(
           (connection: any) =>
             connection.layerId === "tessera.basic.connection" &&
@@ -1350,7 +1660,7 @@ function stateFromProjectDocument(
         .map(parseConnection),
     ),
     overlays: new OverlayManager(
-      project.managers.overlayManager.overlays
+      overlayDocuments
         .filter(
           (overlay: any) =>
             (overlay.elementId === "tessera.basic:marker" &&
@@ -1360,6 +1670,7 @@ function stateFromProjectDocument(
         )
         .map(parseOverlay),
     ),
+    moduleInstances: new ModuleInstanceStore(moduleInstances),
     layers,
     formatSource: deepFreeze({
       exportScope: project.exportScope,

@@ -28,9 +28,12 @@ interface MutableBucket {
 /** 64×64 稳定文件桶；空白地格从不进入存储。 */
 export class SparseChunkStore implements SparseCellStoreContract {
   readonly #cells = new Map<string, CellOverride>();
+  readonly #cellIdsByInstanceId = new Map<string, string>();
   readonly #buckets = new Map<string, MutableBucket>();
   readonly #runtimeLru = new Map<string, number>();
+  readonly #runtimeChunkRevisions = new Map<string, number>();
   #clock = 0;
+  #contentRevision = 0;
 
   constructor(cells: Iterable<CellOverride> = []) {
     for (const cell of cells) this.set(cell.cellId, cell);
@@ -55,10 +58,22 @@ export class SparseChunkStore implements SparseCellStoreContract {
     return this.#cells.get(cellId);
   }
 
+  getByInstanceId(instanceId: string): CellOverride | undefined {
+    const cellId = this.#cellIdsByInstanceId.get(instanceId);
+    return cellId === undefined ? undefined : this.#cells.get(cellId);
+  }
+
   set(cellId: string, value: CellOverride): this {
     if (cellId !== value.cellId) throw new Error("cell-id-key-mismatch");
+    const duplicateCellId = this.#cellIdsByInstanceId.get(value.instanceId);
+    if (duplicateCellId !== undefined && duplicateCellId !== cellId)
+      throw new Error(`cell-instance-duplicate:${value.instanceId}`);
     const parsed = parseCellId(cellId);
+    const previous = this.#cells.get(cellId);
+    if (previous !== undefined && previous.instanceId !== value.instanceId)
+      this.#cellIdsByInstanceId.delete(previous.instanceId);
     this.#cells.set(cellId, value);
+    this.#cellIdsByInstanceId.set(value.instanceId, cellId);
     this.#ensureBucket(parsed.row, parsed.column).cellIds.add(cellId);
     this.#markDirty(parsed.row, parsed.column);
     return this;
@@ -66,11 +81,14 @@ export class SparseChunkStore implements SparseCellStoreContract {
 
   delete(cellId: string): boolean {
     const parsed = parseCellId(cellId);
-    const deleted = this.#cells.delete(cellId);
-    if (!deleted) return false;
+    const previous = this.#cells.get(cellId);
+    if (previous === undefined) return false;
+    this.#cells.delete(cellId);
+    this.#cellIdsByInstanceId.delete(previous.instanceId);
     const bucket = this.#bucket(parsed.row, parsed.column);
     bucket?.cellIds.delete(cellId);
     if (bucket !== undefined) bucket.dirty = true;
+    this.#bumpRuntimeChunk(parsed.row, parsed.column);
     this.#dropEmptyBucket(parsed.row, parsed.column);
     return true;
   }
@@ -86,15 +104,18 @@ export class SparseChunkStore implements SparseCellStoreContract {
   assignEdge(edgeId: string, ownerCellId: string): void {
     const owner = parseCellId(ownerCellId);
     const bucket = this.#ensureBucket(owner.row, owner.column);
+    if (bucket.ownedEdgeIds.has(edgeId)) return;
     bucket.ownedEdgeIds.add(edgeId);
     bucket.dirty = true;
+    this.#bumpRuntimeChunk(owner.row, owner.column);
   }
 
   unassignEdge(edgeId: string, ownerCellId: string): void {
     const owner = parseCellId(ownerCellId);
     const bucket = this.#bucket(owner.row, owner.column);
-    bucket?.ownedEdgeIds.delete(edgeId);
+    const deleted = bucket?.ownedEdgeIds.delete(edgeId) ?? false;
     if (bucket !== undefined) bucket.dirty = true;
+    if (deleted) this.#bumpRuntimeChunk(owner.row, owner.column);
     this.#dropEmptyBucket(owner.row, owner.column);
   }
 
@@ -103,13 +124,15 @@ export class SparseChunkStore implements SparseCellStoreContract {
     const bucket = this.#ensureBucket(owner.row, owner.column);
     bucket.ownedOverlayIds.add(overlayId);
     bucket.dirty = true;
+    this.#bumpRuntimeChunk(owner.row, owner.column);
   }
 
   unassignOverlay(overlayId: string, ownerCellId: string): void {
     const owner = parseCellId(ownerCellId);
     const bucket = this.#bucket(owner.row, owner.column);
-    bucket?.ownedOverlayIds.delete(overlayId);
+    const deleted = bucket?.ownedOverlayIds.delete(overlayId) ?? false;
     if (bucket !== undefined) bucket.dirty = true;
+    if (deleted) this.#bumpRuntimeChunk(owner.row, owner.column);
     this.#dropEmptyBucket(owner.row, owner.column);
   }
 
@@ -225,6 +248,18 @@ export class SparseChunkStore implements SparseCellStoreContract {
     };
   }
 
+  getRuntimeChunkRevision(chunkRow: number, chunkColumn: number): number {
+    return (
+      this.#runtimeChunkRevisions.get(chunkKeyOf({ chunkRow, chunkColumn })) ??
+      0
+    );
+  }
+
+  invalidateRuntimeChunkForCell(cellId: string): void {
+    const coordinate = parseCellId(cellId);
+    this.#bumpRuntimeChunk(coordinate.row, coordinate.column);
+  }
+
   markAllClean(): void {
     for (const bucket of this.#buckets.values()) bucket.dirty = false;
   }
@@ -252,6 +287,12 @@ export class SparseChunkStore implements SparseCellStoreContract {
 
   #markDirty(row: number, column: number): void {
     this.#ensureBucket(row, column).dirty = true;
+    this.#bumpRuntimeChunk(row, column);
+  }
+
+  #bumpRuntimeChunk(row: number, column: number): void {
+    const key = chunkKeyOf(chunkCoordinateOf({ row, column }));
+    this.#runtimeChunkRevisions.set(key, ++this.#contentRevision);
   }
 
   #dropEmptyBucket(row: number, column: number): void {

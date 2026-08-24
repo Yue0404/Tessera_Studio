@@ -15,7 +15,10 @@ interface Props {
   readonly registrations: readonly {
     readonly registration: LocalPackageRegistration;
     readonly statusKey: string;
-    readonly currentDependency: boolean;
+    readonly projectEnabled: boolean;
+    readonly canToggleProjectModule: boolean;
+    readonly canDeleteLocalPackage: boolean;
+    readonly referenceCount: number;
     readonly displayName: string;
     readonly sourceDetails: readonly {
       readonly labelKey: string;
@@ -27,6 +30,8 @@ interface Props {
   readonly errorKey: string | null;
   readonly civ6: Civ6PackageCardModel;
   onImport(file: File): void;
+  onEnableModule(registration: LocalPackageRegistration): void;
+  onDisableModule(registration: LocalPackageRegistration): void;
   onDelete(registration: LocalPackageRegistration): void;
   onClose(): void;
 }
@@ -37,6 +42,8 @@ export function PackageSettingsDialog({
   errorKey,
   civ6,
   onImport,
+  onEnableModule,
+  onDisableModule,
   onDelete,
   onClose,
 }: Props) {
@@ -48,6 +55,7 @@ export function PackageSettingsDialog({
   );
   const packageInput = useRef<HTMLInputElement | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [blockedDisable, setBlockedDisable] = useState<string | null>(null);
   const close = () => {
     onClose();
     queueMicrotask(() => previousFocus.current?.focus());
@@ -172,35 +180,105 @@ export function PackageSettingsDialog({
                   </span>
                   <span>
                     {t(item.statusKey)}
+                    {registration.identity.kind === "module" ? (
+                      <small>
+                        {t(
+                          registration.identity.artifactId === "tessera.basic"
+                            ? "package.status.alwaysEnabled"
+                            : item.projectEnabled
+                              ? "package.project.enabled"
+                              : "package.project.disabled",
+                        )}
+                      </small>
+                    ) : null}
                     {item.reasonKey === null ? null : (
                       <small>{t(item.reasonKey)}</small>
                     )}
-                    {item.currentDependency &&
-                    confirmingDelete === identityKey ? (
-                      <small>{t("package.settings.deleteDependency")}</small>
+                    {item.projectEnabled && confirmingDelete === identityKey ? (
+                      <small>
+                        {t("package.settings.deleteDependency", {
+                          count: item.referenceCount,
+                        })}
+                      </small>
                     ) : null}
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        if (
-                          item.currentDependency &&
-                          confirmingDelete !== identityKey
-                        ) {
-                          setConfirmingDelete(identityKey);
-                          return;
-                        }
-                        setConfirmingDelete(null);
-                        onDelete(registration);
-                      }}
-                    >
-                      {t(
-                        item.currentDependency &&
-                          confirmingDelete === identityKey
-                          ? "package.action.confirmDelete"
-                          : "package.action.delete",
-                      )}
-                    </button>
+                    {blockedDisable === identityKey ? (
+                      <small>
+                        {t("package.settings.disableBlocked", {
+                          count: item.referenceCount,
+                        })}
+                      </small>
+                    ) : null}
+                    {registration.identity.kind === "module" &&
+                    registration.identity.artifactId !== "tessera.basic" ? (
+                      <button
+                        type="button"
+                        disabled={busy || !item.canToggleProjectModule}
+                        onClick={() => {
+                          setConfirmingDelete(null);
+                          if (item.projectEnabled && item.referenceCount > 0) {
+                            setBlockedDisable(identityKey);
+                            return;
+                          }
+                          setBlockedDisable(null);
+                          if (item.projectEnabled) {
+                            onDisableModule(registration);
+                          } else {
+                            onEnableModule(registration);
+                          }
+                        }}
+                      >
+                        {t(
+                          item.projectEnabled
+                            ? "package.action.disableForProject"
+                            : "package.action.enableForProject",
+                        )}
+                      </button>
+                    ) : null}
+                    {blockedDisable === identityKey ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setBlockedDisable(null)}
+                      >
+                        {t("action.cancel")}
+                      </button>
+                    ) : null}
+                    {item.canDeleteLocalPackage ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          if (
+                            item.projectEnabled &&
+                            confirmingDelete !== identityKey
+                          ) {
+                            setBlockedDisable(null);
+                            setConfirmingDelete(identityKey);
+                            return;
+                          }
+                          setConfirmingDelete(null);
+                          onDelete(registration);
+                        }}
+                      >
+                        {t(
+                          item.projectEnabled &&
+                            confirmingDelete === identityKey
+                            ? "package.action.confirmDelete"
+                            : "package.action.delete",
+                        )}
+                      </button>
+                    ) : null}
+                    {item.canDeleteLocalPackage &&
+                    item.projectEnabled &&
+                    confirmingDelete === identityKey ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setConfirmingDelete(null)}
+                      >
+                        {t("action.cancel")}
+                      </button>
+                    ) : null}
                   </span>
                 </article>
               );

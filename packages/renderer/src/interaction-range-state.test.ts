@@ -35,4 +35,18 @@ describe("InteractionRangeState", () => {
     expect(ranges.commitSelection({ x: 1, y: 1 }, { x: 1, y: 2 })).toBeNull();
     expect(ranges.getSelectionBounds()?.maxX).toBe(30);
   });
+
+  it("缩放后返回地图坐标范围且不把屏幕尺寸误当地图尺寸", () => {
+    const ranges = new InteractionRangeState();
+    ranges.updateViewport({ x: -200, y: 100 }, 800, 600, 2);
+    expect(ranges.getViewportBounds()).toEqual({
+      minX: 100,
+      minY: -50,
+      maxX: 500,
+      maxY: 250,
+    });
+    expect(() => ranges.updateViewport({ x: 0, y: 0 }, 10, 10, 0)).toThrow(
+      "viewport-zoom-invalid",
+    );
+  });
 });

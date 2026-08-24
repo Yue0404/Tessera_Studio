@@ -38,6 +38,8 @@ export interface ProjectFileImportOptions {
 
 export interface ProjectFileWorkflowDependencies {
   prepareExternalProject?(text: string): PreparedExternalProjectV1;
+  /** 候选进入仓库与当前 Store 前执行应用层精确模块契约校验。 */
+  validateState?(state: Readonly<ProjectState>): void;
   beforeSave?(): boolean;
 }
 
@@ -146,6 +148,15 @@ export async function importProjectFile(
             currentAppVersion: TESSERA_APP_VERSION,
           }),
     });
+  } catch (error) {
+    throw new ProjectFileWorkflowError(
+      "project-file-invalid",
+      { underlyingCode: underlyingCode(error) },
+      error,
+    );
+  }
+  try {
+    dependencies.validateState?.(state);
   } catch (error) {
     throw new ProjectFileWorkflowError(
       "project-file-invalid",

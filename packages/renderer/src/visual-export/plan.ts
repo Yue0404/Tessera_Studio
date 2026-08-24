@@ -2,6 +2,7 @@ import type { MapRect } from "@tessera/core";
 import { VisualExportError } from "./error.js";
 import {
   estimateVisualScene,
+  iterateVisualPrimitives,
   mapVisualBounds,
   visibleContentBounds,
 } from "./scene.js";
@@ -271,14 +272,34 @@ export function planVisualExport(
     );
   }
   if (request.format === "svg") assertSvgNodeLimit(estimate.primitives);
-  return Object.freeze({
+  const frozenRequest = copyAndFreezeRequest(request);
+  const draftPlan: VisualExportPlan = {
     snapshot,
-    request: copyAndFreezeRequest(request),
+    request: frozenRequest,
     bounds: Object.freeze({ ...bounds }),
     scale,
     pixelWidth,
     pixelHeight,
     estimatedDerivedCells: estimate.derivedCells,
     estimatedPrimitiveCount: estimate.primitives,
+  };
+  const referencedResourceKeys = new Set<string>();
+  for (const primitive of iterateVisualPrimitives(draftPlan)) {
+    if (primitive.kind === "polygon" && primitive.patternResourceKey)
+      referencedResourceKeys.add(primitive.patternResourceKey);
+    else if (primitive.kind === "marker" && primitive.imageResourceKey)
+      referencedResourceKeys.add(primitive.imageResourceKey);
+    else if (primitive.kind === "text" && primitive.fontResourceKey)
+      referencedResourceKeys.add(primitive.fontResourceKey);
+  }
+  const scopedSnapshot = Object.freeze({
+    ...snapshot,
+    // 范围外或隐藏图元的包资源不得被带入视觉导出计划。
+    resources: Object.freeze(
+      snapshot.resources.filter((resource) =>
+        referencedResourceKeys.has(resource.key),
+      ),
+    ),
   });
+  return Object.freeze({ ...draftPlan, snapshot: scopedSnapshot });
 }

@@ -129,7 +129,20 @@ async function validateArchiveInBrowser(vite, archivePath) {
           version: parsed.version,
           elements: parsed.elements.length,
           resources: parsed.manifest.resources.length,
+          constraints: parsed.constraints.length,
           catalogEntries: parsed.catalog?.entries.length ?? 0,
+          categories: [
+            ...new Set(parsed.elements.map((value) => value.categoryId)),
+          ].sort(),
+          semanticsComplete: parsed.elements.every(
+            (value) =>
+              Object.keys(value.attributeSchema.properties).length > 0 &&
+              value.occupancy.length > 0 &&
+              value.constraintIds.length > 0,
+          ),
+          domainRepresentations: parsed.elements
+            .filter((value) => value.primitive === "domain-object")
+            .map((value) => value.defaultStyle.representation),
           decodedResourceCount,
           archiveBytes: file.size,
           archiveFileCount: archivePaths.length,
@@ -218,6 +231,7 @@ async function main() {
           "FEATURE_FOREST",
           "LOC_FEATURE_FOREST_NAME",
           "",
+          'NaturalWonder="true" Tiles="2"',
         ],
         [
           "Resources",
@@ -241,11 +255,18 @@ async function main() {
           "",
         ],
       ];
-      for (const [table, primaryKey, id, name, description] of baseRows) {
+      for (const [
+        table,
+        primaryKey,
+        id,
+        name,
+        description,
+        extra,
+      ] of baseRows) {
         writeFixture(
           input,
           `Base/Assets/Gameplay/Data/${table}.xml`,
-          entityFile(table, primaryKey, [{ id, name, description }]),
+          entityFile(table, primaryKey, [{ id, name, description, extra }]),
         );
       }
       writeFixture(
@@ -413,7 +434,7 @@ async function main() {
     assert(parsed.kind === "module", "统一加载器未返回 module 包。");
     assert(parsed.artifactId === "tessera.civ6", "模块 ID 不匹配。");
     assert(parsed.version === "1.0.0", "模块版本不匹配。");
-    const expectedElements = realMode ? 197 : 8;
+    const expectedElements = realMode ? 209 : 20;
     assert(parsed.elements === expectedElements, "目录元素数量不匹配。");
     // 正式 1.0.12.68：59 个 StrategicView + 52 个资源 UI 图标 + 3 个改良 UI 图标。
     const expectedResources = realMode ? 114 : 0;
@@ -431,6 +452,31 @@ async function main() {
     assert(
       parsed.catalogEntries === expectedElements,
       "内容目录未闭合到元素集合。",
+    );
+    assert(
+      parsed.constraints >= 12,
+      "声明式约束文件未生成完整的槽位与提示规则。",
+    );
+    assert(
+      parsed.semanticsComplete,
+      "存在空属性、空占用或未引用约束的目录元素。",
+    );
+    for (const category of ["river", "cliff", "yield", "planning"]) {
+      assert(
+        parsed.categories.includes(`tessera.civ6:category.${category}`),
+        `目录缺少核心分类：${category}`,
+      );
+    }
+    assert(
+      parsed.domainRepresentations.length > 0 &&
+        parsed.domainRepresentations.every(
+          (value) =>
+            value === "cell-style" ||
+            value === "edge-style" ||
+            value === "marker" ||
+            value === "text",
+        ),
+      "多格自然奇观未使用 v1 允许的 DomainGroup 表示。",
     );
     console.log(
       JSON.stringify({

@@ -19,6 +19,17 @@ import {
   type ResolvedLayerContract,
   type ProjectV1Document,
 } from "@tessera/formats";
+import { countProjectModuleObjectReferences } from "./project-module-references.js";
+
+export class ProjectModuleChangeError extends Error {
+  constructor(
+    readonly code: "package-module-in-use",
+    readonly details: Readonly<Record<string, unknown>>,
+  ) {
+    super(code);
+    this.name = "ProjectModuleChangeError";
+  }
+}
 
 function primitiveForElement(
   module: ParsedModulePackage,
@@ -386,26 +397,47 @@ function projectFromSelectedModules(
   > = new Map(),
 ): ProjectState {
   const document = structuredClone(toProjectV1(state)) as ProjectV1Document;
+  const currentModules = new Map(
+    document.modules.map((module) => [
+      module.moduleId + "@" + module.version,
+      module,
+    ]),
+  );
+  const currentLayers = new Map(
+    document.layerStates.map((layer) => [layer.layerId, layer]),
+  );
   document.modules = selected
-    .map((module) => ({
-      moduleId: module.artifactId,
-      version: module.version,
-      packageSourceKind: packageSourceKind(module),
-      extensions: {},
-    }))
+    .map((module) => {
+      const current = currentModules.get(
+        module.artifactId + "@" + module.version,
+      );
+      return {
+        moduleId: module.artifactId,
+        version: module.version,
+        packageSourceKind: packageSourceKind(module),
+        extensions: structuredClone(current?.extensions ?? {}),
+      };
+    })
     .sort((left, right) => left.moduleId.localeCompare(right.moduleId));
   document.layerStates = selected
     .flatMap((module) =>
       module.manifest.layers.map((layer) => {
         const override = layerOverrides.get(layer.layerId);
+        const current = currentLayers.get(layer.layerId);
+        const preserved =
+          current?.moduleVersion === module.version ? current : undefined;
         return {
           layerId: layer.layerId,
           moduleVersion: module.version,
           zIndex: layer.zIndex,
-          visible: override?.visible ?? layer.defaultVisible,
-          locked: override?.locked ?? layer.defaultLocked,
-          opacity: override?.opacity ?? layer.defaultOpacity,
-          extensions: {},
+          visible:
+            override?.visible ?? preserved?.visible ?? layer.defaultVisible,
+          locked: override?.locked ?? preserved?.locked ?? layer.defaultLocked,
+          opacity:
+            override?.opacity ?? preserved?.opacity ?? layer.defaultOpacity,
+          extensions: structuredClone(
+            preserved?.extensions ?? layer.extensions ?? {},
+          ),
         };
       }),
     )
@@ -413,6 +445,27 @@ function projectFromSelectedModules(
       (left, right) =>
         left.zIndex - right.zIndex || left.layerId.localeCompare(right.layerId),
     );
+  if (document.exportScope === "partial" && document.lineage !== null) {
+    const previousIncluded = new Set(document.lineage.includedLayerIds);
+    const previousOmitted = new Set(document.lineage.omittedLayerIds);
+    const includedLayerIds: string[] = [];
+    const omittedLayerIds: string[] = [];
+    for (const { layerId } of document.layerStates) {
+      if (previousOmitted.has(layerId)) {
+        omittedLayerIds.push(layerId);
+      } else if (previousIncluded.has(layerId)) {
+        includedLayerIds.push(layerId);
+      } else {
+        // 新启用模块创建的是当前派生工程中的完整空层，应纳入 included 闭包。
+        includedLayerIds.push(layerId);
+      }
+    }
+    document.lineage = {
+      ...document.lineage,
+      includedLayerIds: includedLayerIds.sort(),
+      omittedLayerIds: omittedLayerIds.sort(),
+    };
+  }
   return restoreProjectV1(stringifyProjectDocumentV1(document), {
     moduleResolver: createRegistryModuleResolver(registry),
     currentAppVersion,
@@ -432,6 +485,88 @@ export function createProjectFromModules(
     [...registry.modules.values()].map((item) => item.module),
     currentAppVersion,
   );
+}
+
+/**
+ * 只修改当前工程启用的模块集合；本地安装记录由独立包仓库工作流管理。
+ * Registry 构建统一验证精确版本、应用版本、网格和依赖闭包。
+ */
+export async function setProjectModuleEnabled(
+  state: ProjectState,
+  packages: readonly ParsedExtensionPackage[],
+  moduleId: string,
+  version: string,
+  enabled: boolean,
+  currentAppVersion: string,
+): Promise<ProjectState> {
+  if (moduleId === BASIC_MODULE_PACKAGE.artifactId && !enabled) {
+    throw new ModuleRuntimeError("package-basic-required", "modules");
+  }
+  const document = toProjectV1(state, { mode: "preserve" });
+  const exactEnabled = document.modules.some(
+    (module) => module.moduleId === moduleId && module.version === version,
+  );
+  if (exactEnabled === enabled) return state;
+  if (!enabled) {
+    const referenceCount = countProjectModuleObjectReferences(
+      document,
+      moduleId,
+      version,
+    );
+    if (referenceCount > 0) {
+      throw new ProjectModuleChangeError("package-module-in-use", {
+        moduleId,
+        version,
+        referenceCount,
+      });
+    }
+    const moduleLayerIds = new Set(
+      document.layerStates
+        .filter(
+          (layer) =>
+            layer.moduleVersion === version &&
+            layer.layerId.startsWith(moduleId + "."),
+        )
+        .map((layer) => layer.layerId),
+    );
+    document.modules = document.modules.filter(
+      (module) => module.moduleId !== moduleId || module.version !== version,
+    );
+    document.layerStates = document.layerStates.filter(
+      (layer) => !moduleLayerIds.has(layer.layerId),
+    );
+    if (document.lineage !== null) {
+      document.lineage = {
+        ...document.lineage,
+        includedLayerIds: document.lineage.includedLayerIds.filter(
+          (layerId) => !moduleLayerIds.has(layerId),
+        ),
+        omittedLayerIds: document.lineage.omittedLayerIds.filter(
+          (layerId) => !moduleLayerIds.has(layerId),
+        ),
+      };
+    }
+    return restoreProjectV1(stringifyProjectDocumentV1(document), {
+      moduleResolver: createInstalledModuleResolver(packages),
+      currentAppVersion,
+      moduleResolutionMode: "tolerant",
+    });
+  }
+  const identities = document.modules
+    .filter(
+      (module) =>
+        module.moduleId !== BASIC_MODULE_PACKAGE.artifactId &&
+        (module.moduleId !== moduleId || module.version !== version),
+    )
+    .map((module) => "module:" + module.moduleId + "@" + module.version);
+  identities.push("module:" + moduleId + "@" + version);
+  const registry = await buildRegistryForInstalledModules(
+    packages,
+    identities,
+    currentAppVersion,
+    state.grid.type,
+  );
+  return createProjectFromModules(state, registry, currentAppVersion);
 }
 
 /** 将预设选定的精确模块版本和固定层写入 Project v1，再经统一恢复器启用。 */

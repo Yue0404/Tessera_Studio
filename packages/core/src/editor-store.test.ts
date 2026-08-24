@@ -127,4 +127,196 @@ describe("EditorStore", () => {
       runtimeStatus: "missing",
     });
   });
+
+  it.each(["square", "hex-pointy"] as const)(
+    "%s 箭头可反转和重绑定端点，撤销重做保持空间索引一致",
+    (type) => {
+      const store = new EditorStore(
+        createProject({ ...input, grid: { ...input.grid, type } }),
+      );
+      const firstId = `cell:${type}:1:1`;
+      const secondId = `cell:${type}:1:3`;
+      const reboundId = `cell:${type}:2:4`;
+      const connectionId = store.createConnection(
+        { kind: "cell-center", cellId: firstId },
+        { kind: "cell-center", cellId: secondId },
+        { kind: "arrow", arrowMode: "end" },
+      );
+      const before = structuredClone(store.state.connections.get(connectionId));
+
+      expect(store.reverseConnection(connectionId)).toBe(true);
+      expect(store.state.connections.get(connectionId)).toMatchObject({
+        start: { kind: "cell-center", cellId: secondId },
+        end: { kind: "cell-center", cellId: firstId },
+        arrowStart: true,
+        arrowEnd: false,
+      });
+      expect(
+        store.rebindConnectionCellEndpoint(connectionId, "end", reboundId),
+      ).toBe(true);
+      expect(store.state.connections.get(connectionId)?.end).toEqual({
+        kind: "cell-center",
+        cellId: reboundId,
+      });
+      expect(
+        store.state.connections.query({
+          minX: 0,
+          minY: 0,
+          maxX: 500,
+          maxY: 500,
+        }),
+      ).toHaveLength(1);
+
+      store.undo();
+      store.undo();
+      expect(store.state.connections.get(connectionId)).toEqual(before);
+      store.redo();
+      store.redo();
+      expect(store.state.connections.get(connectionId)?.end).toEqual({
+        kind: "cell-center",
+        cellId: reboundId,
+      });
+    },
+  );
+
+  it.each([
+    ["locked", { locked: true }, "layer-locked"],
+    ["hidden", { visible: false }, "layer-hidden"],
+    [
+      "missing",
+      { locked: true, runtimeStatus: "missing" },
+      "layer-module-missing",
+    ],
+  ] as const)(
+    "%s 图层拒绝连接与标记修改，并暴露稳定的单次拒绝结果",
+    (_label, layerPatch, code) => {
+      const store = new EditorStore(createProject(input));
+      const connectionId = store.createConnection(
+        { kind: "cell-center", cellId: "cell:square:1:1" },
+        { kind: "cell-center", cellId: "cell:square:1:2" },
+        { kind: "arrow", arrowMode: "end" },
+      );
+      const markerId = store.placeMarker(
+        { kind: "cell", cellId: "cell:square:2:2" },
+        "#123456FF",
+        "circle",
+      );
+      const connectionBefore = structuredClone(
+        store.state.connections.get(connectionId),
+      );
+      const markerBefore = structuredClone(store.state.overlays.get(markerId));
+      const layers = store.state.layers as Map<string, FixedLayerState>;
+      const connectionLayer = layers.get("tessera.basic.connection");
+      if (connectionLayer === undefined)
+        throw new Error("connection-layer-missing");
+      layers.set("tessera.basic.connection", {
+        ...connectionLayer,
+        ...layerPatch,
+      });
+      const versionBefore = store.version;
+      expect(store.reverseConnection(connectionId)).toBe(false);
+      expect(store.operationRejection).toEqual({
+        code,
+        layerId: "tessera.basic.connection",
+      });
+      const versionAfterFirstRejection = store.version;
+      expect(versionAfterFirstRejection).toBe(versionBefore + 1);
+      expect(store.reverseConnection(connectionId)).toBe(false);
+      expect(store.version).toBe(versionAfterFirstRejection);
+      expect(store.state.connections.get(connectionId)).toEqual(
+        connectionBefore,
+      );
+
+      const markerLayer = layers.get("tessera.basic.placed-object");
+      if (markerLayer === undefined) throw new Error("marker-layer-missing");
+      layers.set("tessera.basic.placed-object", {
+        ...markerLayer,
+        ...layerPatch,
+      });
+      if (markerBefore === undefined || markerBefore.overlayType !== "marker") {
+        throw new Error("marker-not-found");
+      }
+      store.updateOverlay(markerId, {
+        ...markerBefore,
+        style: { ...markerBefore.style, markerShape: "diamond" },
+      });
+      expect(store.operationRejection).toEqual({
+        code,
+        layerId: "tessera.basic.placed-object",
+      });
+      expect(store.state.overlays.get(markerId)).toEqual(markerBefore);
+    },
+  );
+
+  it("标记素材形状可在放置后原子编辑并撤销重做", () => {
+    const store = new EditorStore(createProject(input));
+    const markerId = store.placeMarker(
+      { kind: "cell", cellId: "cell:square:2:2" },
+      "#123456FF",
+      "circle",
+    );
+    const before = store.state.overlays.get(markerId);
+    if (before === undefined || before.overlayType !== "marker") {
+      throw new Error("marker-not-found");
+    }
+    store.updateOverlay(markerId, {
+      ...before,
+      style: {
+        ...before.style,
+        markerShape: "diamond",
+        size: 48,
+        rotation: 45,
+        opacity: 0.4,
+        color: "#ABCDEF88",
+      },
+    });
+    expect(store.state.overlays.get(markerId)).toMatchObject({
+      style: {
+        markerShape: "diamond",
+        size: 48,
+        rotation: 45,
+        opacity: 0.4,
+        color: "#ABCDEF88",
+      },
+    });
+    store.undo();
+    expect(store.state.overlays.get(markerId)).toEqual(before);
+    store.redo();
+    expect(store.state.overlays.get(markerId)).toMatchObject({
+      style: { markerShape: "diamond", rotation: 45 },
+    });
+  });
+});
+
+describe("EditorStore 历史容量边界", () => {
+  function color(index: number): string {
+    return `#${index.toString(16).padStart(6, "0")}FF`;
+  }
+
+  it("保留完整 100 步并在边界停止撤销和重做", () => {
+    const store = new EditorStore(createProject(input));
+    for (let index = 1; index <= 100; index += 1) {
+      store.paintCell(0, 0, color(index));
+    }
+    for (let index = 0; index < 100; index += 1) store.undo();
+    expect(store.state.cells.size).toBe(0);
+    expect(store.canUndo).toBe(false);
+    for (let index = 0; index < 100; index += 1) store.redo();
+    expect(store.state.cells.get("cell:square:0:0")?.fillColor).toBe(
+      color(100),
+    );
+    expect(store.canRedo).toBe(false);
+  });
+
+  it("第 101 步仅淘汰最旧一步", () => {
+    const store = new EditorStore(createProject(input));
+    for (let index = 1; index <= 101; index += 1) {
+      store.paintCell(0, 0, color(index));
+    }
+    for (let index = 0; index < 100; index += 1) store.undo();
+    expect(store.state.cells.get("cell:square:0:0")?.fillColor).toBe(color(1));
+    expect(store.canUndo).toBe(false);
+    store.undo();
+    expect(store.state.cells.get("cell:square:0:0")?.fillColor).toBe(color(1));
+  });
 });

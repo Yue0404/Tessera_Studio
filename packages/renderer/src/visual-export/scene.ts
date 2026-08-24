@@ -264,6 +264,7 @@ function textBounds(primitive: TextPrimitive): MapRect {
     primitive.text,
     primitive.fontSize,
     primitive.backgroundColor !== null,
+    primitive.wrapWidth,
   );
   return rotatedRectBounds(
     primitive.point,

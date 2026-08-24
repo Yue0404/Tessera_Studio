@@ -113,6 +113,20 @@
   min-height: 54px;
   resize: vertical;
 }
+.fieldGrid > button,
+.rebindStatus button {
+  width: auto;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+.rebindStatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-accent);
+  font-size: 12px;
+}
 .danger {
   width: 100% !important;
   color: #ffd8d0 !important;

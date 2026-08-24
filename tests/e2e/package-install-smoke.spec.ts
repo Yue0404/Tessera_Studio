@@ -170,7 +170,7 @@ function extractorCatalog(
         version,
         os: "windows",
         arch: "x64",
-        minOsBuild: 19045,
+        minOsBuild: 26100,
         artifactType: "portable-zip",
         entrypoint: "TesseraCiv6Extractor.exe",
         bytes: 51_549_893,
@@ -251,7 +251,7 @@ test("提取器目录仅在打开包设置后请求并呈现安全下载链接",
   );
   await expect(link).toHaveAttribute("target", "_blank");
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-  await expect(dialog.getByText(/Windows 10 build 19045/)).toBeVisible();
+  await expect(dialog.getByText(/Windows 11 24H2.*26100/)).toBeVisible();
   await expect(dialog.getByText(/SmartScreen/)).toBeVisible();
   expect(requests).toBe(1);
 });

@@ -15,9 +15,10 @@ export function svgTextNodeCount(
   text: string,
   fontSize: number,
   backgroundVisible: boolean,
+  wrapWidth?: number,
 ): number {
   return svgTextNodeCountFromLineCount(
-    textLayout(text, fontSize).lines.length,
+    textLayout(text, fontSize, wrapWidth).lines.length,
     backgroundVisible,
   );
 }
@@ -29,5 +30,6 @@ export function svgPrimitiveNodeCount(primitive: VisualPrimitive): number {
     primitive.text,
     primitive.fontSize,
     primitive.backgroundColor !== null,
+    primitive.wrapWidth,
   );
 }

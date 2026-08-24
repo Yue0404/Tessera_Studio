@@ -3,6 +3,7 @@ import {
   edgeIdentity,
   mapPointToCell,
   parseCellId,
+  projectTextContentViolation,
   type Point,
   type ProjectGrid,
 } from "@tessera/core";
@@ -486,25 +487,12 @@ export function assertTextLimits(
   pointer: string,
   makeError: ErrorFactory,
 ): void {
-  if (value.split(/\r\n|\r|\n/u).length > 8) {
-    throw makeError("text-line-limit-exceeded", {
-      pointer,
-      maxLines: 8,
-    });
+  const violation = projectTextContentViolation(value);
+  if (violation === "text-line-limit-exceeded") {
+    throw makeError(violation, { pointer, maxLines: 8 });
   }
-  const segmenter = new Intl.Segmenter(undefined, {
-    granularity: "grapheme",
-  });
-  let graphemes = 0;
-  for (const segment of segmenter.segment(value)) {
-    void segment;
-    graphemes += 1;
-    if (graphemes > 256) {
-      throw makeError("text-grapheme-limit-exceeded", {
-        pointer,
-        maxGraphemes: 256,
-      });
-    }
+  if (violation === "text-grapheme-limit-exceeded") {
+    throw makeError(violation, { pointer, maxGraphemes: 256 });
   }
 }
 

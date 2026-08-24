@@ -61,8 +61,8 @@ describe("VisualExportDialog", () => {
       (
         projectState: Readonly<typeof state>,
         request: VisualExportWorkflowRequest,
-      ) => VisualExportWorkflowSession
-    >(() => {
+      ) => Promise<VisualExportWorkflowSession>
+    >(async () => {
       let reject!: (error: unknown) => void;
       const result = new Promise<VisualExportResult>(
         (_resolve, rejectResult) => {
@@ -119,6 +119,7 @@ describe("VisualExportDialog", () => {
       ).toBeTruthy();
     }
     fireEvent.click(start);
+    await waitFor(() => expect(listeners[0]).not.toBeNull());
     listeners[0]?.({ taskId: "task-0", progress: 0.5 });
     await waitFor(() =>
       expect(screen.getByRole("progressbar").getAttribute("value")).toBe("0.5"),
@@ -131,6 +132,49 @@ describe("VisualExportDialog", () => {
     await waitFor(() => expect(cancellations).toHaveLength(2));
     view.unmount();
     expect(cancellations[1]).toHaveBeenCalledTimes(1);
+  });
+
+  it("资源预取尚未建立导出任务时仍可取消", async () => {
+    const state = project();
+    const bounds = { minX: 0, minY: 0, maxX: 48, maxY: 48 };
+    let capturedSignal: AbortSignal | undefined;
+    const startVisualExportWorkflow = vi.fn(
+      (
+        _projectState: Readonly<typeof state>,
+        request: VisualExportWorkflowRequest,
+      ) => {
+        capturedSignal = request.signal;
+        return new Promise<VisualExportWorkflowSession>((_resolve, reject) => {
+          request.signal?.addEventListener(
+            "abort",
+            () => reject(new VisualExportError("visual-export-cancelled")),
+            { once: true },
+          );
+        });
+      },
+    );
+    render(
+      <I18nextProvider i18n={i18n}>
+        <VisualExportDialog
+          state={state}
+          interaction={{ viewportBounds: bounds, selectionBounds: null }}
+          initialCustomBounds={bounds}
+          workflowLoader={async () => ({
+            startVisualExportWorkflow,
+            downloadVisualExportResult: vi.fn(),
+            visualExportErrorPresentation,
+          })}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "开始生成" }));
+    await waitFor(() => expect(capturedSignal).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "取消生成" }));
+
+    await screen.findByText("已取消图片导出，没有生成文件。");
+    expect(capturedSignal?.aborted).toBe(true);
   });
 
   it("非法 RGBA 的行动会恢复合法背景，PNG 环境错误会切换 SVG", async () => {

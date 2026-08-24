@@ -37,6 +37,22 @@ function validNonNegative(value: number): boolean {
   return Number.isFinite(value) && value >= 0;
 }
 
+function validStrokeDetails(
+  primitive: Extract<VisualPrimitive, { kind: "stroke" | "outline" }>,
+): boolean {
+  return (
+    (primitive.lineCap === undefined ||
+      ["butt", "round", "square"].includes(primitive.lineCap)) &&
+    (primitive.dashPattern === undefined ||
+      (Array.isArray(primitive.dashPattern) &&
+        primitive.dashPattern.length >= 1 &&
+        primitive.dashPattern.length <= 16 &&
+        primitive.dashPattern.every(
+          (value) => Number.isFinite(value) && value >= 0.1 && value <= 256,
+        )))
+  );
+}
+
 /** 扩展 capture 的声明式图元在进入快照前必须满足 Worker 可安全消费的边界。 */
 export function assertValidExtensionPrimitive(
   state: Readonly<ProjectState>,
@@ -101,6 +117,8 @@ export function assertValidExtensionPrimitive(
         invalid(elementId, descriptorIndex, "opacity");
       if (primitive.lineStyle !== "solid" && primitive.lineStyle !== "dashed")
         invalid(elementId, descriptorIndex, "lineStyle");
+      if (!validStrokeDetails(primitive))
+        invalid(elementId, descriptorIndex, "strokeStyle");
       return;
     case "stroke":
       for (const [field, point] of [
@@ -119,6 +137,8 @@ export function assertValidExtensionPrimitive(
         invalid(elementId, descriptorIndex, "opacity");
       if (primitive.lineStyle !== "solid" && primitive.lineStyle !== "dashed")
         invalid(elementId, descriptorIndex, "lineStyle");
+      if (!validStrokeDetails(primitive))
+        invalid(elementId, descriptorIndex, "strokeStyle");
       return;
     case "marker":
       if (!finitePoint(primitive.point))
@@ -152,6 +172,13 @@ export function assertValidExtensionPrimitive(
         invalid(elementId, descriptorIndex, "backgroundColor");
       if (!validOpacity(primitive.opacity))
         invalid(elementId, descriptorIndex, "opacity");
+      if (
+        primitive.wrapWidth !== undefined &&
+        (!Number.isFinite(primitive.wrapWidth) ||
+          primitive.wrapWidth <= 0 ||
+          primitive.wrapWidth > 16_384)
+      )
+        invalid(elementId, descriptorIndex, "wrapWidth");
       if (!["normal", "bold"].includes(primitive.fontWeight))
         invalid(elementId, descriptorIndex, "fontWeight");
       if (!["left", "center", "right"].includes(primitive.align))

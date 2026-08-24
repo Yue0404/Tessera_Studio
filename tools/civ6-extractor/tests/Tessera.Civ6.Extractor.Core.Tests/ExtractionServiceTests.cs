@@ -7,7 +7,7 @@ public sealed class ExtractionServiceTests
     private static readonly DateTimeOffset FixedNow = new(2026, 8, 22, 8, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task 正式结构生成八类目录并提取一条铁路预览且不修改输入()
+    public async Task 正式结构生成完整语义目录与声明式约束且不修改输入()
     {
         using var fixture = new SyntheticGameFixture();
         var before = fixture.SnapshotInput();
@@ -17,7 +17,7 @@ public sealed class ExtractionServiceTests
 
         Assert.Equal("tessera.civ6", result.ModuleId);
         Assert.Equal(ExtractorVersions.OutputModule, result.ModuleVersion);
-        Assert.Equal(18, result.ElementCount);
+        Assert.Equal(31, result.ElementCount);
         Assert.Equal(1, result.ResourceCount);
         Assert.Equal(fixture.ArchivePath, result.ArchivePath);
         Assert.True(Path.IsPathFullyQualified(result.ArchivePath));
@@ -41,15 +41,22 @@ public sealed class ExtractionServiceTests
         Assert.Equal("local-only", resource.GetProperty("license").GetProperty("status").GetString());
         Assert.Equal(9, module.RootElement.GetProperty("layers").GetArrayLength());
         Assert.Equal("elements/content.json", Assert.Single(module.RootElement.GetProperty("elementFiles").EnumerateArray()).GetString());
+        Assert.Equal(
+            "constraints/content.json",
+            Assert.Single(module.RootElement.GetProperty("constraintFiles").EnumerateArray()).GetString());
 
         using var catalog = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "catalog", "content-catalog.json")));
         var counts = catalog.RootElement.GetProperty("categories").EnumerateArray().ToDictionary(
             value => value.GetProperty("categoryId").GetString()!,
             value => value.GetProperty("count").GetInt32(),
             StringComparer.Ordinal);
-        Assert.Equal(8, counts.Count);
+        Assert.Equal(12, counts.Count);
         Assert.Equal(1, counts["tessera.civ6:category.city"]);
         Assert.Equal(3, counts["tessera.civ6:category.wonder"]);
+        Assert.Equal(1, counts["tessera.civ6:category.river"]);
+        Assert.Equal(1, counts["tessera.civ6:category.cliff"]);
+        Assert.Equal(6, counts["tessera.civ6:category.yield"]);
+        Assert.Equal(4, counts["tessera.civ6:category.planning"]);
 
         using var elements = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(fixture.Output, "elements", "content.json")));
         var railroad = elements.RootElement.EnumerateArray().Single(element =>
@@ -60,6 +67,66 @@ public sealed class ExtractionServiceTests
         Assert.True(railroad.GetProperty("extensions").GetProperty("hasExtractedArt").GetBoolean());
         Assert.Equal(4, railroad.GetProperty("extensions").GetProperty("assetWidth").GetInt32());
         Assert.Equal(4, railroad.GetProperty("extensions").GetProperty("assetHeight").GetInt32());
+        Assert.All(elements.RootElement.EnumerateArray(), element =>
+        {
+            Assert.NotEmpty(element.GetProperty("attributeSchema").GetProperty("properties").EnumerateObject());
+            Assert.NotEmpty(element.GetProperty("occupancy").EnumerateArray());
+            Assert.NotEmpty(element.GetProperty("constraintIds").EnumerateArray());
+            Assert.False(Path.IsPathFullyQualified(
+                element.GetProperty("source").GetProperty("extensions")
+                    .GetProperty("sourceRelativePath").GetString()!));
+        });
+        var naturalWonder = elements.RootElement.EnumerateArray().Single(element =>
+            element.GetProperty("elementId").GetString() ==
+            "tessera.civ6:object.feature.feature-synthetic-natural-wonder");
+        Assert.Equal("domain-object", naturalWonder.GetProperty("primitive").GetString());
+        Assert.Equal(
+            "marker",
+            naturalWonder.GetProperty("defaultStyle").GetProperty("representation").GetString());
+        Assert.NotEqual(
+            "connection",
+            naturalWonder.GetProperty("defaultStyle").GetProperty("representation").GetString());
+        var group = naturalWonder.GetProperty("group");
+        Assert.Equal(2, group.GetProperty("minMembers").GetInt32());
+        Assert.Equal(64, group.GetProperty("maxMembers").GetInt32());
+        Assert.Equal("edge", group.GetProperty("connectivity").GetString());
+        Assert.Contains(
+            group.GetProperty("memberRules").EnumerateArray(),
+            value => value.GetString() == "recommended-member-count:3");
+        Assert.All(
+            elements.RootElement.EnumerateArray().Where(element =>
+                element.GetProperty("categoryId").GetString() is
+                    "tessera.civ6:category.river" or "tessera.civ6:category.cliff"),
+            element =>
+            {
+                Assert.Equal("edge-style", element.GetProperty("primitive").GetString());
+                Assert.Equal("edge", Assert.Single(element.GetProperty("anchors").EnumerateArray()).GetString());
+            });
+        Assert.All(
+            elements.RootElement.EnumerateArray().Where(element =>
+                element.GetProperty("categoryId").GetString() == "tessera.civ6:category.yield"),
+            element =>
+            {
+                Assert.Equal("text", element.GetProperty("primitive").GetString());
+                Assert.True(element.GetProperty("attributeSchema").GetProperty("properties")
+                    .TryGetProperty("text", out _));
+            });
+        Assert.All(
+            elements.RootElement.EnumerateArray().Where(element =>
+                element.GetProperty("categoryId").GetString() == "tessera.civ6:category.planning"),
+            element => Assert.Equal("marker", element.GetProperty("primitive").GetString()));
+        using var constraints = JsonDocument.Parse(await File.ReadAllBytesAsync(
+            Path.Combine(fixture.Output, "constraints", "content.json")));
+        Assert.Contains(constraints.RootElement.EnumerateArray(), value =>
+            value.GetProperty("severity").GetString() == "error");
+        Assert.Contains(constraints.RootElement.EnumerateArray(), value =>
+            value.GetProperty("severity").GetString() == "warning");
+        Assert.Contains(constraints.RootElement.EnumerateArray(), value =>
+            value.GetProperty("severity").GetString() == "info");
+        Assert.Contains(constraints.RootElement.EnumerateArray(), value =>
+            value.GetProperty("condition").GetProperty("op").GetString() == "occupancy-count");
+        Assert.Contains(constraints.RootElement.EnumerateArray(), value =>
+            value.GetProperty("condition").GetProperty("op").GetString() == "grid-is");
         Assert.All(elements.RootElement.EnumerateArray().Where(element =>
             element.GetProperty("elementId").GetString() != "tessera.civ6:object.route.route-railroad"), element =>
         {
@@ -116,8 +183,8 @@ public sealed class ExtractionServiceTests
         using var fixture = new SyntheticGameFixture();
         var catalog = await Service().InspectCatalogAsync(fixture.Input);
 
-        Assert.Equal(18, catalog.TotalCount);
-        Assert.Equal(18, catalog.ChineseNameCount);
+        Assert.Equal(19, catalog.TotalCount);
+        Assert.Equal(19, catalog.ChineseNameCount);
         Assert.Equal(0, catalog.FallbackNameCount);
         Assert.Equal(8, catalog.Categories.Count);
         Assert.All(catalog.Categories, category => Assert.InRange(category.SampleIds.Count, 1, 3));
@@ -263,6 +330,36 @@ public sealed class ExtractionServiceTests
         Assert.Equal("旧输出", await File.ReadAllTextAsync(marker));
         Assert.Equal("旧归档", await File.ReadAllTextAsync(fixture.ArchivePath));
         Assert.Empty(Directory.EnumerateDirectories(Path.GetDirectoryName(fixture.Output)!, ".tessera.civ6.staging-*"));
+    }
+
+    [Fact]
+    public async Task 超出域组上限的正式定义拒绝且保留既有输出()
+    {
+        using var fixture = new SyntheticGameFixture();
+        fixture.ReplaceFile("Base/Assets/Gameplay/Data/Features.xml", """
+            <GameInfo>
+              <Types><Row Type="FEATURE_IMPOSSIBLE_DOMAIN" /></Types>
+              <Features>
+                <Row FeatureType="FEATURE_IMPOSSIBLE_DOMAIN"
+                     Name="LOC_FEATURE_IMPOSSIBLE_DOMAIN_NAME"
+                     NaturalWonder="true" Tiles="65" />
+              </Features>
+            </GameInfo>
+            """);
+        Directory.CreateDirectory(fixture.Output);
+        var marker = Path.Combine(fixture.Output, "keep.txt");
+        await File.WriteAllTextAsync(marker, "旧输出");
+        await File.WriteAllTextAsync(fixture.ArchivePath, "旧归档");
+
+        var error = await Assert.ThrowsAsync<ExtractionException>(() =>
+            Service().ExtractAsync(new ExtractionRequest(fixture.Input, fixture.Output)));
+
+        Assert.Equal("input-content-group-size-invalid", error.Code);
+        Assert.Equal("旧输出", await File.ReadAllTextAsync(marker));
+        Assert.Equal("旧归档", await File.ReadAllTextAsync(fixture.ArchivePath));
+        Assert.Empty(Directory.EnumerateDirectories(
+            Path.GetDirectoryName(fixture.Output)!,
+            ".tessera.civ6.staging-*"));
     }
 
     [Fact]

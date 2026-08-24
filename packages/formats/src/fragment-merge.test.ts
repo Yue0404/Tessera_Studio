@@ -168,6 +168,12 @@ function addExternalModule(
   const instanceId = crypto.randomUUID();
   const groupId = crypto.randomUUID();
   const cell = mutable.chunks[0].cellOverrides[0];
+  const groupOwner = parseCellId(cell.cellId);
+  const adjacentGroupCellId = cellId(
+    groupOwner.gridType,
+    groupOwner.row,
+    groupOwner.column + 1,
+  );
   cell.layerInstances.push({
     instanceId,
     elementId: "zz.asset:item",
@@ -188,7 +194,7 @@ function addExternalModule(
     groupId,
     elementId: "zz.asset:group",
     layerId: "zz.asset.items",
-    memberCellIds: [cell.cellId],
+    memberCellIds: [cell.cellId, adjacentGroupCellId],
     attributes: {},
     styleOverrides: {},
     extensions: { vendor: { nested: { z: 1, a: [true, null] } } },
@@ -277,6 +283,58 @@ function externalResolver(
 }
 
 describe("Fragment merge transaction", () => {
+  it.each([2, 3])(
+    "仅选择领域成员 2:%i 时仍闭包导出并完整合并领域组",
+    (selectedColumn) => {
+      const sourceStore = createStore("square");
+      sourceStore.paintCell(2, 2, "#E3614DFF");
+      const source = addExternalModule(
+        toProjectV1(sourceStore.state) as ProjectV1Document,
+        true,
+      );
+      const selectedCenter = cellCenter(
+        source.document.grid,
+        2,
+        selectedColumn,
+      );
+      const fragment = createFragmentV1(source.document, {
+        fragmentId: crypto.randomUUID(),
+        bounds: {
+          minX: selectedCenter.x - 1,
+          minY: selectedCenter.y - 1,
+          maxX: selectedCenter.x + 1,
+          maxY: selectedCenter.y + 1,
+        },
+        includedLayerIds: ["zz.asset.items"],
+      });
+      expect(fragment.objects.domainGroups).toHaveLength(1);
+      expect(fragment.objects.domainGroups[0]?.memberCellIds).toEqual([
+        cellId("square", 2, 2),
+        cellId("square", 2, 3),
+      ]);
+
+      const target = addExternalModule(createTarget("square"), false).document;
+      const plan = planFragmentMerge(target, fragment, {
+        currentAppVersion: APP_VERSION,
+        resolver: externalResolver(),
+        translation: { kind: "square", deltaRow: 1, deltaColumn: 2 },
+      });
+      readyPlan(plan);
+      const result = applyFragmentMerge(target, fragment, plan, {
+        currentAppVersion: APP_VERSION,
+        resolver: externalResolver(),
+        uuidGenerator: uuidSequence(),
+      });
+      const importedGroupId = result.idRemap.instances[source.groupId ?? ""];
+      expect(
+        result.project.domainGroups.find(
+          (group) => group.groupId === importedGroupId,
+        )?.memberCellIds,
+      ).toEqual([cellId("square", 3, 4), cellId("square", 3, 5)]);
+      validateProjectDocumentV1(result.project);
+    },
+  );
+
   it("square 零平移返回可预览计划并原子生成新工程", () => {
     const target = createTarget("square");
     const fragment = createBasicFragment("square", 2, 3);
@@ -464,7 +522,7 @@ describe("Fragment merge transaction", () => {
       externalResult.project.domainGroups.find(
         (group) => group.groupId === remappedGroupId,
       )?.memberCellIds,
-    ).toEqual([expectedCellId]);
+    ).toEqual([expectedCellId, cellId("square", 3, 5)]);
     validateProjectDocumentV1(externalResult.project);
   });
 
@@ -520,6 +578,9 @@ describe("Fragment merge transaction", () => {
     expect(result.project.managers.edgeManager.edges[0]).toMatchObject(
       expectedEdge,
     );
+    expect(
+      result.project.managers.edgeManager.edges[0]?.layerInstances,
+    ).toEqual([]);
     expect(result.project.managers.overlayManager.overlays[0]).toMatchObject({
       kind: "anchored-overlay",
       anchor: { kind: "edge", edgeId: expectedEdge.edgeId },
@@ -789,19 +850,23 @@ describe("Fragment merge transaction", () => {
         uuidGenerator: uuidSequence(),
       });
       const edge = result.project.managers.edgeManager.edges[0];
-      expect(edge?.layerInstances).toHaveLength(1);
-      expect(edge?.layerInstances[0]?.attributes).toMatchObject({
-        persistence: expectedMode,
-      });
+      if (expectedMode === "reference-only") {
+        expect(edge?.layerInstances).toEqual([]);
+      } else {
+        expect(edge?.layerInstances).toHaveLength(1);
+        expect(edge?.layerInstances[0]?.attributes).toMatchObject({
+          persistence: "explicit-style",
+        });
+      }
       if (incomingMode === "reference-only") {
-        expect(
-          result.idRemap.deduplicatedStructuralInstances[
-            sourceEdgeInstanceId ?? ""
-          ],
-        ).toBe(targetEdgeInstanceId ?? null);
-        expect(
+        expect(sourceEdgeInstanceId).toBeUndefined();
+        expect(result.idRemap.deduplicatedStructuralInstances).toEqual({});
+        expect(edge?.layerInstances[0]?.instanceId).toBe(targetEdgeInstanceId);
+      } else if (targetMode === "reference-only") {
+        expect(sourceEdgeInstanceId).toBeDefined();
+        expect(edge?.layerInstances[0]?.instanceId).toBe(
           result.idRemap.instances[sourceEdgeInstanceId ?? ""],
-        ).toBeUndefined();
+        );
       }
       validateProjectDocumentV1(result.project);
     },

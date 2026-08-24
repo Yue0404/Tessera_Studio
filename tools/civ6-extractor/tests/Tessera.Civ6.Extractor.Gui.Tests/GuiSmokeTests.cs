@@ -223,9 +223,9 @@ public sealed class GuiSmokeTests
     [Theory]
     [InlineData(false, 26100, false, "extractor-windows-required")]
     [InlineData(true, 19044, false, "extractor-windows-build-unsupported")]
-    [InlineData(true, 19045, true, null)]
+    [InlineData(true, 26099, false, "extractor-windows-build-unsupported")]
     [InlineData(true, 26100, true, null)]
-    public void Windows发布守卫严格执行19045基线(
+    public void Windows发布守卫严格执行26100基线(
         bool isWindows,
         int build,
         bool supported,
@@ -245,7 +245,7 @@ public sealed class GuiSmokeTests
 
         var message = GuiText.DescribeCompatibilityError(result);
 
-        Assert.Contains("19045", message, StringComparison.Ordinal);
+        Assert.Contains("26100", message, StringComparison.Ordinal);
         Assert.Contains("19044", message, StringComparison.Ordinal);
         Assert.Contains("extractor-windows-build-unsupported", message, StringComparison.Ordinal);
         Assert.DoesNotContain(nameof(WindowsCompatibilityResult), message, StringComparison.Ordinal);
@@ -259,6 +259,7 @@ public sealed class GuiSmokeTests
         var message = GuiText.DescribeCompatibilityError(result);
 
         Assert.Contains(GuiText.Get("ErrorWindowsRequired"), message, StringComparison.Ordinal);
+        Assert.Contains("Windows 11 24H2", message, StringComparison.Ordinal);
         Assert.Contains("extractor-windows-required", message, StringComparison.Ordinal);
     }
 

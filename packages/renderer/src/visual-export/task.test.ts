@@ -173,6 +173,50 @@ describe("统一视觉导出任务", () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
+  it("资源 PNG 明确绕过 Worker，主线程完成后只释放一次解码句柄", async () => {
+    const basePlan = createPlan();
+    const plan: VisualExportPlan = {
+      ...basePlan,
+      snapshot: {
+        ...basePlan.snapshot,
+        resources: [
+          {
+            key: "resource-000000",
+            identity: {
+              moduleId: "example.weather",
+              version: "1.0.0",
+              resourceId: "example.weather:image.marker",
+            },
+            kind: "image",
+            mimeType: "image/png",
+            bytes: new Uint8Array([1, 2, 3]),
+            width: 2,
+            height: 1,
+          },
+        ],
+      },
+    };
+    const createWorker = vi.fn(() => new FakeWorker());
+    const handle = {} as CanvasImageSource;
+    const releaseImage = vi.fn();
+    const result = await startVisualExport(plan, {
+      capabilities: workerCapabilities,
+      createWorker,
+      createCanvasSurface: () => fallbackSurface(),
+      pngResourceEnvironment: {
+        decodeImage: async () => handle,
+        loadFont: async () => ({}),
+        releaseImage,
+        releaseFont: vi.fn(),
+      },
+    }).result;
+
+    expect(result.executionMode).toBe("fallback");
+    expect(createWorker).not.toHaveBeenCalled();
+    expect(releaseImage).toHaveBeenCalledTimes(1);
+    expect(releaseImage).toHaveBeenCalledWith(handle);
+  });
+
   it.each([1, 2, 4] as const)("PNG %d 倍率生成对应像素尺寸", async (scale) => {
     const plan = createPlan("png", 4, 4, scale);
     const calls: unknown[][] = [];

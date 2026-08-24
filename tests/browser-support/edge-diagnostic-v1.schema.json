@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tessera-studio.local/schemas/edge-diagnostic-v1.schema.json",
+  "title": "Tessera Studio Edge A/B Diagnostic v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile",
+    "label",
+    "expectedBrowserVersion",
+    "generatedAt",
+    "environment",
+    "cases",
+    "sentinel",
+    "status"
+  ],
+  "properties": {
+    "profile": { "const": "edge-diagnostic-v1" },
+    "label": { "enum": ["current", "previous"] },
+    "expectedBrowserVersion": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch", "nodeVersion"],
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "arch": { "type": "string", "minLength": 1 },
+        "nodeVersion": { "type": "string", "minLength": 1 }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": { "$ref": "#/$defs/result" }
+    },
+    "sentinel": { "$ref": "#/$defs/result" },
+    "status": { "enum": ["passed", "failed"] }
+  },
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "caseId",
+        "probeId",
+        "label",
+        "browserVersion",
+        "rendererStatus",
+        "webglVendor",
+        "webglRenderer"
+      ],
+      "properties": {
+        "kind": { "const": "facts" },
+        "caseId": { "type": "string", "minLength": 1 },
+        "probeId": { "type": "string", "minLength": 1 },
+        "label": { "enum": ["current", "previous"] },
+        "browserVersion": { "type": "string", "minLength": 1 },
+        "rendererStatus": { "type": ["string", "null"] },
+        "webglVendor": { "type": ["string", "null"] },
+        "webglRenderer": { "type": ["string", "null"] }
+      }
+    },
+    "errors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "caseId",
+        "probeId",
+        "pageErrors",
+        "consoleErrors",
+        "unhandledRejections"
+      ],
+      "properties": {
+        "kind": { "const": "errors" },
+        "caseId": { "type": "string", "minLength": 1 },
+        "probeId": { "type": "string", "minLength": 1 },
+        "pageErrors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "consoleErrors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "unhandledRejections": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "exitCode", "durationMs", "facts", "errors"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["passed", "failed"] },
+        "exitCode": { "type": "integer" },
+        "durationMs": { "type": "number", "minimum": 0 },
+        "facts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fact" }
+        },
+        "errors": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/errors" }
+        },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "passed" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "exitCode": { "const": 0 },
+              "facts": { "type": "array", "minItems": 1 },
+              "errors": { "type": "array", "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "failed" } },
+            "required": ["status"]
+          },
+          "then": {
+            "required": ["reason"],
+            "properties": {
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
