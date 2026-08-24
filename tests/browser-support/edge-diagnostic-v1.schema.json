@@ -45,6 +45,7 @@
       "required": [
         "kind",
         "caseId",
+        "probeId",
         "label",
         "browserVersion",
         "rendererStatus",
@@ -54,6 +55,7 @@
       "properties": {
         "kind": { "const": "facts" },
         "caseId": { "type": "string", "minLength": 1 },
+        "probeId": { "type": "string", "minLength": 1 },
         "label": { "enum": ["current", "previous"] },
         "browserVersion": { "type": "string", "minLength": 1 },
         "rendererStatus": { "type": ["string", "null"] },
@@ -67,6 +69,7 @@
       "required": [
         "kind",
         "caseId",
+        "probeId",
         "pageErrors",
         "consoleErrors",
         "unhandledRejections"
@@ -74,6 +77,7 @@
       "properties": {
         "kind": { "const": "errors" },
         "caseId": { "type": "string", "minLength": 1 },
+        "probeId": { "type": "string", "minLength": 1 },
         "pageErrors": {
           "type": "array",
           "items": { "type": "string" }

@@ -73,6 +73,18 @@ jobs:
             throw "当前版本诊断期间 Edge 文件版本变化：$currentVersion -> $afterVersion"
           }
           $resultExists = Test-Path -LiteralPath $resultPath -PathType Leaf
+          if (-not $resultExists) {
+            throw "Edge current 诊断没有生成 JSON。"
+          }
+          $result = Get-Content -LiteralPath $resultPath -Raw |
+            ConvertFrom-Json
+          if (
+            $result.profile -ne "edge-diagnostic-v1" -or
+            $result.label -ne "current" -or
+            $result.expectedBrowserVersion -ne $currentVersion
+          ) {
+            throw "Edge current 诊断 JSON 身份不满足冻结契约。"
+          }
           Write-Host "Edge current file/browser expected: $currentVersion"
           Write-Host "Edge current diagnostic exit: $diagnosticExit"
           Write-Host "Edge current diagnostic JSON exists: $resultExists"
@@ -80,7 +92,9 @@ jobs:
           "EDGE_CURRENT_VERSION=$currentVersion" >> $env:GITHUB_ENV
           "EDGE_CURRENT_RESULT=$resultPath" >> $env:GITHUB_ENV
           "EDGE_CURRENT_EXIT=$diagnosticExit" >> $env:GITHUB_ENV
-          "EDGE_CURRENT_RESULT_EXISTS=$resultExists" >> $env:GITHUB_ENV
+          "EDGE_CURRENT_RESULT_EXISTS=True" >> $env:GITHUB_ENV
+          # 诊断失败由最终汇总统一裁决；身份、文件版本和 JSON 缺失已在上方硬失败。
+          exit 0
 
       - name: 从微软官方 MSI 回滚到 Edge 150
         shell: pwsh
@@ -226,11 +240,25 @@ jobs:
             throw "Edge 150 诊断期间文件版本变化：$afterVersion"
           }
           $resultExists = Test-Path -LiteralPath $resultPath -PathType Leaf
+          if (-not $resultExists) {
+            throw "Edge previous 诊断没有生成 JSON。"
+          }
+          $result = Get-Content -LiteralPath $resultPath -Raw |
+            ConvertFrom-Json
+          if (
+            $result.profile -ne "edge-diagnostic-v1" -or
+            $result.label -ne "previous" -or
+            $result.expectedBrowserVersion -ne $env:EDGE_TARGET_VERSION
+          ) {
+            throw "Edge previous 诊断 JSON 身份不满足冻结契约。"
+          }
           Write-Host "Edge previous diagnostic exit: $diagnosticExit"
           Write-Host "Edge previous diagnostic JSON exists: $resultExists"
           "EDGE_PREVIOUS_RESULT=$resultPath" >> $env:GITHUB_ENV
           "EDGE_PREVIOUS_EXIT=$diagnosticExit" >> $env:GITHUB_ENV
-          "EDGE_PREVIOUS_RESULT_EXISTS=$resultExists" >> $env:GITHUB_ENV
+          "EDGE_PREVIOUS_RESULT_EXISTS=True" >> $env:GITHUB_ENV
+          # 与 current 阶段一致，把产品诊断结果留给最终汇总，不阻断 A/B 后半程。
+          exit 0
 
       - name: 汇总 A/B 后再决定任务结果
         if: always()
@@ -238,7 +266,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $failures = [Collections.Generic.List[string]]::new()
-          @"
+          $summaryHeader = @"
           ## Edge 151 / 150 同 runner A/B 诊断
 
           | 安全事实 | 值 |
@@ -250,7 +278,8 @@ jobs:
 
           | 版本 | 用例 | 状态 | 退出码 | browser.version | renderer | WebGL renderer |
           | --- | --- | --- | ---: | --- | --- | --- |
-          "@ >> $env:GITHUB_STEP_SUMMARY
+          "@
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summaryHeader
           function Add-DiagnosticSummary(
             [string]$Label,
             [string]$Path,
@@ -262,8 +291,9 @@ jobs:
               -not (Test-Path -LiteralPath $Path -PathType Leaf)
             ) {
               $failures.Add("$Label 未生成诊断 JSON。")
-              "| $Label | missing | failed | $CommandExit | - | - | - |" >>
-                $env:GITHUB_STEP_SUMMARY
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value (
+                "| $Label | missing | failed | $CommandExit | - | - | - |"
+              )
               return
             }
             $serialized = Get-Content -LiteralPath $Path -Raw
@@ -272,8 +302,9 @@ jobs:
             $result = $serialized | ConvertFrom-Json
             foreach ($entry in @($result.cases) + @($result.sentinel)) {
               $fact = @($entry.facts)[0]
-              "| $Label | $($entry.id) | $($entry.status) | $($entry.exitCode) | $($fact.browserVersion) | $($fact.rendererStatus) | $($fact.webglRenderer) |" >>
-                $env:GITHUB_STEP_SUMMARY
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value (
+                "| $Label | $($entry.id) | $($entry.status) | $($entry.exitCode) | $($fact.browserVersion) | $($fact.rendererStatus) | $($fact.webglRenderer) |"
+              )
             }
             if (
               $result.profile -ne "edge-diagnostic-v1" -or
@@ -295,17 +326,27 @@ jobs:
             $env:EDGE_PREVIOUS_RESULT `
             $env:EDGE_TARGET_VERSION `
             $env:EDGE_PREVIOUS_EXIT
-          $finalVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
-            $env:EDGE_EXECUTABLE
-          ).ProductVersion
-          Write-Host "Edge file after all tests: $finalVersion"
-          @"
-
-          测试后 Edge 文件版本：$finalVersion
-          "@ >> $env:GITHUB_STEP_SUMMARY
-          if ($finalVersion -ne $env:EDGE_TARGET_VERSION) {
-            $failures.Add("全部诊断后 Edge 文件版本不是冻结的 150。")
+          $finalVersion = "unavailable"
+          if (
+            [string]::IsNullOrWhiteSpace($env:EDGE_EXECUTABLE) -or
+            -not (
+              Test-Path -LiteralPath $env:EDGE_EXECUTABLE -PathType Leaf
+            )
+          ) {
+            $failures.Add("Edge 可执行文件路径缺失或无效，无法读取测试后版本。")
+          } else {
+            $finalVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
+              $env:EDGE_EXECUTABLE
+            ).ProductVersion
+            if ($finalVersion -ne $env:EDGE_TARGET_VERSION) {
+              $failures.Add("全部诊断后 Edge 文件版本不是冻结的 150。")
+            }
           }
+          Write-Host "Edge file after all tests: $finalVersion"
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ""
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value (
+            "测试后 Edge 文件版本：$finalVersion"
+          )
           if ($failures.Count -gt 0) {
             throw ($failures -join [Environment]::NewLine)
           }

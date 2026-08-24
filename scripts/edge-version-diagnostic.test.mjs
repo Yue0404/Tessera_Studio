@@ -10,11 +10,12 @@ import {
 
 const prefix = "[tessera-edge-diagnostic]";
 
-function fact(caseId = "baseline") {
+function fact(caseId = "baseline", probeId = caseId, label = "current") {
   return {
     kind: "facts",
     caseId,
-    label: "current",
+    probeId,
+    label,
     browserVersion: "151.0.0.0",
     rendererStatus: "available",
     webglVendor: "Google Inc.",
@@ -22,10 +23,11 @@ function fact(caseId = "baseline") {
   };
 }
 
-function errors(caseId = "baseline") {
+function errors(caseId = "baseline", probeId = caseId) {
   return {
     kind: "errors",
     caseId,
+    probeId,
     pageErrors: [],
     consoleErrors: [],
     unhandledRejections: [],
@@ -46,6 +48,7 @@ test("结构化日志提取并以精确版本、renderer 与页面错误分类",
       durationMs: 12,
       output,
       expectedBrowserVersion: "151.0.0.0",
+      expectedLabel: "current",
     }).status,
     "passed",
   );
@@ -56,9 +59,42 @@ test("结构化日志提取并以精确版本、renderer 与页面错误分类",
       durationMs: 12,
       output,
       expectedBrowserVersion: "150.0.0.0",
+      expectedLabel: "current",
     }).reason,
     /runtime-identity-invalid/u,
   );
+});
+
+test("错 case、错 A/B 标签与重复 sentinel probe 均不能伪造通过", () => {
+  const classify = (facts, errorEntries, expectedProbeIds = ["baseline"]) =>
+    classifyDiagnosticRun({
+      id: "baseline",
+      exitCode: 0,
+      durationMs: 1,
+      output: [...facts, ...errorEntries]
+        .map((entry) => `${prefix}${JSON.stringify(entry)}`)
+        .join("\n"),
+      expectedBrowserVersion: "151.0.0.0",
+      expectedLabel: "current",
+      expectedProbeIds,
+    });
+  assert.match(
+    classify([fact("wrong")], [errors("wrong")]).reason,
+    /facts-identity-invalid/u,
+  );
+  assert.match(
+    classify([fact("baseline", "baseline", "previous")], [errors()]).reason,
+    /facts-identity-invalid/u,
+  );
+  assert.match(
+    classify(
+      [fact("baseline"), fact("baseline")],
+      [errors("baseline"), errors("baseline")],
+      ["baseline", "visual-export"],
+    ).reason,
+    /identity-invalid/u,
+  );
+  assert.match(classify([], []).reason, /count-invalid/u);
 });
 
 test("Schema 冻结六个独立用例与长生命周期哨兵", async () => {
@@ -98,16 +134,12 @@ test("Schema 冻结六个独立用例与长生命周期哨兵", async () => {
     ].map(resultEntry),
     sentinel: {
       ...resultEntry("long-lived-trace-sentinel"),
-      facts: [
-        fact("long-lived-trace-sentinel"),
-        fact("long-lived-trace-sentinel"),
-        fact("long-lived-trace-sentinel"),
-      ],
-      errors: [
-        errors("long-lived-trace-sentinel"),
-        errors("long-lived-trace-sentinel"),
-        errors("long-lived-trace-sentinel"),
-      ],
+      facts: ["baseline", "visual-export", "context-loss"].map((probeId) =>
+        fact("long-lived-trace-sentinel", probeId),
+      ),
+      errors: ["baseline", "visual-export", "context-loss"].map((probeId) =>
+        errors("long-lived-trace-sentinel", probeId),
+      ),
     },
     status: "passed",
   };
@@ -131,8 +163,34 @@ test("工作流同 runner 先 current 后 previous，失败汇总后才退出", 
   assert.match(workflow, /pw:api,pw:browser/u);
   assert.match(workflow, /测试后 Edge 文件版本：\$finalVersion/u);
   assert.doesNotMatch(workflow, /测试后 Edge 文件版本：`\$finalVersion`/u);
+  assert.match(workflow, /EDGE_CURRENT_RESULT_EXISTS=True/u);
+  assert.match(workflow, /EDGE_PREVIOUS_RESULT_EXISTS=True/u);
+  assert.equal(workflow.match(/\bexit 0\b/gu)?.length, 2);
+  assert.doesNotMatch(workflow, />>\s*\r?\n\s*\$env:GITHUB_STEP_SUMMARY/u);
+  assert.doesNotMatch(workflow, />>\s*\$env:GITHUB_STEP_SUMMARY/u);
+  assert.match(workflow, /Add-Content[\s\S]*GITHUB_STEP_SUMMARY/u);
+  const summaryStep = workflow.slice(summary);
+  const executableGuard = summaryStep.indexOf(
+    "IsNullOrWhiteSpace($env:EDGE_EXECUTABLE)",
+  );
+  const finalVersionRead = summaryStep.indexOf(
+    "[Diagnostics.FileVersionInfo]::GetVersionInfo",
+  );
+  assert.ok(executableGuard >= 0 && executableGuard < finalVersionRead);
+  assert.match(summaryStep, /Test-Path[\s\S]*-PathType Leaf/u);
+  assert.match(summaryStep, /Edge 可执行文件路径缺失或无效/u);
   assert.doesNotMatch(workflow, /support:matrix/u);
   assert.doesNotMatch(workflow, /upload-artifact/u);
+});
+
+test("Edge 诊断总预算留足余量且单动作与导航仍有独立上限", async () => {
+  const config = await readFile(
+    new URL("../playwright.edge-diagnostic.config.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(config, /timeout:\s*180_000/u);
+  assert.match(config, /actionTimeout:\s*30_000/u);
+  assert.match(config, /navigationTimeout:\s*30_000/u);
 });
 
 test("跨 context 下载使用本用例持久路径且手册锁定真实 run 地址", async () => {

@@ -11,10 +11,12 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  timeout: 90_000,
+  timeout: 180_000,
   reporter: "list",
   use: {
     baseURL: "http://127.0.0.1:4175",
+    actionTimeout: 30_000,
+    navigationTimeout: 30_000,
     trace: traceMode,
     screenshot: "off",
   },

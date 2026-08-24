@@ -66,7 +66,7 @@ async function executeCase({
   expectedBrowserVersion,
   outputDirectory,
   trace,
-  expectedCaseCount,
+  expectedProbeIds,
   debug,
 }) {
   const startedAt = performance.now();
@@ -92,7 +92,8 @@ async function executeCase({
     durationMs: performance.now() - startedAt,
     output: result.output,
     expectedBrowserVersion,
-    expectedCaseCount,
+    expectedLabel: label,
+    expectedProbeIds,
   });
 }
 
@@ -120,7 +121,7 @@ try {
         expectedBrowserVersion,
         outputDirectory: path.join(temporaryRoot, id),
         trace: "off",
-        expectedCaseCount: 1,
+        expectedProbeIds: [id],
         debug,
       }),
     );
@@ -136,7 +137,7 @@ try {
     expectedBrowserVersion,
     outputDirectory: path.join(temporaryRoot, "sentinel"),
     trace: "retain-on-failure",
-    expectedCaseCount: SENTINEL_CASES.length,
+    expectedProbeIds: SENTINEL_CASES,
     debug,
   });
 } finally {

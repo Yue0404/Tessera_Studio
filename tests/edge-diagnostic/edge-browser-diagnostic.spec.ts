@@ -27,6 +27,9 @@ const test = base.extend<{ diagnostic: Diagnostic }>({
     const consoleErrors: string[] = [];
     const unhandledRejections: string[] = [];
     const observedPages = new WeakSet<Page>();
+    const probeId =
+      /\[edge-diag:([^\]]+)\]/u.exec(testInfo.title)?.[1] ?? testInfo.title;
+    const caseId = process.env.TESSERA_EDGE_DIAGNOSTIC_CASE ?? testInfo.title;
 
     const observe = async (target: Page) => {
       if (observedPages.has(target)) return;
@@ -89,13 +92,15 @@ const test = base.extend<{ diagnostic: Diagnostic }>({
         console.log(
           `${logPrefix}${JSON.stringify({
             kind: "facts",
-            caseId: process.env.TESSERA_EDGE_DIAGNOSTIC_CASE ?? testInfo.title,
+            caseId,
+            probeId,
             label: process.env.TESSERA_EDGE_DIAGNOSTIC_LABEL ?? "unknown",
             browserVersion: browser.version(),
             ...facts,
           } satisfies DiagnosticFacts & {
             readonly kind: "facts";
             readonly caseId: string;
+            readonly probeId: string;
             readonly label: string;
           })}`,
         );
@@ -104,7 +109,8 @@ const test = base.extend<{ diagnostic: Diagnostic }>({
 
     const errors = {
       kind: "errors",
-      caseId: process.env.TESSERA_EDGE_DIAGNOSTIC_CASE ?? testInfo.title,
+      caseId,
+      probeId,
       pageErrors,
       consoleErrors,
       unhandledRejections,

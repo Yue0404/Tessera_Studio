@@ -22,15 +22,36 @@ export function classifyDiagnosticRun({
   durationMs,
   output,
   expectedBrowserVersion,
-  expectedCaseCount = 1,
+  expectedLabel,
+  expectedProbeIds = [id],
 }) {
   const messages = diagnosticMessagesFrom(output);
   const facts = messages.filter((message) => message.kind === "facts");
   const errors = messages.filter((message) => message.kind === "errors");
   const reasons = [];
+  const expectedProbeSet = new Set(expectedProbeIds);
+  const hasExactProbeIdentity = (entries) =>
+    entries.length === expectedProbeIds.length &&
+    entries.every(
+      (entry) =>
+        entry.caseId === id &&
+        typeof entry.probeId === "string" &&
+        expectedProbeSet.has(entry.probeId),
+    ) &&
+    new Set(entries.map((entry) => entry.probeId)).size ===
+      expectedProbeIds.length;
   if (exitCode !== 0) reasons.push(`playwright-exit-${exitCode}`);
-  if (facts.length !== expectedCaseCount) reasons.push("facts-count-invalid");
-  if (errors.length !== expectedCaseCount) reasons.push("errors-count-invalid");
+  if (facts.length !== expectedProbeIds.length)
+    reasons.push("facts-count-invalid");
+  if (errors.length !== expectedProbeIds.length)
+    reasons.push("errors-count-invalid");
+  if (
+    !hasExactProbeIdentity(facts) ||
+    facts.some((fact) => fact.label !== expectedLabel)
+  ) {
+    reasons.push("facts-identity-invalid");
+  }
+  if (!hasExactProbeIdentity(errors)) reasons.push("errors-identity-invalid");
   if (
     facts.some(
       (fact) =>
@@ -43,6 +64,9 @@ export function classifyDiagnosticRun({
   if (
     errors.some(
       (entry) =>
+        !Array.isArray(entry.pageErrors) ||
+        !Array.isArray(entry.consoleErrors) ||
+        !Array.isArray(entry.unhandledRejections) ||
         entry.pageErrors.length > 0 ||
         entry.consoleErrors.length > 0 ||
         entry.unhandledRejections.length > 0,
