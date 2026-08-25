@@ -1,4 +1,20 @@
 {
   "schemaVersion": "1",
-  "releases": []
+  "releases": [
+    {
+      "extractorId": "tessera.civ6-extractor",
+      "version": "0.1.0-preview.1",
+      "os": "windows",
+      "arch": "x64",
+      "minOsBuild": 26100,
+      "artifactType": "portable-zip",
+      "entrypoint": "TesseraCiv6Extractor.exe",
+      "bytes": 51560434,
+      "sha256": "e57bbd5fabe7971526057450a519e5f371325fea6041edeace919be199f30ad2",
+      "outputModuleId": "tessera.civ6",
+      "outputModuleVersion": "1.0.0",
+      "minAppVersion": "0.1.0",
+      "assetUrl": "https://github.com/Yue0404/Tessera_Studio/releases/download/extractor-v0.1.0-preview.1/tessera-civ6-extractor-v0.1.0-preview.1-windows-x64.zip"
+    }
+  ]
 }
