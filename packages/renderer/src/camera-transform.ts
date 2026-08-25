@@ -1,6 +1,6 @@
-import type { MapPoint } from "@tessera/core";
+import { PROJECT_MIN_ZOOM, type MapPoint } from "@tessera/core";
 
-export const MIN_ZOOM = 0.25;
+export const MIN_ZOOM = PROJECT_MIN_ZOOM;
 export const MAX_ZOOM = 4;
 export const ZOOM_STEP = 0.25;
 

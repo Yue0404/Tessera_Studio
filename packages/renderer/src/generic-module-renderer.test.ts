@@ -491,6 +491,170 @@ describe("GenericModuleRenderer 查询", () => {
     },
   );
 
+  it("宽且旋转的 generic text 在可见边缘按实际文字矩形命中", () => {
+    const instance: ModuleOverlayInstance = {
+      ...overlay("rotated-wide-text", 0),
+      overlayType: "text",
+      attributes: { text: "旋转后的宽文字边缘命中" },
+    };
+    const state = stateWith([instance]);
+    const resolver = {
+      resolve: () => ({
+        kind: "text" as const,
+        text: "旋转后的宽文字边缘命中",
+        color: "#FFFFFFFF",
+        opacity: 1,
+        fontSize: 20,
+        fontWeight: "normal" as const,
+        align: "center" as const,
+        rotation: 45,
+        backgroundColor: "#112233CC",
+        wrapWidth: 240,
+      }),
+    };
+    // 文字局部坐标 x=90、y=0，旋转 45° 后落在圆形 1em 命中半径之外。
+    const edgePoint = {
+      x: 32 + 90 / Math.sqrt(2),
+      y: 32 + 90 / Math.sqrt(2),
+    };
+    expect(hitTestGenericModule(state, resolver, edgePoint, undefined, 1)).toBe(
+      instance.instanceId,
+    );
+    expect(
+      hitTestGenericModule(
+        state,
+        resolver,
+        { x: edgePoint.x - 20, y: edgePoint.y + 20 },
+        undefined,
+        1,
+      ),
+    ).toBeNull();
+  });
+
+  it("本轮已渲染的锚定长文字可跨相邻格命中，并保持矩形拒绝、隐藏与 topmost", () => {
+    const anchored = (instanceId: string, orderInLayer: number) =>
+      ({
+        ...overlay(instanceId, orderInLayer),
+        objectKind: "anchored-overlay",
+        overlayType: "text",
+        anchor: {
+          kind: "cell",
+          cellId: "cell:square:2:2",
+          extensions: {},
+        },
+        attributes: { text: "锚定长文字".repeat(16) },
+      }) satisfies ModuleOverlayInstance;
+    const lower = anchored("anchored-long-lower", 0);
+    const upper = anchored("anchored-long-upper", 1);
+    const state = stateWith([lower, upper]);
+    const resolver = {
+      resolve: () => ({
+        kind: "text" as const,
+        text: "锚定长文字".repeat(16),
+        color: "#FFFFFFFF",
+        opacity: 1,
+        fontSize: 20,
+        fontWeight: "normal" as const,
+        align: "center" as const,
+        rotation: 0,
+        backgroundColor: null,
+        wrapWidth: null,
+      }),
+    };
+    const renderer = new GenericModuleRenderer(new Container(), resolver);
+    const viewport = { minX: 0, minY: 0, maxX: 640, maxY: 320 };
+    const visible = visibleCellsInRect(
+      grid,
+      viewport.minX,
+      viewport.minY,
+      viewport.maxX,
+      viewport.maxY,
+    );
+    renderer.render(state, viewport, visible, 1);
+    const anchor = genericOverlayPoint(state, upper);
+    if (anchor === undefined) throw new Error("anchored-text-point-missing");
+    const edgePoint = { x: anchor.x + 300, y: anchor.y };
+    const edgeCell = visible.find(
+      (cell) =>
+        edgePoint.x >= Math.min(...cell.polygon.map((point) => point.x)) &&
+        edgePoint.x <= Math.max(...cell.polygon.map((point) => point.x)) &&
+        edgePoint.y >= Math.min(...cell.polygon.map((point) => point.y)) &&
+        edgePoint.y <= Math.max(...cell.polygon.map((point) => point.y)),
+    );
+
+    expect(renderer.hitTest(state, edgePoint, edgeCell, 1)).toBe(
+      upper.instanceId,
+    );
+    expect(
+      renderer.hitTest(
+        state,
+        { x: edgePoint.x, y: edgePoint.y + 30 },
+        edgeCell,
+        1,
+      ),
+    ).toBeNull();
+
+    const layer = state.layers.get(upper.layerId);
+    if (layer === undefined) throw new Error("anchored-text-layer-missing");
+    (state.layers as Map<string, FixedLayerState>).set(upper.layerId, {
+      ...layer,
+      visible: false,
+    });
+    expect(renderer.hitTest(state, edgePoint, edgeCell, 1)).toBeNull();
+    renderer.destroy();
+  });
+
+  it("本轮已渲染的 free 长文字在距锚点超过 256 地图单位的末端可命中", () => {
+    const instance: ModuleOverlayInstance = {
+      ...overlay("free-long-text", 0, { x: 64, y: 128 }),
+      overlayType: "text",
+      attributes: { text: "自由长文字".repeat(20) },
+    };
+    const state = stateWith([instance]);
+    const resolver = {
+      resolve: () => ({
+        kind: "text" as const,
+        text: "自由长文字".repeat(20),
+        color: "#FFFFFFFF",
+        opacity: 1,
+        fontSize: 20,
+        fontWeight: "normal" as const,
+        align: "center" as const,
+        rotation: 0,
+        backgroundColor: "#112233CC",
+        wrapWidth: null,
+      }),
+    };
+    const renderer = new GenericModuleRenderer(new Container(), resolver);
+    const viewport = { minX: 0, minY: 0, maxX: 800, maxY: 320 };
+    renderer.render(
+      state,
+      viewport,
+      visibleCellsInRect(
+        grid,
+        viewport.minX,
+        viewport.minY,
+        viewport.maxX,
+        viewport.maxY,
+      ),
+      1,
+    );
+    const edgePoint = { x: 64 + 500, y: 128 };
+
+    expect(renderer.hitTest(state, edgePoint, undefined, 1)).toBe(
+      instance.instanceId,
+    );
+    expect(
+      renderer.hitTest(
+        state,
+        { x: edgePoint.x, y: edgePoint.y + 30 },
+        undefined,
+        1,
+      ),
+    ).toBeNull();
+    renderer.destroy();
+  });
+
   it("远处大量 marker 不进入视口结果且稳定键与插入顺序无关", () => {
     const near = [overlay("b", 1), overlay("a", 1), overlay("first", 0)];
     const far = Array.from({ length: 2_000 }, (_, index) =>

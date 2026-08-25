@@ -282,8 +282,13 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   ).toBeVisible();
   await search.fill("");
   const emptyPng = await exportVisual(page, "PNG");
+  const activeSettings = page.getByRole("region", { name: "当前元素设置" });
 
   await selectModuleElement(page, ids.cell);
+  await expect(activeSettings).toContainText(
+    "使用模块默认样式，放置后选择对象编辑。",
+  );
+  await expect(activeSettings.getByLabel("填充颜色")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "画刷" })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -291,6 +296,10 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   await canvas.click({ position: { x: 460, y: 260 } });
 
   await selectModuleElement(page, ids.edge);
+  await expect(activeSettings).toContainText(
+    "使用模块默认样式，放置后选择对象编辑。",
+  );
+  await expect(activeSettings.getByLabel("边颜色")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "边" })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -298,14 +307,23 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   await canvas.click({ position: { x: 520, y: 300 } });
 
   await selectModuleElement(page, ids.marker);
+  await expect(activeSettings.getByLabel("锚定方式")).toBeVisible();
+  await expect(activeSettings.getByLabel("标记形状")).toHaveCount(0);
+  await expect(activeSettings.getByLabel("标记颜色")).toHaveCount(0);
   await canvas.click({ position: { x: 620, y: 260 } });
 
   await selectModuleElement(page, ids.text);
-  await page.getByLabel("文字内容").fill("风暴前线");
+  await expect(activeSettings.getByLabel("锚定方式")).toBeVisible();
+  await expect(activeSettings.getByLabel("字号")).toHaveCount(0);
+  await expect(activeSettings.getByLabel("文字颜色")).toHaveCount(0);
+  await activeSettings.getByLabel("文字内容").fill("风暴前线");
   await canvas.click({ position: { x: 700, y: 340 } });
 
   await selectModuleElement(page, ids.connection);
-  await page.getByLabel("短标签").fill("扩展流向");
+  await expect(activeSettings.getByLabel("端点类型")).toBeVisible();
+  await expect(activeSettings.getByLabel("连线类型")).toHaveCount(0);
+  await expect(activeSettings.getByLabel("箭头模式")).toHaveCount(0);
+  await activeSettings.getByLabel("短标签").fill("扩展流向");
   await canvas.click({ position: { x: 440, y: 400 } });
   await canvas.click({ position: { x: 640, y: 400 } });
 
@@ -315,12 +333,14 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
     position: { x: 812, y: 260 },
     modifiers: ["Shift"],
   });
-  await page.getByRole("button", { name: "属性", exact: true }).click();
   await expect(
     page.getByText("已选择 2 个对象", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "属性", exact: true }).click();
   await selectModuleElement(page, ids.domain);
+  await expect(activeSettings).toContainText(
+    "使用模块默认样式，放置后选择对象编辑。",
+  );
 
   let document = await exportData(page);
   expectExactModule(document, moduleId);
@@ -344,7 +364,6 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   for (const x of [780, 812, 844]) {
     await canvas.click({ position: { x, y: 292 }, modifiers: ["Shift"] });
   }
-  await page.getByRole("button", { name: "属性", exact: true }).click();
   const replaceDomainMembers = page.getByRole("button", {
     name: "用当前所选地格替换领域成员",
   });
@@ -369,7 +388,6 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
 
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 700, y: 340 } });
-  await page.getByRole("button", { name: "属性", exact: true }).click();
   await expect(
     page.getByText("已选择 1 个对象", { exact: true }),
   ).toBeVisible();
@@ -478,7 +496,6 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   // 重载后命中同一领域中心，删除与撤销必须保持同一 ID 和已更新成员。
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 812, y: 292 } });
-  await page.getByRole("button", { name: "属性", exact: true }).click();
   await expect(
     page.getByText("当前领域成员：3 格", { exact: true }),
   ).toBeVisible();
@@ -586,7 +603,6 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   ).toBeDisabled();
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 620, y: 260 } });
-  await page.getByRole("button", { name: "属性", exact: true }).click();
   await expect(
     page.getByText("所需模块缺失；实例只读且不可删除", { exact: true }),
   ).toBeVisible();
@@ -642,7 +658,6 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   await expect(restoredLayerLock).not.toBeChecked();
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 620, y: 260 } });
-  await page.getByRole("button", { name: "属性", exact: true }).click();
   await expect(
     page.getByText("已选择 1 个对象", { exact: true }),
   ).toBeVisible();

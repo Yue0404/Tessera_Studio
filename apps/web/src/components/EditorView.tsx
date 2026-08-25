@@ -129,6 +129,9 @@ export function EditorView({
     connection,
   });
   const [catalogCollapsed, setCatalogCollapsed] = useState(false);
+  const [activeElementId, setActiveElementId] = useState<string | null>(
+    "tessera.basic:cell.color",
+  );
   const [contextPanel, setContextPanel] = useState<
     "properties" | "layers" | "modules" | "map" | null
   >(null);
@@ -406,7 +409,10 @@ export function EditorView({
           } as const;
           setErrorKey(keyByCode[code]);
         },
-        select: (objects, additive) => store.select(objects, additive),
+        select: (objects, additive) => {
+          store.select(objects, additive);
+          if (store.selection.length > 0) setContextPanel("properties");
+        },
         cancelTool: () => store.cancelTool(),
         contextStatusChanged: (status) => {
           if (status === "lost") fillTaskRef.current?.cancel();
@@ -544,18 +550,26 @@ export function EditorView({
         select: () => store.setTool("select"),
         pan: () => store.setTool("pan"),
         brush: () => {
+          activeModuleElementId.current = null;
+          setActiveElementId("tessera.basic:cell.color");
           setBrushMode("paint");
           store.setTool("brush");
         },
         fill: () => {
+          activeModuleElementId.current = null;
+          setActiveElementId("tessera.basic:cell.color");
           setBrushMode("fill");
           store.setTool("brush");
         },
         erase: () => {
+          activeModuleElementId.current = null;
+          setActiveElementId("tessera.basic:cell.color");
           setBrushMode("erase");
           store.setTool("brush");
         },
         text: () => {
+          activeModuleElementId.current = null;
+          setActiveElementId("tessera.basic:text");
           setOverlay((value) => ({ ...value, type: "text" }));
           store.setTool("marker");
         },
@@ -670,6 +684,8 @@ export function EditorView({
         <ElementCatalog
           collapsed={catalogCollapsed}
           onToggle={() => setCatalogCollapsed((value) => !value)}
+          activeElementId={activeElementId}
+          activeTool={store.toolState.tool}
           brushColor={brushColor}
           brushMode={brushMode}
           edgeColor={edgeColor}
@@ -697,10 +713,12 @@ export function EditorView({
             setConnectionRebind(null);
             if (elementId.startsWith("tessera.basic:")) {
               activeModuleElementId.current = null;
+              setActiveElementId(elementId);
             } else {
               const element = moduleSession.get(elementId);
               if (element === undefined || element.disabledReason !== null)
                 return;
+              setActiveElementId(elementId);
               if (element.definition.primitive === "domain-object") {
                 activeModuleElementId.current = null;
                 try {
@@ -799,6 +817,27 @@ export function EditorView({
           catalogCollapsed={catalogCollapsed}
           onTool={(nextTool) => {
             setConnectionRebind(null);
+            if (nextTool === "brush") {
+              activeModuleElementId.current = null;
+              setActiveElementId("tessera.basic:cell.color");
+            } else if (nextTool === "edge") {
+              activeModuleElementId.current = null;
+              setActiveElementId("tessera.basic:edge.style");
+            } else if (nextTool === "marker") {
+              activeModuleElementId.current = null;
+              setActiveElementId(
+                overlay.type === "text"
+                  ? "tessera.basic:text"
+                  : "tessera.basic:marker",
+              );
+            } else if (nextTool === "connection") {
+              activeModuleElementId.current = null;
+              setActiveElementId(
+                connection.kind === "line"
+                  ? "tessera.basic:connection.line"
+                  : "tessera.basic:connection.arrow",
+              );
+            }
             store.setTool(nextTool);
           }}
           onContext={(panel) =>

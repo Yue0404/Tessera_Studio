@@ -3,6 +3,7 @@ import {
   edgeIdentity,
   edgeSegment,
   nearestEdge,
+  pointInRotatedBounds,
   type MapPoint,
   type ProjectState,
   type SelectedObject,
@@ -14,6 +15,7 @@ import {
   markerMapSize,
   textMapSize,
 } from "./overlay-visibility.js";
+import { conservativeTextBoundsSize } from "./visual-style.js";
 
 function compareCodePoint(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -111,11 +113,25 @@ export function hitTestProjectObject(
     if (state.layers.get(overlay.layerId)?.visible === false) continue;
     const anchor = overlayAnchorPoint(state, overlay);
     if (anchor === undefined) continue;
-    const radius =
+    const matches =
       overlay.overlayType === "marker"
-        ? markerMapSize(overlay.style.size, zoom) / 2
-        : textMapSize(overlay.style.fontSize, zoom);
-    if (Math.hypot(point.x - anchor.x, point.y - anchor.y) <= radius) {
+        ? Math.hypot(point.x - anchor.x, point.y - anchor.y) <=
+          markerMapSize(overlay.style.size, zoom) / 2
+        : (() => {
+            const size = conservativeTextBoundsSize(
+              overlay.text,
+              textMapSize(overlay.style.fontSize, zoom),
+              overlay.style.backgroundVisible,
+            );
+            return pointInRotatedBounds(
+              point,
+              anchor,
+              size.width,
+              size.height,
+              overlay.style.rotation,
+            );
+          })();
+    if (matches) {
       candidates.push({ kind: "overlay", id: overlay.overlayId });
     }
   }

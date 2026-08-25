@@ -3,6 +3,7 @@ import {
   test,
   type ConsoleMessage,
   type Download,
+  type Locator,
   type Page,
 } from "@playwright/test";
 
@@ -68,6 +69,29 @@ async function exportProject(page: Page): Promise<any> {
   await page.getByRole("button", { name: "数据导出" }).click();
   await page.getByRole("button", { name: "生成并下载" }).click();
   return JSON.parse((await readDownload(await download)).toString("utf8"));
+}
+
+async function expectControlInsideUnscrolledPanel(
+  panel: Locator,
+  control: Locator,
+): Promise<void> {
+  const [clientRect, controlRect] = await Promise.all([
+    panel.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        top: bounds.top + element.clientTop,
+        bottom: bounds.top + element.clientTop + element.clientHeight,
+        scrollTop: element.scrollTop,
+      };
+    }),
+    control.boundingBox(),
+  ]);
+  if (controlRect === null) throw new Error("catalog-control-bounds-missing");
+  expect(clientRect.scrollTop).toBe(0);
+  expect(controlRect.y).toBeGreaterThanOrEqual(clientRect.top);
+  expect(controlRect.y + controlRect.height).toBeLessThanOrEqual(
+    clientRect.bottom,
+  );
 }
 
 for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
@@ -163,31 +187,58 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
   });
 }
 
-test("元素搜索、标记编辑、箭头反转重绑定和锁层拒绝在生产包闭环", async ({
+test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生产包闭环", async ({
   page,
 }) => {
   test.setTimeout(120_000);
   const runtime = captureRuntimeErrors(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await createProject(page, "正方形", "M6 交互闭环");
   const canvas = page.getByLabel("地图编辑画布");
   const resultList = page.getByRole("list", { name: "元素搜索结果" });
+  const activeSettings = page.getByRole("region", { name: "当前元素设置" });
+  const catalogPanel = page.getByTestId("element-catalog-panel");
+  const search = page.getByRole("searchbox", { name: "搜索元素" });
+  await expect(activeSettings).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "地格颜色设置" }),
+  ).toBeVisible();
+  const [settingsBox, searchBox] = await Promise.all([
+    activeSettings.boundingBox(),
+    search.boundingBox(),
+  ]);
+  if (settingsBox === null || searchBox === null)
+    throw new Error("catalog-bounds-missing");
+  expect(settingsBox.y).toBeLessThan(searchBox.y);
+  expect(settingsBox.y + settingsBox.height).toBeLessThanOrEqual(720);
   await expect(resultList.getByRole("listitem")).toHaveCount(6);
-  await page.getByRole("searchbox", { name: "搜索元素" }).fill("箭头");
+  await search.fill("箭头");
   await expect(resultList.getByRole("listitem")).toHaveCount(1);
-  await page.getByRole("searchbox", { name: "搜索元素" }).fill("");
+  await search.fill("");
   await expect(resultList.getByRole("listitem")).toHaveCount(6);
 
-  await page.getByLabel("标记形状").selectOption("circle");
-  await page.getByRole("button", { name: "标记", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "使用目录元素 tessera.basic:marker",
+      exact: true,
+    })
+    .click();
+  await expect(page.getByRole("heading", { name: "标记设置" })).toBeVisible();
+  await expect(activeSettings.getByLabel("标记形状")).toBeVisible();
+  await expect(activeSettings.getByLabel("文字内容")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "标记", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await activeSettings.getByLabel("标记形状").selectOption("circle");
+  await activeSettings.getByLabel("标记颜色").fill("#123456");
   await canvas.click({ position: { x: 700, y: 360 } });
   await expect(page.getByTestId("overlay-count")).toContainText("1");
   await page.getByRole("button", { name: "选择" }).click();
   // 锚定标记绘制在地格中心，而不是首次点击的任意点。
   await canvas.click({ position: { x: 702, y: 378 } });
-  await page.getByRole("button", { name: "属性" }).click();
-  const inspector = page
-    .locator("aside")
-    .filter({ hasText: "已选择 1 个对象" });
+  let inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
+  await expect(inspector).toBeVisible();
+  await expect(inspector.getByLabel("标记颜色")).toHaveValue("#123456");
   await inspector.getByLabel("标记形状").selectOption("diamond");
   await inspector.getByLabel("标记尺寸").fill("48");
   await inspector.getByLabel("旋转（度）").fill("45");
@@ -198,19 +249,64 @@ test("元素搜索、标记编辑、箭头反转重绑定和锁层拒绝在生�
     await inspector.getByLabel("透明度").press("ArrowRight");
   await page.getByRole("button", { name: "撤销" }).click();
   await page.getByRole("button", { name: "重做" }).click();
+  await page.keyboard.press("Delete");
+  await expect(page.getByTestId("overlay-count")).toContainText("0");
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByTestId("overlay-count")).toContainText("1");
+  await expect(page.getByTestId("save-status")).toHaveText("已保存");
+  await page.getByRole("button", { name: "重做" }).click();
+  await expect(page.getByTestId("overlay-count")).toContainText("0");
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByTestId("overlay-count")).toContainText("1");
 
   await page.getByRole("button", { name: "图层" }).click();
   const markerLayer = page
     .getByRole("listitem")
     .filter({ hasText: "tessera.basic.placed-object · 3000" });
   await markerLayer.getByRole("checkbox", { name: "锁定" }).check();
-  await page.getByRole("button", { name: "标记", exact: true }).click();
-  await canvas.click({ position: { x: 666, y: 360 } });
+  await page.getByRole("button", { name: "选择" }).click();
+  await canvas.click({ position: { x: 702, y: 378 } });
+  await page.keyboard.press("Delete");
   await expect(page.getByTestId("overlay-count")).toContainText("1");
   await expect(page.getByRole("alert")).toContainText("图层已锁定");
+  await page.getByRole("button", { name: "图层" }).click();
   await markerLayer.getByRole("checkbox", { name: "锁定" }).uncheck();
 
+  await page
+    .getByRole("button", {
+      name: "使用目录元素 tessera.basic:text",
+      exact: true,
+    })
+    .click();
+  await expect(page.getByRole("heading", { name: "文字设置" })).toBeVisible();
+  await expect(activeSettings.getByLabel("文字内容")).toBeVisible();
+  await expect(activeSettings.getByLabel("标记形状")).toHaveCount(0);
+  const textRotation = activeSettings.getByLabel("旋转（度）");
+  await expectControlInsideUnscrolledPanel(catalogPanel, textRotation);
+  await expect(textRotation).toBeVisible();
+  await activeSettings.getByLabel("锚定方式").selectOption("map-point");
+  await activeSettings.getByLabel("文字内容").fill("可编辑文字");
+  await canvas.click({ position: { x: 640, y: 420 } });
+  await expect(page.getByTestId("overlay-count")).toContainText("2");
+  await page.getByRole("button", { name: "选择" }).click();
+  await canvas.click({ position: { x: 640, y: 420 } });
+  inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
+  await expect(inspector.getByLabel("文字内容")).toHaveValue("可编辑文字");
+  await inspector.getByLabel("文字内容").fill("文字已编辑");
+  await inspector.getByRole("button", { name: "删除所选对象" }).click();
+  await expect(page.getByTestId("overlay-count")).toContainText("1");
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByTestId("overlay-count")).toContainText("2");
+  await expect(page.getByTestId("save-status")).toHaveText("已保存");
+  await page.getByRole("button", { name: "重做" }).click();
+  await expect(page.getByTestId("overlay-count")).toContainText("1");
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByTestId("overlay-count")).toContainText("2");
+
   await page.getByRole("button", { name: "连线与箭头" }).first().click();
+  const connectionLabel = activeSettings.getByLabel("短标签");
+  await expectControlInsideUnscrolledPanel(catalogPanel, connectionLabel);
+  await expect(connectionLabel).toBeVisible();
   await page.getByLabel("连线类型").selectOption("arrow");
   await page.getByLabel("端点类型").selectOption("cell-center");
   await canvas.click({ position: { x: 460, y: 300 } });
@@ -218,7 +314,6 @@ test("元素搜索、标记编辑、箭头反转重绑定和锁层拒绝在生�
   await expect(page.getByTestId("connection-count")).toContainText("1");
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 540, y: 300 } });
-  await page.getByRole("button", { name: "属性" }).click();
   await page.getByRole("button", { name: "反转方向" }).click();
   await page.getByRole("button", { name: "重新绑定起点" }).click();
   await expect(page.getByText(/正在重新绑定起点/)).toBeVisible();
@@ -235,19 +330,30 @@ test("元素搜索、标记编辑、箭头反转重绑定和锁层拒绝在生�
   await page.getByRole("button", { name: "重做" }).click();
   await page.getByRole("button", { name: "重做" }).click();
 
+  // 等待防抖自动保存完成，再验证显式保存，避免让两次 IndexedDB 写事务竞争。
+  await expect(page.getByTestId("save-status")).toHaveText("已保存");
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByTestId("save-status")).toHaveText("已保存");
   await page.reload();
-  await expect(page.getByTestId("overlay-count")).toContainText("1");
+  await expect(page.getByTestId("overlay-count")).toContainText("2");
   await expect(page.getByTestId("connection-count")).toContainText("1");
   const document = await exportProject(page);
-  const marker = document.managers.overlayManager.overlays[0];
+  const marker = document.managers.overlayManager.overlays.find(
+    (overlay: { overlayType?: string }) => overlay.overlayType === "marker",
+  );
   expect(marker.styleOverrides).toMatchObject({
     markerShape: "diamond",
     size: 48,
     rotation: 45,
     color: "#abcdefFF",
     opacity: 0.4,
+  });
+  const text = document.managers.overlayManager.overlays.find(
+    (overlay: { overlayType?: string }) => overlay.overlayType === "text",
+  );
+  expect(text).toMatchObject({
+    overlayType: "text",
+    attributes: { text: "文字已编辑" },
   });
   const arrow = document.managers.connectionManager.connections[0];
   expect(arrow).toMatchObject({

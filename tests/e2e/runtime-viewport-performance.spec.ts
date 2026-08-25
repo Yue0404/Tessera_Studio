@@ -356,14 +356,13 @@ test("已有边样式只重建 owner 分块且撤销恢复画面", async ({ page
   test.setTimeout(90_000);
   await createProject(page, "正方形");
   const canvas = page.getByLabel("地图编辑画布");
-  await page.getByLabel("边颜色").fill("#ff0000");
   await page.getByRole("button", { name: "边", exact: true }).click();
+  await page.getByLabel("边颜色").fill("#ff0000");
   await canvas.click({ position: { x: 468, y: 306 } });
   await expect(page.getByTestId("edge-count")).toContainText("1");
 
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 468, y: 306 } });
-  await page.getByRole("button", { name: "属性" }).click();
   const inspector = page
     .locator("aside")
     .filter({ hasText: "已选择 1 个对象" });

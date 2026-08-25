@@ -54,6 +54,7 @@ export interface ActiveProjectModuleElement {
   readonly categoryId: string;
   readonly categoryDisplayName: string;
   readonly category: ModuleElementCategory;
+  readonly primitive: ModuleElementDefinition["primitive"];
   readonly elementId: string;
   readonly displayName: string;
   readonly description: string;
@@ -611,6 +612,7 @@ export class ActiveProjectModuleSession {
               language,
             ),
             category: categoryFor(definition),
+            primitive: definition.primitive,
             elementId: definition.elementId,
             displayName: displayText(definition.nameKey, language, module),
             description: displayText(

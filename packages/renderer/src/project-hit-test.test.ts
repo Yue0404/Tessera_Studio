@@ -330,4 +330,78 @@ describe("固定图层直接命中", () => {
       hitTestProjectObject(textStore.state, { x: 320, y: 100 }, undefined, 10),
     ).toBeNull();
   });
+
+  it("宽文字的可见区域按旋转矩形命中并压过底层地格", () => {
+    const editor = store();
+    const cell = visibleCells(editor.state.grid, 640, 640).find(
+      (item) => item.row === 2 && item.column === 2,
+    );
+    if (cell === undefined) throw new Error("missing-cell");
+    const overlayId = editor.placeText(
+      { kind: "cell", cellId: cell.cellId },
+      "可见文字命中区域",
+      { fontSize: 18 },
+    );
+    expect(
+      hitTestProjectObject(
+        editor.state,
+        { x: cell.center.x + 40, y: cell.center.y },
+        cell,
+      ),
+    ).toEqual({ kind: "overlay", id: overlayId });
+
+    const overlay = editor.state.overlays.get(overlayId);
+    if (overlay === undefined || overlay.overlayType !== "text")
+      throw new Error("text-missing");
+    editor.state.overlays.replace({
+      ...overlay,
+      style: { ...overlay.style, rotation: 90 },
+    });
+    expect(
+      hitTestProjectObject(
+        editor.state,
+        { x: cell.center.x, y: cell.center.y + 40 },
+        cell,
+      ),
+    ).toEqual({ kind: "overlay", id: overlayId });
+  });
+
+  it("256 个中日韩文字的末端先由空间索引召回再完成精确命中", () => {
+    const editor = store();
+    const anchor = { x: 320, y: 160 };
+    const overlayId = editor.placeText(anchor, "界".repeat(256), {
+      fontSize: 18,
+    });
+    const farVisiblePoint = { x: anchor.x + 2_200, y: anchor.y };
+
+    expect(
+      editor.state.overlays
+        .query({
+          minX: farVisiblePoint.x - 1,
+          minY: farVisiblePoint.y - 1,
+          maxX: farVisiblePoint.x + 1,
+          maxY: farVisiblePoint.y + 1,
+        })
+        .map((overlay) => overlay.overlayId),
+    ).toContain(overlayId);
+    expect(
+      hitTestProjectObject(editor.state, farVisiblePoint, undefined, 1),
+    ).toEqual({ kind: "overlay", id: overlayId });
+
+    // 相机最小缩放 0.25 下，8 CSS px 最小字号换算为 32 地图单位；索引必须覆盖该最大显示宽度。
+    const minimumZoomEdge = { x: anchor.x + 4_000, y: anchor.y };
+    expect(
+      editor.state.overlays
+        .query({
+          minX: minimumZoomEdge.x - 1,
+          minY: minimumZoomEdge.y - 1,
+          maxX: minimumZoomEdge.x + 1,
+          maxY: minimumZoomEdge.y + 1,
+        })
+        .map((overlay) => overlay.overlayId),
+    ).toContain(overlayId);
+    expect(
+      hitTestProjectObject(editor.state, minimumZoomEdge, undefined, 0.25),
+    ).toEqual({ kind: "overlay", id: overlayId });
+  });
 });

@@ -7,8 +7,11 @@ import {
   edgeIdentity,
   edgeSegment,
   parseCellId,
+  pointInRotatedBounds,
   pointInRect,
   projectConnectionEndpointPoint,
+  rotatedRectBounds,
+  SparseSpatialIndex,
   visibleCellsInRect,
   type MapRect,
   type ModuleRuntimeInstance,
@@ -34,6 +37,7 @@ import {
   textWrapMapSize,
 } from "./overlay-visibility.js";
 import { colorValue } from "./render-utils.js";
+import { conservativeTextBoundsSize } from "./visual-style.js";
 import type {
   GenericModuleResourceIdentity,
   GenericModuleResourceState,
@@ -107,6 +111,16 @@ export interface GenericModuleVisualResolver {
   };
 }
 
+export interface RenderedGenericOverlayHitCandidate {
+  readonly instance: ModuleRuntimeInstance;
+  readonly descriptor: Extract<
+    GenericModuleVisualDescriptor,
+    { kind: "marker" | "text" }
+  >;
+  readonly anchor: { readonly x: number; readonly y: number };
+  readonly bounds: MapRect;
+}
+
 export function genericOverlayPoint(
   state: Readonly<ProjectState>,
   instance: Extract<ModuleRuntimeInstance, { kind: "overlay" }>,
@@ -166,6 +180,95 @@ function genericConnectionPoints(
     : ([start, end] as const);
 }
 
+function genericTextContainsPoint(
+  descriptor: Extract<GenericModuleVisualDescriptor, { kind: "text" }>,
+  anchor: { readonly x: number; readonly y: number },
+  point: { readonly x: number; readonly y: number },
+  zoom: number,
+): boolean {
+  const fontSize = textMapSize(descriptor.fontSize, zoom);
+  const wrapWidth =
+    descriptor.wrapWidth === null
+      ? undefined
+      : textWrapMapSize(descriptor.wrapWidth, zoom);
+  const size = conservativeTextBoundsSize(
+    descriptor.text,
+    fontSize,
+    descriptor.backgroundColor !== null,
+    wrapWidth,
+  );
+  return pointInRotatedBounds(
+    point,
+    anchor,
+    size.width,
+    size.height,
+    descriptor.rotation,
+  );
+}
+
+function genericOverlayHitCandidate(
+  instance: ModuleRuntimeInstance,
+  descriptor: Extract<
+    GenericModuleVisualDescriptor,
+    { kind: "marker" | "text" }
+  >,
+  anchor: { readonly x: number; readonly y: number },
+  zoom: number,
+): RenderedGenericOverlayHitCandidate {
+  if (descriptor.kind === "marker") {
+    const radius = markerMapSize(descriptor.displaySize, zoom) / 2;
+    return {
+      instance,
+      descriptor,
+      anchor,
+      bounds: {
+        minX: anchor.x - radius,
+        minY: anchor.y - radius,
+        maxX: anchor.x + radius,
+        maxY: anchor.y + radius,
+      },
+    };
+  }
+  const fontSize = textMapSize(descriptor.fontSize, zoom);
+  const wrapWidth =
+    descriptor.wrapWidth === null
+      ? undefined
+      : textWrapMapSize(descriptor.wrapWidth, zoom);
+  const size = conservativeTextBoundsSize(
+    descriptor.text,
+    fontSize,
+    descriptor.backgroundColor !== null,
+    wrapWidth,
+  );
+  return {
+    instance,
+    descriptor,
+    anchor,
+    bounds: rotatedRectBounds(
+      anchor,
+      size.width,
+      size.height,
+      descriptor.rotation,
+    ),
+  };
+}
+
+function renderedOverlayCandidateContainsPoint(
+  candidate: RenderedGenericOverlayHitCandidate,
+  point: { readonly x: number; readonly y: number },
+  zoom: number,
+): boolean {
+  return candidate.descriptor.kind === "marker"
+    ? Math.hypot(point.x - candidate.anchor.x, point.y - candidate.anchor.y) <=
+        markerMapSize(candidate.descriptor.displaySize, zoom) / 2
+    : genericTextContainsPoint(
+        candidate.descriptor,
+        candidate.anchor,
+        point,
+        zoom,
+      );
+}
+
 export function visibleGenericOverlays(
   state: Readonly<ProjectState>,
   viewport: MapRect,
@@ -216,6 +319,7 @@ export function hitTestGenericModule(
   point: { readonly x: number; readonly y: number },
   cell: VisibleCell | undefined,
   zoom = 1,
+  renderedOverlayCandidates?: readonly RenderedGenericOverlayHitCandidate[],
 ): string | null {
   // 最大 CSS 尺寸换算回地图单位，避免低缩放下漏掉仍可见的超大事实尺寸实例。
   const queryRadius = Math.max(
@@ -228,29 +332,38 @@ export function hitTestGenericModule(
     maxX: point.x + queryRadius,
     maxY: point.y + queryRadius,
   };
-  const overlays = visibleGenericOverlays(
-    state,
-    queryRect,
-    cell === undefined ? [] : [cell],
-  );
-  const candidates: ModuleRuntimeInstance[] = [];
-  for (const instance of overlays) {
-    if (state.layers.get(instance.layerId)?.visible === false) continue;
-    const descriptor = resolver.resolve(instance);
-    const anchor = genericOverlayPoint(state, instance);
-    if (anchor === undefined) continue;
-    if (
-      descriptor?.kind === "marker" &&
-      Math.hypot(point.x - anchor.x, point.y - anchor.y) <=
-        markerMapSize(descriptor.displaySize, zoom) / 2
-    )
-      candidates.push(instance);
-    else if (
-      descriptor?.kind === "text" &&
-      Math.hypot(point.x - anchor.x, point.y - anchor.y) <=
-        textMapSize(descriptor.fontSize, zoom)
-    )
-      candidates.push(instance);
+  const candidates = new Map<string, ModuleRuntimeInstance>();
+  if (renderedOverlayCandidates === undefined) {
+    const overlays = visibleGenericOverlays(
+      state,
+      queryRect,
+      cell === undefined ? [] : [cell],
+    );
+    for (const instance of overlays) {
+      if (state.layers.get(instance.layerId)?.visible === false) continue;
+      const descriptor = resolver.resolve(instance);
+      const anchor = genericOverlayPoint(state, instance);
+      if (anchor === undefined) continue;
+      if (
+        descriptor?.kind === "marker" &&
+        Math.hypot(point.x - anchor.x, point.y - anchor.y) <=
+          markerMapSize(descriptor.displaySize, zoom) / 2
+      )
+        candidates.set(instance.instanceId, instance);
+      else if (
+        descriptor?.kind === "text" &&
+        genericTextContainsPoint(descriptor, anchor, point, zoom)
+      )
+        candidates.set(instance.instanceId, instance);
+    }
+  } else {
+    for (const candidate of renderedOverlayCandidates) {
+      if (
+        state.layers.get(candidate.instance.layerId)?.visible !== false &&
+        renderedOverlayCandidateContainsPoint(candidate, point, zoom)
+      )
+        candidates.set(candidate.instance.instanceId, candidate.instance);
+    }
   }
   for (const connection of state.moduleInstances.queryConnections({
     minX: point.x - queryRadius,
@@ -267,7 +380,7 @@ export function hitTestGenericModule(
       distanceToSegment(point, points[0], points[1]) <=
         Math.max(8, descriptor.strokeWidth / 2 + 3)
     )
-      candidates.push(connection);
+      candidates.set(connection.instanceId, connection);
   }
   if (cell !== undefined) {
     const side = state.grid.type === "square" ? 4 : 6;
@@ -292,7 +405,7 @@ export function hitTestGenericModule(
           state.layers.get(edge.layerId)?.visible !== false &&
           resolver.resolve(edge)?.kind === "edge-style"
         )
-          candidates.push(edge);
+          candidates.set(edge.instanceId, edge);
       }
     }
     for (const cellInstance of state.moduleInstances.valuesForCarrier(
@@ -304,7 +417,7 @@ export function hitTestGenericModule(
         state.layers.get(cellInstance.layerId)?.visible !== false &&
         resolver.resolve(cellInstance)?.kind === "cell-style"
       )
-        candidates.push(cellInstance);
+        candidates.set(cellInstance.instanceId, cellInstance);
     }
   }
   for (const instance of state.moduleInstances.queryDomainGroups(queryRect)) {
@@ -333,13 +446,12 @@ export function hitTestGenericModule(
         Math.hypot(point.x - geometry.center.x, point.y - geometry.center.y) <=
           markerMapSize(descriptor.displaySize, zoom) / 2) ||
       (descriptor.kind === "text" &&
-        Math.hypot(point.x - geometry.center.x, point.y - geometry.center.y) <=
-          textMapSize(descriptor.fontSize, zoom))
+        genericTextContainsPoint(descriptor, geometry.center, point, zoom))
     )
-      candidates.push(instance);
+      candidates.set(instance.instanceId, instance);
   }
   return (
-    candidates
+    [...candidates.values()]
       .sort((left, right) => compareInstanceOrder(state, left, right))
       .at(-1)?.instanceId ?? null
   );
@@ -460,7 +572,31 @@ export class GenericModuleRenderer {
     string,
     { readonly handle: ImageBitmap; readonly texture: Texture }
   >();
+  readonly #overlayHitCandidates = new Map<
+    string,
+    RenderedGenericOverlayHitCandidate
+  >();
+  readonly #overlayHitIndex = new SparseSpatialIndex(128);
   #resourceStats = { requested: 0, ready: 0, placeholder: 0 };
+
+  #cacheOverlayHitCandidate(
+    instance: ModuleRuntimeInstance,
+    descriptor: Extract<
+      GenericModuleVisualDescriptor,
+      { kind: "marker" | "text" }
+    >,
+    anchor: { readonly x: number; readonly y: number },
+    zoom: number,
+  ): void {
+    const candidate = genericOverlayHitCandidate(
+      instance,
+      descriptor,
+      anchor,
+      zoom,
+    );
+    this.#overlayHitCandidates.set(instance.instanceId, candidate);
+    this.#overlayHitIndex.upsert(instance.instanceId, candidate.bounds);
+  }
 
   #destroyContainers(): void {
     for (const container of this.#containers.splice(0)) {
@@ -534,6 +670,8 @@ export class GenericModuleRenderer {
       else placeholder.add(key);
     };
     this.#destroyContainers();
+    this.#overlayHitCandidates.clear();
+    this.#overlayHitIndex.clear();
     const layerContainers = new Map<string, Container>();
     const layerContainer = (layerId: string) => {
       const existing = layerContainers.get(layerId);
@@ -664,6 +802,7 @@ export class GenericModuleRenderer {
       if (point === undefined || !pointInRect(point, overlayViewport)) continue;
       if (descriptor?.kind === "marker") {
         const displaySize = markerMapSize(descriptor.displaySize, zoom);
+        this.#cacheOverlayHitCandidate(instance, descriptor, point, zoom);
         const state =
           descriptor.image === undefined
             ? undefined
@@ -700,6 +839,7 @@ export class GenericModuleRenderer {
         );
       } else if (descriptor?.kind === "text") {
         const fontSize = textMapSize(descriptor.fontSize, zoom);
+        this.#cacheOverlayHitCandidate(instance, descriptor, point, zoom);
         const state =
           descriptor.font === undefined
             ? undefined
@@ -822,6 +962,12 @@ export class GenericModuleRenderer {
         pointInRect(geometry.center, overlayViewport)
       ) {
         const displaySize = markerMapSize(descriptor.displaySize, zoom);
+        this.#cacheOverlayHitCandidate(
+          instance,
+          descriptor,
+          geometry.center,
+          zoom,
+        );
         const resource =
           descriptor.image === undefined
             ? undefined
@@ -861,6 +1007,12 @@ export class GenericModuleRenderer {
         pointInRect(geometry.center, overlayViewport)
       ) {
         const fontSize = textMapSize(descriptor.fontSize, zoom);
+        this.#cacheOverlayHitCandidate(
+          instance,
+          descriptor,
+          geometry.center,
+          zoom,
+        );
         const resource =
           descriptor.font === undefined
             ? undefined
@@ -978,6 +1130,8 @@ export class GenericModuleRenderer {
     for (const { texture } of this.#textures.values()) texture.destroy(true);
     this.#textures.clear();
     this.#requestedResources.clear();
+    this.#overlayHitCandidates.clear();
+    this.#overlayHitIndex.clear();
   }
 
   hitTest(
@@ -986,7 +1140,26 @@ export class GenericModuleRenderer {
     cell: VisibleCell | undefined,
     zoom = 1,
   ): string | null {
-    return hitTestGenericModule(state, this.#resolver, point, cell, zoom);
+    const pointRect = {
+      minX: point.x,
+      minY: point.y,
+      maxX: point.x,
+      maxY: point.y,
+    };
+    const renderedCandidates = this.#overlayHitIndex
+      .query(pointRect)
+      .flatMap((instanceId) => {
+        const candidate = this.#overlayHitCandidates.get(instanceId);
+        return candidate === undefined ? [] : [candidate];
+      });
+    return hitTestGenericModule(
+      state,
+      this.#resolver,
+      point,
+      cell,
+      zoom,
+      renderedCandidates,
+    );
   }
 
   boxSelection(

@@ -9,6 +9,7 @@ describe("ElementCatalog", () => {
     overrides: {
       onElementSelect?: (elementId: string) => void;
       elements?: readonly ElementCatalogEntry[];
+      activeElementId?: string;
     } = {},
   ) {
     return render(
@@ -16,6 +17,7 @@ describe("ElementCatalog", () => {
         <ElementCatalog
           collapsed={false}
           onToggle={vi.fn()}
+          activeTool="brush"
           brushColor="#E3614D"
           brushMode="paint"
           edgeColor="#D9B866"
@@ -40,6 +42,9 @@ describe("ElementCatalog", () => {
           onOverlay={vi.fn()}
           onTextOptions={vi.fn()}
           onConnection={vi.fn()}
+          activeElementId={
+            overrides.activeElementId ?? "tessera.basic:cell.color"
+          }
           {...(overrides.elements === undefined
             ? {}
             : { elements: overrides.elements })}
@@ -59,6 +64,8 @@ describe("ElementCatalog", () => {
         <ElementCatalog
           collapsed={false}
           onToggle={vi.fn()}
+          activeElementId="tessera.basic:text"
+          activeTool="marker"
           brushColor="#E3614D"
           brushMode="paint"
           edgeColor="#D9B866"
@@ -144,11 +151,14 @@ describe("ElementCatalog", () => {
     const elementButton = screen.getByRole("button", {
       name: "使用目录元素 tessera.basic:marker",
     });
+    const panel = screen.getByTestId("element-catalog-panel");
+    panel.scrollTop = 120;
     expect(elementButton.getAttribute("aria-label")).not.toMatch(
       /选择|标记|边/u,
     );
     fireEvent.click(elementButton);
     expect(onElementSelect).toHaveBeenCalledWith("tessera.basic:marker");
+    expect(panel.scrollTop).toBe(0);
   });
 
   it("没有选择回调时目录项保持可读但不伪装成按钮", () => {
@@ -231,5 +241,130 @@ describe("ElementCatalog", () => {
     );
     expect(screen.getByText("此元素依赖尚未支持的资源样式。")).toBeDefined();
     expect(onElementSelect).not.toHaveBeenCalled();
+  });
+
+  it("受控标记设置位于目录搜索前且不混入文字选项", () => {
+    renderCatalog({ activeElementId: "tessera.basic:marker" });
+    const settings = screen.getByRole("region", { name: "当前元素设置" });
+    const search = screen.getByRole("searchbox", { name: "搜索元素" });
+    expect(
+      settings.compareDocumentPosition(search) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      within(settings).getByRole("heading", { name: "标记设置" }),
+    ).toBeDefined();
+    expect(within(settings).getByLabelText("标记形状")).toBeDefined();
+    expect(
+      (within(settings).getByLabelText("标记颜色") as HTMLInputElement).value,
+    ).toBe("#e3614d");
+    expect(within(settings).queryByLabelText("文字内容")).toBeNull();
+    expect(screen.queryByLabelText("元素类型")).toBeNull();
+  });
+
+  it("受控文字设置只渲染文字选项且不渲染标记形状", () => {
+    renderCatalog({ activeElementId: "tessera.basic:text" });
+    const settings = screen.getByRole("region", { name: "当前元素设置" });
+    expect(
+      within(settings).getByRole("heading", { name: "文字设置" }),
+    ).toBeDefined();
+    expect(within(settings).getByLabelText("文字内容")).toBeDefined();
+    expect(within(settings).queryByLabelText("标记形状")).toBeNull();
+    expect(screen.queryByLabelText("元素类型")).toBeNull();
+  });
+
+  it("扩展文字只显示放置链路实际消费的锚定与内容", () => {
+    renderCatalog({
+      activeElementId: "example.weather:text.note",
+      elements: [
+        {
+          moduleId: "example.weather",
+          moduleVersion: "1.0.0",
+          moduleDisplayName: "天气",
+          category: "overlay",
+          primitive: "text",
+          elementId: "example.weather:text.note",
+          displayName: "天气注记",
+        },
+      ],
+    });
+    const settings = screen.getByRole("region", { name: "当前元素设置" });
+    expect(
+      within(settings).getByRole("heading", { name: "文字设置" }),
+    ).toBeDefined();
+    expect(within(settings).getByLabelText("文字内容")).toBeDefined();
+    expect(within(settings).getByLabelText("锚定方式")).toBeDefined();
+    expect(within(settings).queryByLabelText("字号")).toBeNull();
+    expect(within(settings).queryByLabelText("文字颜色")).toBeNull();
+    expect(within(settings).queryByLabelText("字重")).toBeNull();
+    expect(within(settings).queryByLabelText("对齐")).toBeNull();
+    expect(within(settings).queryByLabelText("旋转（度）")).toBeNull();
+    expect(within(settings).queryByLabelText("标记形状")).toBeNull();
+  });
+
+  it("扩展标记与连线不暴露由模块默认样式决定的无效控件", () => {
+    const entries: readonly ElementCatalogEntry[] = [
+      {
+        moduleId: "example.weather",
+        moduleVersion: "1.0.0",
+        category: "overlay",
+        primitive: "marker",
+        elementId: "example.weather:marker.radar",
+        displayName: "雷达",
+      },
+      {
+        moduleId: "example.weather",
+        moduleVersion: "1.0.0",
+        category: "connection",
+        primitive: "connection",
+        elementId: "example.weather:connection.front",
+        displayName: "锋面",
+      },
+    ];
+    const marker = renderCatalog({
+      activeElementId: "example.weather:marker.radar",
+      elements: entries,
+    });
+    let settings = screen.getByRole("region", { name: "当前元素设置" });
+    expect(within(settings).getByLabelText("锚定方式")).toBeDefined();
+    expect(within(settings).queryByLabelText("标记形状")).toBeNull();
+    expect(within(settings).queryByLabelText("标记颜色")).toBeNull();
+
+    marker.unmount();
+    renderCatalog({
+      activeElementId: "example.weather:connection.front",
+      elements: entries,
+    });
+    settings = screen.getByRole("region", { name: "当前元素设置" });
+    expect(within(settings).getByLabelText("端点类型")).toBeDefined();
+    expect(within(settings).getByLabelText("短标签")).toBeDefined();
+    expect(within(settings).queryByLabelText("连线类型")).toBeNull();
+    expect(within(settings).queryByLabelText("箭头模式")).toBeNull();
+  });
+
+  it.each([
+    ["cell-style", "example.weather:cell.rain"],
+    ["edge-style", "example.weather:edge.front"],
+    ["domain-object", "example.weather:domain.storm"],
+  ] as const)("扩展 %s 使用模块默认样式提示", (primitive, elementId) => {
+    renderCatalog({
+      activeElementId: elementId,
+      elements: [
+        {
+          moduleId: "example.weather",
+          moduleVersion: "1.0.0",
+          category: primitive === "edge-style" ? "edge" : "cell",
+          primitive,
+          elementId,
+          displayName: "模块元素",
+        },
+      ],
+    });
+    const settings = screen.getByRole("region", { name: "当前元素设置" });
+    expect(
+      within(settings).getByText("使用模块默认样式，放置后选择对象编辑。"),
+    ).toBeDefined();
+    expect(within(settings).queryByLabelText("填充颜色")).toBeNull();
+    expect(within(settings).queryByLabelText("边颜色")).toBeNull();
   });
 });

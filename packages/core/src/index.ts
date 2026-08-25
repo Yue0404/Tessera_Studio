@@ -14,6 +14,7 @@ export * from "./project-spatial-index.js";
 export * from "./rotation.js";
 export * from "./sparse-chunk-store.js";
 export * from "./sparse-spatial-index.js";
+export * from "./text-visual-bounds.js";
 export * from "./tool-state-machine.js";
 export * from "./viewport-clipping.js";
 export * from "./version.js";
