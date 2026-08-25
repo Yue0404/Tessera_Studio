@@ -109,7 +109,6 @@ test("M1 工具、Manager、固定图层与刷新恢复闭环", async ({ page })
   await expect(page.getByTestId("edge-count")).toHaveText(
     edgeCountBefore ?? "",
   );
-  await page.getByRole("button", { name: "属性" }).click();
   await expect(page.getByText(/已选择 \d+ 个对象/)).toBeVisible();
 
   await page.getByRole("button", { name: "图层" }).click();
@@ -135,8 +134,12 @@ test("M1 文字中文输入、三类 Overlay 锚点与编辑删除", async ({ pa
   await createProject(page, "正方形", "Overlay 交互");
   const canvas = page.getByLabel("地图编辑画布");
   const markerTool = page.getByRole("button", { name: "标记" });
-  await markerTool.click();
-  await page.getByLabel("元素类型").selectOption("text");
+  await page
+    .getByRole("button", {
+      name: "使用目录元素 tessera.basic:text",
+      exact: true,
+    })
+    .click();
   const textInput = page.getByLabel("文字内容");
   await textInput.fill("中文输入不会切换工具");
   await textInput.press("Escape");
@@ -144,7 +147,12 @@ test("M1 文字中文输入、三类 Overlay 锚点与编辑删除", async ({ pa
   await canvas.click({ position: { x: 500, y: 300 } });
   await expect(page.getByTestId("overlay-count")).toContainText("1");
 
-  await page.getByLabel("元素类型").selectOption("marker");
+  await page
+    .getByRole("button", {
+      name: "使用目录元素 tessera.basic:marker",
+      exact: true,
+    })
+    .click();
   await page.getByLabel("锚定方式").selectOption("edge");
   await canvas.click({ position: { x: 416, y: 368 } });
   await expect(page.getByTestId("overlay-count")).toContainText("2");
@@ -155,7 +163,6 @@ test("M1 文字中文输入、三类 Overlay 锚点与编辑删除", async ({ pa
 
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 500, y: 300 } });
-  await page.getByRole("button", { name: "属性" }).click();
   const inspector = page
     .locator("aside")
     .filter({ hasText: "已选择 1 个对象" });
@@ -289,7 +296,6 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
       midpoint(endpointPoint(line.start), endpointPoint(line.end)),
     ),
   });
-  await page.getByRole("button", { name: "属性" }).click();
   let inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
   await expect(
     inspector.getByText(line.connectionId, { exact: true }),
@@ -302,7 +308,6 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
       midpoint(endpointPoint(arrow.start), endpointPoint(arrow.end)),
     ),
   });
-  await page.getByRole("button", { name: "属性" }).click();
   inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
   await expect(
     inspector.getByText(arrow.connectionId, { exact: true }),
@@ -322,7 +327,6 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
       midpoint(targetSegment[0], targetSegment[1]),
     ),
   });
-  await page.getByRole("button", { name: "属性" }).click();
   const edgeInspector = page
     .locator("aside")
     .filter({ hasText: "已选择 1 个对象" });
@@ -397,7 +401,6 @@ test("连通填充、擦除与 Shift 多选", async ({ page }) => {
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 500, y: 300 } });
   await canvas.click({ position: { x: 532, y: 300 }, modifiers: ["Shift"] });
-  await page.getByRole("button", { name: "属性" }).click();
   await expect(page.getByText("已选择 2 个对象")).toBeVisible();
 });
 

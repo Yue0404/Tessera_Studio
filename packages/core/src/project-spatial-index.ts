@@ -1,5 +1,9 @@
 import { CHUNK_SIZE, parseCellId } from "./coordinates.js";
 import { cellCenter, cellPolygon, edgeSegment } from "./geometry.js";
+import {
+  conservativeTextBoundsSize,
+  rotatedRectBounds,
+} from "./text-visual-bounds.js";
 import type {
   ModuleConnectionInstance,
   ModuleDomainGroupInstance,
@@ -12,6 +16,10 @@ import type {
   ProjectState,
 } from "./types.js";
 import type { MapRect } from "./viewport-clipping.js";
+
+/** renderer 的相机最小缩放；空间索引按这个下界覆盖 CSS 最小字号换算后的最大地图尺寸。 */
+export const PROJECT_MIN_ZOOM = 0.25;
+const TEXT_MIN_CSS_PX = 8;
 
 function edgeMidpoint(
   state: Readonly<ProjectState>,
@@ -70,27 +78,21 @@ function overlayBounds(
   if (overlay.overlayType === "marker") {
     return pointBounds(point, Math.max(1, overlay.style.size * 1.5));
   }
-  const lines = overlay.text.split("\n");
-  const width =
-    Math.max(1, ...lines.map((line) => [...line].length)) *
-    overlay.style.fontSize *
-    0.75;
-  const height = Math.max(1, lines.length) * overlay.style.fontSize * 1.25;
-  const radians = (overlay.style.rotation * Math.PI) / 180;
-  const radiusX =
-    (Math.abs(Math.cos(radians)) * width +
-      Math.abs(Math.sin(radians)) * height) /
-    2;
-  const radiusY =
-    (Math.abs(Math.sin(radians)) * width +
-      Math.abs(Math.cos(radians)) * height) /
-    2;
-  return {
-    minX: point.x - radiusX,
-    minY: point.y - radiusY,
-    maxX: point.x + radiusX,
-    maxY: point.y + radiusY,
-  };
+  const indexedFontSize = Math.max(
+    overlay.style.fontSize,
+    TEXT_MIN_CSS_PX / PROJECT_MIN_ZOOM,
+  );
+  const size = conservativeTextBoundsSize(
+    overlay.text,
+    indexedFontSize,
+    overlay.style.backgroundVisible,
+  );
+  return rotatedRectBounds(
+    point,
+    size.width,
+    size.height,
+    overlay.style.rotation,
+  );
 }
 
 function connectionBounds(
