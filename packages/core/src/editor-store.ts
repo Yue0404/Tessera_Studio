@@ -114,6 +114,73 @@ function moduleStructureEdgeIds(
   ].filter((edgeId, index, values) => values.indexOf(edgeId) === index);
 }
 
+interface ProjectContentSnapshot {
+  readonly cells: readonly CellOverride[];
+  readonly edges: readonly EdgeOverride[];
+  readonly overlays: readonly OverlayData[];
+  readonly connections: readonly ConnectionData[];
+  readonly moduleInstances: readonly ModuleRuntimeInstance[];
+}
+
+function projectContentSnapshot(
+  state: Readonly<ProjectState>,
+): ProjectContentSnapshot {
+  return {
+    cells: structuredClone([...state.cells.values()]),
+    edges: [...state.edges.values()].map(cloneEdge),
+    overlays: structuredClone([...state.overlays.values()]),
+    connections: structuredClone([...state.connections.values()]),
+    moduleInstances: structuredClone([...state.moduleInstances.values()]),
+  };
+}
+
+function restoreProjectContent(
+  state: ProjectState,
+  snapshot: ProjectContentSnapshot,
+): void {
+  const cells = new SparseChunkStore(snapshot.cells);
+  const edges = new EdgeManager(snapshot.edges);
+  const overlays = new OverlayManager(snapshot.overlays);
+  const connections = new ConnectionManager(snapshot.connections);
+  const moduleInstances = new ModuleInstanceStore(snapshot.moduleInstances);
+  for (const edge of edges.values()) {
+    const ownerCellId = edge.adjacentCellIds[0];
+    if (ownerCellId !== undefined) cells.assignEdge(edge.edgeId, ownerCellId);
+  }
+  for (const overlay of overlays.values()) {
+    if (overlay.kind !== "anchored-overlay") continue;
+    const ownerCellId =
+      overlay.anchor.kind === "cell"
+        ? overlay.anchor.cellId
+        : edges.get(overlay.anchor.edgeId)?.adjacentCellIds[0];
+    if (ownerCellId !== undefined)
+      cells.assignOverlay(overlay.overlayId, ownerCellId);
+  }
+  state.cells = cells;
+  state.edges = edges;
+  state.overlays = overlays;
+  state.connections = connections;
+  state.moduleInstances = moduleInstances;
+  configureProjectSpatialIndexes(state);
+}
+
+function referencedEdgeIds(
+  overlays: readonly OverlayData[],
+  connections: readonly ConnectionData[],
+  moduleInstances: readonly ModuleRuntimeInstance[],
+): ReadonlySet<string> {
+  const edgeIds = new Set<string>();
+  for (const overlay of overlays)
+    if (overlay.kind === "anchored-overlay" && overlay.anchor.kind === "edge")
+      edgeIds.add(overlay.anchor.edgeId);
+  for (const connection of connections)
+    for (const endpoint of [connection.start, connection.end])
+      if (endpoint.kind === "edge-midpoint") edgeIds.add(endpoint.edgeId);
+  for (const instance of moduleInstances)
+    for (const edgeId of moduleStructureEdgeIds(instance)) edgeIds.add(edgeId);
+  return edgeIds;
+}
+
 export function createProject(input: NewProjectInput): ProjectState {
   assertGridCoordinate(input.grid, { row: 0, column: 0 });
   const now = new Date().toISOString();
@@ -178,6 +245,26 @@ export class EditorStore {
 
   get canRedo(): boolean {
     return this.#redo.length > 0;
+  }
+
+  get canClearEditableContent(): boolean {
+    const unlocked = (layerId: string) =>
+      this.#state.layers.get(layerId)?.locked === false;
+    if (
+      unlocked("tessera.basic.cell-style") &&
+      this.#state.cells.values().next().done === false
+    )
+      return true;
+    if (unlocked("tessera.basic.edge-style"))
+      for (const edge of this.#state.edges.values())
+        if (edge.persistence === "explicit-style") return true;
+    for (const overlay of this.#state.overlays.values())
+      if (unlocked(overlay.layerId)) return true;
+    for (const connection of this.#state.connections.values())
+      if (unlocked(connection.layerId)) return true;
+    for (const instance of this.#state.moduleInstances.values())
+      if (unlocked(instance.layerId)) return true;
+    return false;
   }
 
   get toolState() {
@@ -436,18 +523,74 @@ export class EditorStore {
   }
 
   pointerDown(point: MapPoint, targetCellId: string | null): void {
-    this.#toolMachine.pointerDown(point, targetCellId);
-    this.#publish(false);
+    if (this.#toolMachine.pointerDown(point, targetCellId))
+      this.#publish(false);
   }
 
   pointerMove(point: MapPoint): void {
-    this.#toolMachine.pointerMove(point);
-    this.#publish(false);
+    if (this.#toolMachine.pointerMove(point)) this.#publish(false);
   }
 
   pointerUp(point: MapPoint): void {
-    this.#toolMachine.pointerUp(point);
-    this.#publish(false);
+    if (this.#toolMachine.pointerUp(point)) this.#publish(false);
+  }
+
+  /** 清除所有未锁定图层中的持久化编辑内容，并作为一个事务记录。 */
+  clearEditableContent(): boolean {
+    if (!this.canClearEditableContent) return false;
+    const before = projectContentSnapshot(this.#state);
+    const unlocked = (layerId: string) =>
+      this.#state.layers.get(layerId)?.locked === false;
+    const cells = unlocked("tessera.basic.cell-style") ? [] : before.cells;
+    const overlays = before.overlays.filter(
+      (overlay) => !unlocked(overlay.layerId),
+    );
+    const connections = before.connections.filter(
+      (connection) => !unlocked(connection.layerId),
+    );
+    const moduleInstances = before.moduleInstances.filter(
+      (instance) => !unlocked(instance.layerId),
+    );
+    const edgeReferences = referencedEdgeIds(
+      overlays,
+      connections,
+      moduleInstances,
+    );
+    const clearEdges = unlocked("tessera.basic.edge-style");
+    const edges = before.edges.flatMap((edge): EdgeOverride[] => {
+      if (edge.persistence === "reference-only")
+        return edgeReferences.has(edge.edgeId) ? [edge] : [];
+      if (!clearEdges) return [edge];
+      if (!edgeReferences.has(edge.edgeId)) return [];
+      return [
+        {
+          ...edge,
+          instanceId: structureEdgeInstanceId(edge.edgeId),
+          persistence: "reference-only",
+        },
+      ];
+    });
+    const after: ProjectContentSnapshot = {
+      cells,
+      edges,
+      overlays,
+      connections,
+      moduleInstances,
+    };
+    this.#selection.clear();
+    this.#execute({
+      managers: new Set([
+        "cells",
+        "edges",
+        "overlays",
+        "connections",
+        "module-instances",
+        "chunks",
+      ]),
+      apply: () => restoreProjectContent(this.#state, after),
+      revert: () => restoreProjectContent(this.#state, before),
+    });
+    return true;
   }
 
   paintCell(row: number, column: number, fillColor: string): void {
@@ -1236,6 +1379,27 @@ export class EditorStore {
       return id;
     } catch (error) {
       this.cancelBatch();
+      this.#toolMachine.commitFailed();
+      this.#publish(false);
+      throw error;
+    }
+  }
+
+  /** 让扩展模块连接复用基础连接相同的状态机提交边界。 */
+  commitExternalConnection(create: () => string): string {
+    if (this.#toolMachine.state.phase !== "committing")
+      throw new Error("connection-not-ready-to-commit");
+    try {
+      const instanceId = create();
+      if (instanceId === "") {
+        this.#toolMachine.commitFailed();
+        this.#publish(false);
+        return "";
+      }
+      this.#toolMachine.commitSucceeded();
+      this.#publish(false);
+      return instanceId;
+    } catch (error) {
       this.#toolMachine.commitFailed();
       this.#publish(false);
       throw error;

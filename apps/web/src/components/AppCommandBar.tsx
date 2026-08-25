@@ -6,6 +6,7 @@ import {
   Redo2,
   Save,
   Settings,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +18,7 @@ interface Props {
   saveStatusKey: string;
   canUndo: boolean;
   canRedo: boolean;
+  canClear: boolean;
   onNew(): void;
   onOpen(): void;
   onImportFragment(): void;
@@ -25,6 +27,7 @@ interface Props {
   onPackageSettings(): void;
   onUndo(): void;
   onRedo(): void;
+  onClear(): void;
 }
 
 export function AppCommandBar(props: Props) {
@@ -63,6 +66,13 @@ export function AppCommandBar(props: Props) {
           onClick={props.onPackageSettings}
         >
           <Settings size={18} />
+        </ToolButton>
+        <ToolButton
+          label={t("action.clearCanvas")}
+          disabled={!props.canClear}
+          onClick={props.onClear}
+        >
+          <Trash2 size={18} />
         </ToolButton>
       </div>
       <div className={styles.group}>

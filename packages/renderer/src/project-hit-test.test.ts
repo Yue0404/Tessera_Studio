@@ -8,7 +8,11 @@ import {
   type FixedLayerState,
   visibleCells,
 } from "@tessera/core";
-import { hitTestProjectObject, topmostProjectHit } from "./project-hit-test.js";
+import {
+  boxSelectProjectObjects,
+  hitTestProjectObject,
+  topmostProjectHit,
+} from "./project-hit-test.js";
 
 function store() {
   return new EditorStore(
@@ -405,3 +409,113 @@ describe("固定图层直接命中", () => {
     ).toEqual({ kind: "overlay", id: overlayId });
   });
 });
+
+describe("稀疏持久化对象框选", () => {
+  it.each(["square", "hex-pointy"] as const)(
+    "%s 空白格与结构边不被选择，显式编辑对象会被选择",
+    (type) => {
+      const editor = new EditorStore(
+        createProject({
+          ...inputForGrid(type),
+        }),
+      );
+      const center = cellCenter(editor.state.grid, 2, 2);
+      const rect = {
+        minX: center.x - editor.state.grid.cellSize,
+        minY: center.y - editor.state.grid.cellSize,
+        maxX: center.x + editor.state.grid.cellSize,
+        maxY: center.y + editor.state.grid.cellSize,
+      };
+      const visible = visibleCells(editor.state.grid, 640, 640);
+      const cell = visible.find((item) => item.row === 2 && item.column === 2);
+      if (cell === undefined) throw new Error("missing-cell");
+      const identity = edgeIdentity(editor.state.grid, cell, 1);
+      editor.state.edges.ensure({
+        instanceId: `tessera.structure-edge:${identity.edgeId}`,
+        edgeId: identity.edgeId,
+        adjacentCellIds: identity.adjacentCellIds,
+        strokeColor: editor.state.style.defaultEdgeColor,
+        strokeWidth: 1,
+        strokeOpacity: 1,
+        lineStyle: "solid",
+        persistence: "reference-only",
+      });
+
+      expect(boxSelectProjectObjects(editor.state, rect, visible)).toEqual([]);
+      expect(editor.state.cells.size).toBe(0);
+      expect(editor.state.edges.size).toBe(1);
+
+      editor.paintCell(2, 2, "#FFFFFFFF");
+      editor.paintEdge(identity.edgeId, identity.adjacentCellIds, "#FFFFFFFF");
+      expect(boxSelectProjectObjects(editor.state, rect, visible)).toEqual(
+        expect.arrayContaining([
+          { kind: "cell", id: cell.cellId },
+          { kind: "edge", id: identity.edgeId },
+        ]),
+      );
+    },
+  );
+
+  it("隐藏图层不参与框选，锁定但可见图层仍可选择", () => {
+    const editor = store();
+    const visible = visibleCells(editor.state.grid, 640, 640);
+    const cell = visible.find((item) => item.row === 2 && item.column === 2);
+    if (cell === undefined) throw new Error("missing-cell");
+    const rect = {
+      minX: cell.center.x - 40,
+      minY: cell.center.y - 40,
+      maxX: cell.center.x + 40,
+      maxY: cell.center.y + 40,
+    };
+    editor.paintCell(2, 2, "#FFFFFFFF");
+    const markerId = editor.placeMarker({ x: cell.center.x, y: cell.center.y });
+    const connectionId = editor.createConnection(
+      {
+        kind: "map-point",
+        point: { x: cell.center.x - 20, y: cell.center.y },
+      },
+      {
+        kind: "map-point",
+        point: { x: cell.center.x + 20, y: cell.center.y },
+      },
+      "line",
+    );
+    const layers = editor.state.layers as Map<string, FixedLayerState>;
+    const cellLayer = layers.get("tessera.basic.cell-style");
+    const overlayLayer = layers.get("tessera.basic.placed-object");
+    const connectionLayer = layers.get("tessera.basic.connection");
+    if (
+      cellLayer === undefined ||
+      overlayLayer === undefined ||
+      connectionLayer === undefined
+    )
+      throw new Error("layer-missing");
+    layers.set(cellLayer.layerId, { ...cellLayer, locked: true });
+    layers.set(overlayLayer.layerId, { ...overlayLayer, visible: false });
+    layers.set(connectionLayer.layerId, {
+      ...connectionLayer,
+      visible: false,
+    });
+
+    expect(boxSelectProjectObjects(editor.state, rect, visible)).toEqual([
+      { kind: "cell", id: cell.cellId },
+    ]);
+    expect(editor.state.overlays.get(markerId)).toBeDefined();
+    expect(editor.state.connections.get(connectionId)).toBeDefined();
+  });
+});
+
+function inputForGrid(type: "square" | "hex-pointy") {
+  return {
+    name: "框选",
+    grid: { type, width: 20, height: 20, cellSize: 32 },
+    style: {
+      canvasBackground: "#09141DFF",
+      defaultCellColor: "#14232DFF",
+      gridColor: "#59656AFF",
+      gridOpacity: 0.7,
+      gridWidth: 1,
+      defaultEdgeColor: "#59656AFF",
+    },
+  };
+}

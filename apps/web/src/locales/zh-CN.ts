@@ -14,6 +14,7 @@ export const zhCN = {
     "action.export": "导出",
     "action.undo": "撤销",
     "action.redo": "重做",
+    "action.clearCanvas": "清空画布",
     "action.create": "创建工程",
     "action.cancel": "取消",
     "action.close": "关闭",

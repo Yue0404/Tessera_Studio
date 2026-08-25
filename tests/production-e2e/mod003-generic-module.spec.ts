@@ -326,6 +326,12 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   await activeSettings.getByLabel("短标签").fill("扩展流向");
   await canvas.click({ position: { x: 440, y: 400 } });
   await canvas.click({ position: { x: 640, y: 400 } });
+  // 连续创建第二条扩展连接，验证首次成功后 FSM 已回到 choosing-start。
+  await canvas.click({ position: { x: 440, y: 440 } });
+  await expect(page.getByTestId("connection-notice")).toHaveCount(0);
+  await canvas.click({ position: { x: 640, y: 440 } });
+  await expect(page.getByTestId("connection-notice")).toHaveCount(0);
+  await page.keyboard.press("Control+z");
 
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 780, y: 260 } });

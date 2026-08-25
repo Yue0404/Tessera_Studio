@@ -51,6 +51,21 @@
   cursor: pointer;
 }
 
+.connectionNotice {
+  position: absolute;
+  z-index: 12;
+  top: 76px;
+  left: 50%;
+  max-width: min(520px, calc(100vw - 40px));
+  padding: 10px 14px;
+  transform: translateX(-50%);
+  color: var(--color-text);
+  background: rgb(90 33 31 / 94%);
+  border: 1px solid var(--color-danger);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
 .fillTask {
   position: absolute;
   z-index: 20;

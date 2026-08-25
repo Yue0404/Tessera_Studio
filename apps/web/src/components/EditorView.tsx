@@ -88,6 +88,7 @@ export function EditorView({
   const { t, i18n } = useTranslation();
   const version = useSyncExternalStore(store.subscribe, () => store.version);
   const state = store.state;
+  const revision = state.revision;
   const canvasHost = useRef<HTMLDivElement>(null);
   const renderer = useRef<TesseraRenderer | undefined>(undefined);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -129,9 +130,7 @@ export function EditorView({
     connection,
   });
   const [catalogCollapsed, setCatalogCollapsed] = useState(false);
-  const [activeElementId, setActiveElementId] = useState<string | null>(
-    "tessera.basic:cell.color",
-  );
+  const [activeElementId, setActiveElementId] = useState<string | null>(null);
   const [contextPanel, setContextPanel] = useState<
     "properties" | "layers" | "modules" | "map" | null
   >(null);
@@ -141,6 +140,10 @@ export function EditorView({
     null,
   );
   const [errorKey, setErrorKey] = useState<string | null>(null);
+  const [connectionNotice, setConnectionNotice] = useState<{
+    readonly key: string;
+    readonly sequence: number;
+  } | null>(null);
   const [fillBusy, setFillBusy] = useState(false);
   const [fillProgress, setFillProgress] = useState(0);
   const [rendererContextLost, setRendererContextLost] = useState(false);
@@ -151,6 +154,15 @@ export function EditorView({
     useState<ConnectionRebindTarget | null>(null);
   const connectionRebindRef = useRef<ConnectionRebindTarget | null>(null);
   const activeModuleElementId = useRef<string | null>(null);
+  const connectionNoticeSequence = useRef(0);
+  const autosaveBaseline = useRef({ store, revision });
+  const saveGeneration = useRef({ store, value: 0 });
+  const saveRequestSequence = useRef(0);
+  if (saveGeneration.current.store !== store)
+    saveGeneration.current = {
+      store,
+      value: saveGeneration.current.value + 1,
+    };
   const moduleSession = useMemo(
     () => new ActiveProjectModuleSession(store, packages, i18n.language),
     [i18n.language, packages, store],
@@ -236,7 +248,10 @@ export function EditorView({
         beginStroke: () => store.beginBatch(),
         endStroke: () => store.commitBatch(),
         cancelStroke: () => store.cancelBatch(),
-        pointerDown: (point, cellId) => store.pointerDown(point, cellId),
+        pointerDown: (point, cellId) => {
+          store.pointerDown(point, cellId);
+          setConnectionNotice(null);
+        },
         pointerMove: (point) => store.pointerMove(point),
         pointerUp: (point) => store.pointerUp(point),
         paintCell: (row, column) => {
@@ -369,17 +384,21 @@ export function EditorView({
               ...endpoint,
               extensions: {},
             });
-            moduleSession.placeConnection(
-              moduleElementId,
-              withExtensions(start),
-              withExtensions(end),
-              edgeReferences,
-              placementRef.current.connection.label,
-            );
-            return true;
+            const committed =
+              store.commitExternalConnection(() =>
+                moduleSession.placeConnection(
+                  moduleElementId,
+                  withExtensions(start),
+                  withExtensions(end),
+                  edgeReferences,
+                  placementRef.current.connection.label,
+                ),
+              ) !== "";
+            if (committed) setConnectionNotice(null);
+            return committed;
           }
           const current = placementRef.current.connection;
-          return (
+          const committed =
             store.commitConnection(
               start,
               end,
@@ -389,16 +408,20 @@ export function EditorView({
                 label: current.label === "" ? null : current.label,
               },
               edgeReferences,
-            ) !== ""
-          );
+            ) !== "";
+          if (committed) setConnectionNotice(null);
+          return committed;
         },
         getConnectionRebind: () => connectionRebindRef.current,
-        commitConnectionRebind: (target, cellId) =>
-          store.rebindConnectionCellEndpoint(
+        commitConnectionRebind: (target, cellId) => {
+          const committed = store.rebindConnectionCellEndpoint(
             target.connectionId,
             target.endpoint,
             cellId,
-          ),
+          );
+          if (committed) setConnectionNotice(null);
+          return committed;
+        },
         cancelConnectionRebind: () => setConnectionRebind(null),
         operationRejected: (code: RendererInteractionRejection) => {
           const keyByCode = {
@@ -407,13 +430,20 @@ export function EditorView({
               "error.connectionRebindTargetInvalid",
             "connection-commit-failed": "error.connectionCommitFailed",
           } as const;
-          setErrorKey(keyByCode[code]);
+          const key = keyByCode[code];
+          setConnectionNotice({
+            key,
+            sequence: ++connectionNoticeSequence.current,
+          });
         },
         select: (objects, additive) => {
           store.select(objects, additive);
           if (store.selection.length > 0) setContextPanel("properties");
         },
-        cancelTool: () => store.cancelTool(),
+        cancelTool: () => {
+          store.cancelTool();
+          setConnectionNotice(null);
+        },
         contextStatusChanged: (status) => {
           if (status === "lost") fillTaskRef.current?.cancel();
           if (!cancelled) setRendererContextLost(status === "lost");
@@ -422,7 +452,15 @@ export function EditorView({
           if (!cancelled) setZoom(value);
         },
         pointerStatusChanged: (value) => {
-          if (!cancelled) setPointerStatus(value);
+          if (!cancelled)
+            setPointerStatus((current) =>
+              current?.row === value?.row &&
+              current?.column === value?.column &&
+              current?.cellId === value?.cellId &&
+              current?.objectKind === value?.objectKind
+                ? current
+                : value,
+            );
         },
       },
       t("canvas.label"),
@@ -508,37 +546,83 @@ export function EditorView({
   }, [store, version]);
 
   useEffect(() => {
-    if (version === 0) return;
+    const baseline = autosaveBaseline.current;
+    if (baseline.store !== store) {
+      autosaveBaseline.current = { store, revision };
+      setSaveStatusKey("status.saved");
+      setSaveFailureKey(null);
+      return;
+    }
+    if (baseline.revision === revision) return;
+    autosaveBaseline.current = { store, revision };
     setSaveStatusKey("status.unsaved");
-    const savingVersion = version;
+    const savingRevision = revision;
     const timeout = window.setTimeout(() => {
+      const requestGeneration = saveGeneration.current.value;
+      const requestSequence = ++saveRequestSequence.current;
       setSaveStatusKey("status.saving");
       void repository
         .save(store.state)
         .then(() => {
+          if (
+            saveGeneration.current.store !== store ||
+            saveGeneration.current.value !== requestGeneration ||
+            saveRequestSequence.current !== requestSequence
+          )
+            return;
           setSaveFailureKey(null);
           setSaveStatusKey(
-            store.version === savingVersion ? "status.saved" : "status.unsaved",
+            store.state.revision === savingRevision
+              ? "status.saved"
+              : "status.unsaved",
           );
         })
         .catch((error: unknown) => {
+          if (
+            saveGeneration.current.store !== store ||
+            saveGeneration.current.value !== requestGeneration ||
+            saveRequestSequence.current !== requestSequence
+          )
+            return;
           setSaveStatusKey("status.saveFailed");
           setSaveFailureKey(saveFailureTranslationKey(error));
         });
     }, 300);
     return () => window.clearTimeout(timeout);
-  }, [repository, store, version]);
+  }, [repository, revision, store]);
+
+  useEffect(() => {
+    if (connectionNotice === null) return;
+    const timeout = window.setTimeout(() => setConnectionNotice(null), 3200);
+    return () => window.clearTimeout(timeout);
+  }, [connectionNotice]);
 
   const save = useCallback(async () => {
-    const savingVersion = store.version;
+    const savingRevision = store.state.revision;
+    const requestGeneration = saveGeneration.current.value;
+    const requestSequence = ++saveRequestSequence.current;
     setSaveStatusKey("status.saving");
     try {
       await repository.save(store.state);
+      if (
+        saveGeneration.current.store !== store ||
+        saveGeneration.current.value !== requestGeneration ||
+        saveRequestSequence.current !== requestSequence
+      )
+        return;
       setSaveFailureKey(null);
       setSaveStatusKey(
-        store.version === savingVersion ? "status.saved" : "status.unsaved",
+        store.state.revision === savingRevision
+          ? "status.saved"
+          : "status.unsaved",
       );
     } catch (error) {
+      if (
+        saveGeneration.current.store !== store ||
+        saveGeneration.current.value !== requestGeneration ||
+        saveRequestSequence.current !== requestSequence
+      )
+        return;
       setSaveStatusKey("status.saveFailed");
       setSaveFailureKey(saveFailureTranslationKey(error));
     }
@@ -547,8 +631,16 @@ export function EditorView({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       dispatchEditorShortcut(event, {
-        select: () => store.setTool("select"),
-        pan: () => store.setTool("pan"),
+        select: () => {
+          activeModuleElementId.current = null;
+          setActiveElementId(null);
+          store.setTool("select");
+        },
+        pan: () => {
+          activeModuleElementId.current = null;
+          setActiveElementId(null);
+          store.setTool("pan");
+        },
         brush: () => {
           activeModuleElementId.current = null;
           setActiveElementId("tessera.basic:cell.color");
@@ -647,6 +739,7 @@ export function EditorView({
           saveStatusKey={saveStatusKey}
           canUndo={store.canUndo}
           canRedo={store.canRedo}
+          canClear={store.canClearEditableContent}
           onNew={onNew}
           onOpen={() => fileInput.current?.click()}
           onImportFragment={() => fragmentInput.current?.click()}
@@ -655,6 +748,7 @@ export function EditorView({
           onPackageSettings={onOpenPackageSettings}
           onUndo={() => store.undo()}
           onRedo={() => store.redo()}
+          onClear={() => store.clearEditableContent()}
         />
         <input
           ref={fragmentInput}
@@ -817,7 +911,14 @@ export function EditorView({
           catalogCollapsed={catalogCollapsed}
           onTool={(nextTool) => {
             setConnectionRebind(null);
-            if (nextTool === "brush") {
+            if (
+              nextTool === "select" ||
+              nextTool === "box-select" ||
+              nextTool === "pan"
+            ) {
+              activeModuleElementId.current = null;
+              setActiveElementId(null);
+            } else if (nextTool === "brush") {
               activeModuleElementId.current = null;
               setActiveElementId("tessera.basic:cell.color");
             } else if (nextTool === "edge") {
@@ -920,6 +1021,17 @@ export function EditorView({
             </button>
           </div>
         )}
+        {connectionNotice !== null ? (
+          <div
+            key={connectionNotice.sequence}
+            className={styles.connectionNotice}
+            role="status"
+            aria-live="polite"
+            data-testid="connection-notice"
+          >
+            {t(connectionNotice.key)}
+          </div>
+        ) : null}
         {(errorKey !== null ||
           externalErrorKey !== null ||
           store.operationRejection !== null) && (

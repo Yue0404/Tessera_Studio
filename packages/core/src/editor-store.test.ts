@@ -23,6 +23,64 @@ const input = {
 };
 
 describe("EditorStore", () => {
+  it("普通指针移动不发布、不改变工程或保存事务标识", () => {
+    const store = new EditorStore(createProject(input));
+    let published = 0;
+    store.subscribe(() => {
+      published += 1;
+    });
+    const before = {
+      version: store.version,
+      revision: store.state.revision,
+      transactionId: store.state.lastTransactionId,
+    };
+
+    store.pointerDown({ x: 1, y: 1 }, "cell:square:0:0");
+    store.pointerMove({ x: 2, y: 2 });
+    store.pointerUp({ x: 2, y: 2 });
+
+    expect(published).toBe(0);
+    expect(store.version).toBe(before.version);
+    expect(store.state.revision).toBe(before.revision);
+    expect(store.state.lastTransactionId).toBe(before.transactionId);
+
+    store.setTool("box-select");
+    published = 0;
+    store.pointerDown({ x: 1, y: 1 }, null);
+    store.pointerMove({ x: 1, y: 1 });
+    store.pointerMove({ x: 2, y: 2 });
+    store.pointerUp({ x: 2, y: 2 });
+    expect(published).toBe(3);
+  });
+
+  it("扩展模块连接提交后复位状态机，失败时保留可修正预览", () => {
+    const store = new EditorStore(createProject(input));
+    store.setTool("connection");
+    store.pointerDown({ x: 1, y: 1 }, "cell:square:0:0");
+    store.pointerDown({ x: 2, y: 2 }, "cell:square:0:1");
+    expect(store.commitExternalConnection(() => "module-connection")).toBe(
+      "module-connection",
+    );
+    expect(store.toolState.phase).toBe("choosing-start");
+
+    store.pointerDown({ x: 1, y: 1 }, "cell:square:0:0");
+    store.pointerDown({ x: 2, y: 2 }, "cell:square:0:1");
+    expect(store.commitExternalConnection(() => "")).toBe("");
+    expect(store.toolState).toMatchObject({
+      phase: "previewing-end",
+      startCellId: "cell:square:0:0",
+      startPoint: { x: 1, y: 1 },
+    });
+
+    store.pointerDown({ x: 2, y: 2 }, "cell:square:0:1");
+    expect(() =>
+      store.commitExternalConnection(() => {
+        throw new Error("module-placement-failed");
+      }),
+    ).toThrow("module-placement-failed");
+    expect(store.toolState.phase).toBe("previewing-end");
+  });
+
   it("可撤销和重做地格修改", () => {
     const store = new EditorStore(createProject(input));
     store.paintCell(1, 2, "#E3614DFF");
