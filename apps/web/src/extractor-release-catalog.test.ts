@@ -20,8 +20,8 @@ function release(
     minOsBuild: 26100,
     artifactType: "portable-zip",
     entrypoint: "TesseraCiv6Extractor.exe",
-    bytes: 51_549_893,
-    sha256: "1".repeat(64),
+    bytes: 51_560_434,
+    sha256: "e57bbd5fabe7971526057450a519e5f371325fea6041edeace919be199f30ad2",
     outputModuleId: "tessera.civ6",
     outputModuleVersion: "1.0.0",
     minAppVersion: "0.1.0",
@@ -45,10 +45,10 @@ function expectCode(run: () => unknown, code: string) {
 }
 
 describe("extractor release catalog", () => {
-  it("版本控制的初始目录为空且可由统一解析器读取", () => {
+  it("版本控制目录保留正式工作流生成的 Release 事实", () => {
     expect(parseExtractorReleaseCatalog(catalogText)).toEqual({
       schemaVersion: "1",
-      releases: [],
+      releases: [release()],
     });
   });
 

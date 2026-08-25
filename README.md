@@ -44,7 +44,7 @@ Schema 生成文件由 `scripts/generate-project-validator.mjs` 维护；修改 
 生产构建输出位于 `apps/web/dist/`。在 Windows PowerShell 或其他受支持终端中，可使用以下命令进行本地静态预览：
 
 ```shell
-pnpm --filter @tessera/web exec vite preview --host 127.0.0.1 --port 4174
+node node_modules/vite/bin/vite.js preview apps/web --host 127.0.0.1 --port 4174 --strictPort
 ```
 
 随后访问 `http://127.0.0.1:4174/`。该预览用于验证生产构建，不应作为公网服务器。
@@ -69,9 +69,9 @@ pnpm --filter @tessera/web exec vite preview --host 127.0.0.1 --port 4174
 
 ## Civilization VI 可选包
 
-`tessera.civ6` 不是网站必需组件。网站不会扫描游戏目录，也不包含游戏资产。用户可以在包设置中导入自己已有的 `tessera.civ6.tessera-module.zip`；提取器下载目录只有在真实 GitHub Release 发布并回填可验证的 HTTPS URL、体积和 SHA-256 后才会显示。
+`tessera.civ6` 不是网站必需组件。网站不会扫描游戏目录，也不包含游戏资产。用户可以在包设置中导入自己已有的 `tessera.civ6.tessera-module.zip`；提取器下载目录当前提供正式 Release `extractor-v0.1.0-preview.1`，其 HTTPS URL、体积和 SHA-256 均来自发布工作流并由正式部署门禁逐字节复核。
 
-核心静态网站仍可在 Windows 10+ 部署并由支持矩阵内的现代浏览器使用。可选提取器当前基于 .NET 10，正式支持目标固定为 Windows 11 24H2+ x64；普通 Windows 10 22H2 不再是提取器产品支持目标。当前提交已在 Windows 11 专业工作站版 25H2 x64（build 26200.9168）完成无系统 `dotnet` 的自包含 GUI 实机复验，详见 [Windows 目标机证据](manual/CIV6_WINDOWS_EVIDENCE.zh-CN.md)；正式 Release 与真实下载 catalog 仍未闭合。
+核心静态网站仍可在 Windows 10+ 部署并由支持矩阵内的现代浏览器使用。可选提取器当前基于 .NET 10，正式支持目标固定为 Windows 11 24H2+ x64；普通 Windows 10 22H2 不再是提取器产品支持目标。当前提交已在 Windows 11 专业工作站版 25H2 x64（build 26200.9168）完成无系统 `dotnet` 的自包含 GUI 实机复验，详见 [Windows 目标机证据](manual/CIV6_WINDOWS_EVIDENCE.zh-CN.md)；正式 Release 与真实下载 catalog 已闭合，但提取器仍是用户按需下载和运行的可选组件。
 
 ## 部署与授权边界
 

@@ -24,5 +24,5 @@
 
 - 以上结果是当前提交的本机重建证据，不是已发布资产；
 - 两次 GitHub Actions Windows 工作流运行成功，但当时没有上传 artifact，不能据此声称已有可下载 Release；
-- 正式提取器 GitHub Release、真实下载 catalog 的 URL/体积/SHA-256 回填仍由 [Issue #14](https://github.com/Yue0404/Tessera_Studio/issues/14) 跟踪；
+- 本文的本机结果不替代发布验证；正式提取器已由 [GitHub Actions 运行 32758198853](https://github.com/Yue0404/Tessera_Studio/actions/runs/32758198853) 独立发布为 [`extractor-v0.1.0-preview.1`](https://github.com/Yue0404/Tessera_Studio/releases/tag/extractor-v0.1.0-preview.1)，真实下载 catalog 的 URL、体积和 SHA-256 由该工作流输出回填；
 - 临时 SDK、安装脚本、构建候选、解压目录及其他任务临时产物均已清理，没有留下提取器 ZIP、游戏资产或生成模块包。

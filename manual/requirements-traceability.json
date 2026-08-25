@@ -396,9 +396,10 @@
       ],
       "humanEvidence": [
         "manual/CIV6_WINDOWS_EVIDENCE.zh-CN.md",
-        "https://github.com/Yue0404/Tessera_Studio/issues/14"
+        "https://github.com/Yue0404/Tessera_Studio/actions/runs/32758198853",
+        "https://github.com/Yue0404/Tessera_Studio/releases/tag/extractor-v0.1.0-preview.1"
       ],
-      "blocker": "正式提取器 Release 与真实 catalog 的 URL、体积和 SHA-256 回填仍由 Issue #14 跟踪；Windows 11 24H2+ x64 精确目标机证据已闭合，无游戏或无包时不阻塞核心网站。"
+      "blocker": "该能力仅在用户选择可选 Civilization VI 扩展包、具备受支持的 Windows 环境与正式游戏安装时验收；正式提取器 Release、真实 catalog 和 Windows 11 24H2+ x64 目标机证据已闭合，无游戏或无包时不阻塞核心网站。"
     },
     {
       "area": "图层与历史",

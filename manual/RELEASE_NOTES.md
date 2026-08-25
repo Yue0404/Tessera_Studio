@@ -13,11 +13,11 @@ M6 发布候选覆盖：
 - PC 桌面 Chrome、Edge、Firefox 自动化证据；
 - 纯静态 GitHub Pages 制品。
 
-## 已知发布阻塞
+## 发布状态与已知阻塞
 
 - 核心静态网站仍面向 Windows 10+ 的支持矩阵内现代浏览器；仅可选 Civ6 提取器不承诺普通 Windows 10 22H2，正式支持目标为 Windows 11 24H2+ x64。当前提交已在 Windows 11 专业工作站版 25H2 x64（build 26200.9168）闭合无系统 `dotnet` 的自包含 GUI 目标机证据。
 - VIEW-008、最大地图内存、跨块稳定、当前浏览器、Chrome/Firefox 前一主版本与无障碍自动/人工证据已闭合。COMPAT-001、PERF-001、PERF-002、PERF-010 仍为 blocked；Edge 150/151 最终有界 A/B 的失败跨版本与轮次漂移，不能归因于 Edge 150。仓库所有者已在 `manual/release-acceptance.json` 接受这四项证据延期的发布风险，不等于将其标为 covered。
-- Civilization VI 提取器尚未创建正式 GitHub Release，受跟踪下载目录必须保持空，禁止填写占位 URL、体积或哈希；两次成功但未上传 artifact 的 GitHub Actions 运行不能替代正式 Release。
+- 可选 Civilization VI 提取器已由 GitHub Actions 运行 `32758198853` 发布为 `extractor-v0.1.0-preview.1`；受跟踪目录直接采用工作流输出的 URL、`51560434` 字节和 SHA-256 `e57bbd5fabe7971526057450a519e5f371325fea6041edeace919be199f30ad2`，正式门禁会再次只读下载并逐字节复核。
 - 八项 P1（EDIT-002、LINK-007、MOD-008、LAYER-004、DATA-006、EXPORT-006、UX-006、UX-007）已有直接实现、自动化边界及 2026-08-24 人工视觉证据。
 - A11Y-001～A11Y-004 已由 browser-safety-a11y 自动化和 2026-08-24 人工视觉层级、非纯颜色状态线索复核共同闭合。
 - M4-C1 的内部修订 gzip Blob 持久化不在本候选范围。
@@ -34,4 +34,4 @@ M6 发布候选覆盖：
 
 ## 发布后动作
 
-只有合并后的干净提交通过全部 CI，才可部署正式 Pages。提取器 Release 需要单独生成、审计、上传并独立复算 SHA-256；取得真实 HTTPS Release 资产 URL 后，再通过后续 PR 回填 `apps/web/public/extractor-releases.json`。
+只有合并后的干净提交通过全部 CI，才可部署正式 Pages。提取器 Release 已与网站静态制品独立发布；`apps/web/public/extractor-releases.json` 的真实条目随本候选进入 Pages，并由 `pnpm release:ready` 在部署前重新下载核对体积和 SHA-256。

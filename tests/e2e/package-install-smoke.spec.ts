@@ -193,9 +193,14 @@ test("真实 ZIP Worker 安装到 OPFS，刷新后仍按精确身份可用", asy
   await page.goto("/");
   await page.getByRole("button", { name: "管理模块与预设包" }).click();
   const dialog = page.getByRole("dialog", { name: "包设置" });
+  await expect(dialog.getByText("提取器版本：0.1.0-preview.1")).toBeVisible();
+  await expect(dialog.getByText("下载大小：51,560,434 字节")).toBeVisible();
   await expect(
-    dialog.getByText(/当前没有与应用或已安装模块版本匹配的提取器发布/),
-  ).toBeVisible();
+    dialog.getByRole("link", { name: "下载匹配版本提取器" }),
+  ).toHaveAttribute(
+    "href",
+    "https://github.com/Yue0404/Tessera_Studio/releases/download/extractor-v0.1.0-preview.1/tessera-civ6-extractor-v0.1.0-preview.1-windows-x64.zip",
+  );
   await dialog.locator('input[type="file"]').setInputFiles({
     name: `${moduleId}.tessera-module.zip`,
     mimeType: "application/zip",
