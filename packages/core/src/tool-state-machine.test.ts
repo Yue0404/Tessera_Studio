@@ -70,4 +70,19 @@ describe("工具状态机", () => {
       startCellId: null,
     });
   });
+
+  it("仅在临时工具状态实际变化时报告变更", () => {
+    const machine = new ToolStateMachine();
+
+    expect(machine.pointerMove({ x: 1, y: 1 })).toBe(false);
+    expect(machine.pointerDown({ x: 1, y: 1 }, "cell:square:0:0")).toBe(false);
+    expect(machine.pointerUp({ x: 1, y: 1 })).toBe(false);
+
+    machine.selectTool("box-select");
+    expect(machine.pointerDown({ x: 1, y: 1 }, null)).toBe(true);
+    expect(machine.pointerMove({ x: 1, y: 1 })).toBe(false);
+    expect(machine.pointerMove({ x: 2, y: 3 })).toBe(true);
+    expect(machine.pointerUp({ x: 2, y: 3 })).toBe(true);
+    expect(machine.pointerUp({ x: 2, y: 3 })).toBe(false);
+  });
 });

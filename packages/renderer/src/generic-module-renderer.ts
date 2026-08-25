@@ -469,38 +469,37 @@ export function boxSelectGenericModules(
     for (const instance of state.moduleInstances.valuesForCarrier(
       "cell",
       cell.cellId,
-    )) {
+    ))
       if (
         instance.kind === "cell" &&
         state.layers.get(instance.layerId)?.visible !== false &&
         resolver.resolve(instance)?.kind === "cell-style"
       )
         ids.add(instance.instanceId);
-    }
-    const sideCount = state.grid.type === "square" ? 4 : 6;
-    for (let side = 0; side < sideCount; side += 1) {
-      const identity = edgeIdentity(state.grid, cell, side);
+  }
+  const edgeIds = new Set<string>();
+  const sideCount = state.grid.type === "square" ? 4 : 6;
+  for (const cell of visibleCells)
+    for (let side = 0; side < sideCount; side += 1)
+      edgeIds.add(edgeIdentity(state.grid, cell, side).edgeId);
+  for (const edgeId of edgeIds) {
+    for (const instance of state.moduleInstances.valuesForCarrier(
+      "edge",
+      edgeId,
+    )) {
+      if (instance.kind !== "edge") continue;
       const segment = edgeSegment(
         state.grid,
-        identity.edgeId,
-        identity.adjacentCellIds,
+        instance.edgeId,
+        instance.adjacentCellIds,
       );
       if (
-        segment === undefined ||
-        clipSegmentToRect(segment[0], segment[1], rect) === null
+        segment !== undefined &&
+        clipSegmentToRect(segment[0], segment[1], rect) !== null &&
+        state.layers.get(instance.layerId)?.visible !== false &&
+        resolver.resolve(instance)?.kind === "edge-style"
       )
-        continue;
-      for (const instance of state.moduleInstances.valuesForCarrier(
-        "edge",
-        identity.edgeId,
-      )) {
-        if (
-          instance.kind === "edge" &&
-          state.layers.get(instance.layerId)?.visible !== false &&
-          resolver.resolve(instance)?.kind === "edge-style"
-        )
-          ids.add(instance.instanceId);
-      }
+        ids.add(instance.instanceId);
     }
   }
   for (const overlay of visibleGenericOverlays(state, rect, visibleCells)) {

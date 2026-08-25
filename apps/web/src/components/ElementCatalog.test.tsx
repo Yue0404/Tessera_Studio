@@ -9,7 +9,7 @@ describe("ElementCatalog", () => {
     overrides: {
       onElementSelect?: (elementId: string) => void;
       elements?: readonly ElementCatalogEntry[];
-      activeElementId?: string;
+      activeElementId?: string | null;
     } = {},
   ) {
     return render(
@@ -43,7 +43,9 @@ describe("ElementCatalog", () => {
           onTextOptions={vi.fn()}
           onConnection={vi.fn()}
           activeElementId={
-            overrides.activeElementId ?? "tessera.basic:cell.color"
+            overrides.activeElementId === undefined
+              ? "tessera.basic:cell.color"
+              : overrides.activeElementId
           }
           {...(overrides.elements === undefined
             ? {}
@@ -271,6 +273,12 @@ describe("ElementCatalog", () => {
     expect(within(settings).getByLabelText("文字内容")).toBeDefined();
     expect(within(settings).queryByLabelText("标记形状")).toBeNull();
     expect(screen.queryByLabelText("元素类型")).toBeNull();
+  });
+
+  it("没有当前元素时只保留目录，不渲染当前设置区", () => {
+    renderCatalog({ activeElementId: null });
+    expect(screen.queryByRole("region", { name: "当前元素设置" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "元素目录" })).toBeDefined();
   });
 
   it("扩展文字只显示放置链路实际消费的锚定与内容", () => {

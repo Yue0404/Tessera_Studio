@@ -287,273 +287,281 @@ export function ElementCatalog(props: Props) {
           <ChevronLeft size={18} />
         </button>
       </header>
-      <section
-        className={styles.activeSettings}
-        role="region"
-        aria-label={t("catalog.activeSettings")}
-        data-active-element={props.activeElementId ?? undefined}
-        data-active-tool={props.activeTool}
-      >
-        <div className={styles.activeHeading}>
-          <h2>
-            {activeSettings === "cell"
-              ? t("catalog.cellSettings")
-              : activeSettings === "edge"
-                ? t("catalog.edgeSettings")
-                : activeSettings === "marker"
-                  ? t("catalog.markerSettings")
-                  : activeSettings === "text"
-                    ? t("catalog.textSettings")
-                    : activeSettings === "connection"
-                      ? t("catalog.connectionSettings")
-                      : t("catalog.activeSettings")}
-          </h2>
-          <small>
-            {t("catalog.activeTool", { tool: t(TOOL_KEYS[props.activeTool]) })}
-          </small>
-        </div>
-        {activeEntry !== undefined ? (
-          <p className={styles.activeElementName}>{activeEntry.displayName}</p>
-        ) : null}
-        {activeSettings === "cell" ? (
-          usesModuleDefaultStyle ? (
-            <p>{t("catalog.moduleDefaultStyle")}</p>
-          ) : (
-            <div className={styles.stack}>
-              <Choice
-                label={t("catalog.brushMode")}
-                value={props.brushMode}
-                options={BRUSH_MODES.map((value) => ({
-                  value,
-                  label: t(`brushMode.${value}`),
-                }))}
-                onChange={props.onBrushMode}
-              />
-              <label>
-                <span>{t("inspector.fillColor")}</span>
-                <input
-                  type="color"
-                  value={props.brushColor}
-                  disabled={props.brushMode === "erase"}
-                  onChange={(event) => props.onBrushColor(event.target.value)}
-                />
-              </label>
-            </div>
-          )
-        ) : activeSettings === "edge" ? (
-          usesModuleDefaultStyle ? (
-            <p>{t("catalog.moduleDefaultStyle")}</p>
-          ) : (
-            <label>
-              <span>{t("inspector.edgeColor")}</span>
-              <input
-                type="color"
-                value={props.edgeColor}
-                onChange={(event) => props.onEdgeColor(event.target.value)}
-              />
-            </label>
-          )
-        ) : activeSettings === "marker" ? (
-          <div className={styles.stack}>
-            {usesModuleDefaultStyle ? null : (
-              <>
+      {props.activeElementId !== null ? (
+        <section
+          className={styles.activeSettings}
+          role="region"
+          aria-label={t("catalog.activeSettings")}
+          data-active-element={props.activeElementId}
+          data-active-tool={props.activeTool}
+        >
+          <div className={styles.activeHeading}>
+            <h2>
+              {activeSettings === "cell"
+                ? t("catalog.cellSettings")
+                : activeSettings === "edge"
+                  ? t("catalog.edgeSettings")
+                  : activeSettings === "marker"
+                    ? t("catalog.markerSettings")
+                    : activeSettings === "text"
+                      ? t("catalog.textSettings")
+                      : activeSettings === "connection"
+                        ? t("catalog.connectionSettings")
+                        : t("catalog.activeSettings")}
+            </h2>
+            <small>
+              {t("catalog.activeTool", {
+                tool: t(TOOL_KEYS[props.activeTool]),
+              })}
+            </small>
+          </div>
+          {activeEntry !== undefined ? (
+            <p className={styles.activeElementName}>
+              {activeEntry.displayName}
+            </p>
+          ) : null}
+          {activeSettings === "cell" ? (
+            usesModuleDefaultStyle ? (
+              <p>{t("catalog.moduleDefaultStyle")}</p>
+            ) : (
+              <div className={styles.stack}>
                 <Choice
-                  label={t("inspector.markerShape")}
-                  value={props.overlay.markerShape}
-                  options={MARKER_SHAPES.map((value) => ({
+                  label={t("catalog.brushMode")}
+                  value={props.brushMode}
+                  options={BRUSH_MODES.map((value) => ({
                     value,
-                    label: t(`markerShape.${value}`),
+                    label: t(`brushMode.${value}`),
                   }))}
-                  onChange={(markerShape) =>
-                    props.onOverlay({ ...props.overlay, markerShape })
-                  }
+                  onChange={props.onBrushMode}
                 />
                 <label>
-                  <span>{t("inspector.markerColor")}</span>
+                  <span>{t("inspector.fillColor")}</span>
                   <input
                     type="color"
                     value={props.brushColor}
+                    disabled={props.brushMode === "erase"}
                     onChange={(event) => props.onBrushColor(event.target.value)}
                   />
                 </label>
-              </>
-            )}
-            <Choice
-              label={t("catalog.anchor")}
-              value={props.overlay.anchor}
-              options={OVERLAY_ANCHORS.map((value) => ({
-                value,
-                label: t(`anchor.${value}`),
-              }))}
-              onChange={(anchor) =>
-                props.onOverlay({ ...props.overlay, anchor })
-              }
-            />
-          </div>
-        ) : activeSettings === "text" ? (
-          <div className={styles.stack}>
-            <Choice
-              label={t("catalog.anchor")}
-              value={props.overlay.anchor}
-              options={OVERLAY_ANCHORS.map((value) => ({
-                value,
-                label: t(`anchor.${value}`),
-              }))}
-              onChange={(anchor) =>
-                props.onOverlay({ ...props.overlay, anchor })
-              }
-            />
-            <label>
-              <span>{t("inspector.text")}</span>
-              <textarea
-                value={props.textOptions.text}
-                onChange={(event) => {
-                  const text = event.target.value;
-                  if (
-                    !projectTextContentValid(text) ||
-                    props.validateText?.(text) === false
-                  ) {
-                    props.onTextInvalid?.();
-                    return;
-                  }
-                  props.onTextOptions({ ...props.textOptions, text });
-                }}
-              />
-            </label>
-            {usesModuleDefaultStyle ? null : (
-              <>
-                <label>
-                  <span>{t("inspector.fontSize")}</span>
-                  <input
-                    type="number"
-                    min="8"
-                    max="256"
-                    value={props.textOptions.fontSize}
-                    onChange={(event) =>
-                      props.onTextOptions({
-                        ...props.textOptions,
-                        fontSize: Number(event.target.value),
-                      })
+              </div>
+            )
+          ) : activeSettings === "edge" ? (
+            usesModuleDefaultStyle ? (
+              <p>{t("catalog.moduleDefaultStyle")}</p>
+            ) : (
+              <label>
+                <span>{t("inspector.edgeColor")}</span>
+                <input
+                  type="color"
+                  value={props.edgeColor}
+                  onChange={(event) => props.onEdgeColor(event.target.value)}
+                />
+              </label>
+            )
+          ) : activeSettings === "marker" ? (
+            <div className={styles.stack}>
+              {usesModuleDefaultStyle ? null : (
+                <>
+                  <Choice
+                    label={t("inspector.markerShape")}
+                    value={props.overlay.markerShape}
+                    options={MARKER_SHAPES.map((value) => ({
+                      value,
+                      label: t(`markerShape.${value}`),
+                    }))}
+                    onChange={(markerShape) =>
+                      props.onOverlay({ ...props.overlay, markerShape })
                     }
                   />
-                </label>
-                <label>
-                  <span>{t("inspector.textColor")}</span>
-                  <input
-                    type="color"
-                    value={props.textOptions.color}
-                    onChange={(event) =>
-                      props.onTextOptions({
-                        ...props.textOptions,
-                        color: event.target.value,
-                      })
+                  <label>
+                    <span>{t("inspector.markerColor")}</span>
+                    <input
+                      type="color"
+                      value={props.brushColor}
+                      onChange={(event) =>
+                        props.onBrushColor(event.target.value)
+                      }
+                    />
+                  </label>
+                </>
+              )}
+              <Choice
+                label={t("catalog.anchor")}
+                value={props.overlay.anchor}
+                options={OVERLAY_ANCHORS.map((value) => ({
+                  value,
+                  label: t(`anchor.${value}`),
+                }))}
+                onChange={(anchor) =>
+                  props.onOverlay({ ...props.overlay, anchor })
+                }
+              />
+            </div>
+          ) : activeSettings === "text" ? (
+            <div className={styles.stack}>
+              <Choice
+                label={t("catalog.anchor")}
+                value={props.overlay.anchor}
+                options={OVERLAY_ANCHORS.map((value) => ({
+                  value,
+                  label: t(`anchor.${value}`),
+                }))}
+                onChange={(anchor) =>
+                  props.onOverlay({ ...props.overlay, anchor })
+                }
+              />
+              <label>
+                <span>{t("inspector.text")}</span>
+                <textarea
+                  value={props.textOptions.text}
+                  onChange={(event) => {
+                    const text = event.target.value;
+                    if (
+                      !projectTextContentValid(text) ||
+                      props.validateText?.(text) === false
+                    ) {
+                      props.onTextInvalid?.();
+                      return;
+                    }
+                    props.onTextOptions({ ...props.textOptions, text });
+                  }}
+                />
+              </label>
+              {usesModuleDefaultStyle ? null : (
+                <>
+                  <label>
+                    <span>{t("inspector.fontSize")}</span>
+                    <input
+                      type="number"
+                      min="8"
+                      max="256"
+                      value={props.textOptions.fontSize}
+                      onChange={(event) =>
+                        props.onTextOptions({
+                          ...props.textOptions,
+                          fontSize: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t("inspector.textColor")}</span>
+                    <input
+                      type="color"
+                      value={props.textOptions.color}
+                      onChange={(event) =>
+                        props.onTextOptions({
+                          ...props.textOptions,
+                          color: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <Choice
+                    label={t("inspector.fontWeight")}
+                    value={props.textOptions.fontWeight}
+                    options={FONT_WEIGHTS.map((value) => ({
+                      value,
+                      label: t(`fontWeight.${value}`),
+                    }))}
+                    onChange={(fontWeight) =>
+                      props.onTextOptions({ ...props.textOptions, fontWeight })
                     }
                   />
-                </label>
-                <Choice
-                  label={t("inspector.fontWeight")}
-                  value={props.textOptions.fontWeight}
-                  options={FONT_WEIGHTS.map((value) => ({
-                    value,
-                    label: t(`fontWeight.${value}`),
-                  }))}
-                  onChange={(fontWeight) =>
-                    props.onTextOptions({ ...props.textOptions, fontWeight })
-                  }
-                />
-                <Choice
-                  label={t("inspector.align")}
-                  value={props.textOptions.align}
-                  options={TEXT_ALIGNMENTS.map((value) => ({
-                    value,
-                    label: t(`align.${value}`),
-                  }))}
-                  onChange={(align) =>
-                    props.onTextOptions({ ...props.textOptions, align })
-                  }
-                />
-                <label>
-                  <span>{t("inspector.rotation")}</span>
-                  <input
-                    type="number"
-                    min="-360"
-                    max="360"
-                    value={props.textOptions.rotation}
-                    onChange={(event) => {
-                      const rotation = Number(event.target.value);
-                      if (!Number.isFinite(rotation)) return;
-                      props.onTextOptions({
-                        ...props.textOptions,
-                        rotation: normalizeRotationDegrees(rotation),
-                      });
-                    }}
+                  <Choice
+                    label={t("inspector.align")}
+                    value={props.textOptions.align}
+                    options={TEXT_ALIGNMENTS.map((value) => ({
+                      value,
+                      label: t(`align.${value}`),
+                    }))}
+                    onChange={(align) =>
+                      props.onTextOptions({ ...props.textOptions, align })
+                    }
                   />
-                </label>
-              </>
-            )}
-          </div>
-        ) : activeSettings === "connection" ? (
-          <div className={styles.stack}>
-            {usesModuleDefaultStyle ? null : (
+                  <label>
+                    <span>{t("inspector.rotation")}</span>
+                    <input
+                      type="number"
+                      min="-360"
+                      max="360"
+                      value={props.textOptions.rotation}
+                      onChange={(event) => {
+                        const rotation = Number(event.target.value);
+                        if (!Number.isFinite(rotation)) return;
+                        props.onTextOptions({
+                          ...props.textOptions,
+                          rotation: normalizeRotationDegrees(rotation),
+                        });
+                      }}
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+          ) : activeSettings === "connection" ? (
+            <div className={styles.stack}>
+              {usesModuleDefaultStyle ? null : (
+                <Choice
+                  label={t("catalog.connectionType")}
+                  value={props.connection.kind}
+                  options={CONNECTION_KINDS.map((value) => ({
+                    value,
+                    label: t(`connectionType.${value}`),
+                  }))}
+                  onChange={(kind) =>
+                    props.onConnection({ ...props.connection, kind })
+                  }
+                />
+              )}
               <Choice
-                label={t("catalog.connectionType")}
-                value={props.connection.kind}
-                options={CONNECTION_KINDS.map((value) => ({
+                label={t("catalog.endpoint")}
+                value={props.connection.endpoint}
+                options={CONNECTION_ENDPOINTS.map((value) => ({
                   value,
-                  label: t(`connectionType.${value}`),
+                  label: t(`endpoint.${value}`),
                 }))}
-                onChange={(kind) =>
-                  props.onConnection({ ...props.connection, kind })
+                onChange={(endpoint) =>
+                  props.onConnection({ ...props.connection, endpoint })
                 }
               />
-            )}
-            <Choice
-              label={t("catalog.endpoint")}
-              value={props.connection.endpoint}
-              options={CONNECTION_ENDPOINTS.map((value) => ({
-                value,
-                label: t(`endpoint.${value}`),
-              }))}
-              onChange={(endpoint) =>
-                props.onConnection({ ...props.connection, endpoint })
-              }
-            />
-            {!usesModuleDefaultStyle && props.connection.kind === "arrow" ? (
-              <Choice
-                label={t("catalog.arrowMode")}
-                value={props.connection.arrowMode}
-                options={ARROW_MODES.map((value) => ({
-                  value,
-                  label: t(`arrowMode.${value}`),
-                }))}
-                onChange={(arrowMode) =>
-                  props.onConnection({ ...props.connection, arrowMode })
-                }
-              />
-            ) : null}
-            <label>
-              <span>{t("inspector.shortLabel")}</span>
-              <input
-                type="text"
-                maxLength={64}
-                value={props.connection.label}
-                onChange={(event) =>
-                  props.onConnection({
-                    ...props.connection,
-                    label: event.target.value,
-                  })
-                }
-              />
-            </label>
-          </div>
-        ) : (
-          <p>
-            {usesModuleDefaultStyle
-              ? t("catalog.moduleDefaultStyle")
-              : t("catalog.noActiveSettings")}
-          </p>
-        )}
-      </section>
+              {!usesModuleDefaultStyle && props.connection.kind === "arrow" ? (
+                <Choice
+                  label={t("catalog.arrowMode")}
+                  value={props.connection.arrowMode}
+                  options={ARROW_MODES.map((value) => ({
+                    value,
+                    label: t(`arrowMode.${value}`),
+                  }))}
+                  onChange={(arrowMode) =>
+                    props.onConnection({ ...props.connection, arrowMode })
+                  }
+                />
+              ) : null}
+              <label>
+                <span>{t("inspector.shortLabel")}</span>
+                <input
+                  type="text"
+                  maxLength={64}
+                  value={props.connection.label}
+                  onChange={(event) =>
+                    props.onConnection({
+                      ...props.connection,
+                      label: event.target.value,
+                    })
+                  }
+                />
+              </label>
+            </div>
+          ) : (
+            <p>
+              {usesModuleDefaultStyle
+                ? t("catalog.moduleDefaultStyle")
+                : t("catalog.noActiveSettings")}
+            </p>
+          )}
+        </section>
+      ) : null}
       <section className={styles.directory}>
         <h2>{t("catalog.directory")}</h2>
         <label>

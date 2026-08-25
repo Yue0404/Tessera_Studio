@@ -55,10 +55,13 @@ function overlay(
   };
 }
 
-function stateWith(instances: readonly ModuleRuntimeInstance[]): ProjectState {
+function stateWith(
+  instances: readonly ModuleRuntimeInstance[],
+  projectGrid: ProjectState["grid"] = grid,
+): ProjectState {
   const state = createProject({
     name: "通用渲染",
-    grid,
+    grid: projectGrid,
     style: {
       canvasBackground: "#09141DFF",
       defaultCellColor: "#14232DFF",
@@ -857,4 +860,75 @@ describe("GenericModuleRenderer 查询", () => {
       ),
     ).toEqual([]);
   });
+
+  it.each(["square", "hex-pointy"] as const)(
+    "%s 窄框只穿过模块边且不含地格中心时仍可选择",
+    (type) => {
+      const projectGrid = { ...grid, type };
+      const state = stateWith([], projectGrid);
+      const identity = edgeIdentity(projectGrid, { row: 2, column: 2 }, 1);
+      const genericEdge: ModuleEdgeInstance = {
+        kind: "edge",
+        instanceId: `generic-edge-${type}`,
+        elementId: "example.weather:edge.front",
+        layerId: "example.weather.surface",
+        edgeId: identity.edgeId,
+        adjacentCellIds: identity.adjacentCellIds,
+        attributes: {},
+        styleOverrides: {},
+        extensions: {},
+        runtimeStatus: "available",
+      };
+      state.moduleInstances.add(genericEdge);
+      const segment = edgeSegment(
+        projectGrid,
+        identity.edgeId,
+        identity.adjacentCellIds,
+      );
+      if (segment === undefined) throw new Error("edge-segment-missing");
+      const midpoint = {
+        x: (segment[0].x + segment[1].x) / 2,
+        y: (segment[0].y + segment[1].y) / 2,
+      };
+      const rect = {
+        minX: midpoint.x - 1,
+        minY: midpoint.y - 1,
+        maxX: midpoint.x + 1,
+        maxY: midpoint.y + 1,
+      };
+      const visible = visibleCellsInRect(
+        projectGrid,
+        rect.minX,
+        rect.minY,
+        rect.maxX,
+        rect.maxY,
+      );
+      expect(
+        visible.some(
+          (cell) =>
+            cell.center.x >= rect.minX &&
+            cell.center.x <= rect.maxX &&
+            cell.center.y >= rect.minY &&
+            cell.center.y <= rect.maxY,
+        ),
+      ).toBe(false);
+
+      expect(
+        boxSelectGenericModules(
+          state,
+          {
+            resolve: () => ({
+              kind: "edge-style",
+              strokeColor: "#FFFFFFFF",
+              strokeOpacity: 1,
+              strokeWidth: 2,
+              lineStyle: "solid",
+            }),
+          },
+          rect,
+          visible,
+        ),
+      ).toEqual([genericEdge.instanceId]);
+    },
+  );
 });

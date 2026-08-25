@@ -1,10 +1,12 @@
 import {
+  clipSegmentToRect,
   distanceToSegment,
   edgeIdentity,
   edgeSegment,
   nearestEdge,
   pointInRotatedBounds,
   type MapPoint,
+  type MapRect,
   type ProjectState,
   type SelectedObject,
   type VisibleCell,
@@ -89,6 +91,72 @@ export function topmostProjectHit(
   };
   if (basic === null) return moduleHit;
   return topmostSelection(state, [basic, moduleHit]);
+}
+
+function pointInRect(point: MapPoint, rect: MapRect): boolean {
+  return (
+    point.x >= rect.minX &&
+    point.x <= rect.maxX &&
+    point.y >= rect.minY &&
+    point.y <= rect.maxY
+  );
+}
+
+/** 只遍历稀疏持久化对象，框选绝不枚举或实例化空白几何。 */
+export function boxSelectProjectObjects(
+  state: Readonly<ProjectState>,
+  rect: MapRect,
+  visibleCells: readonly VisibleCell[],
+): SelectedObject[] {
+  const selected: SelectedObject[] = [];
+  if (state.layers.get("tessera.basic.cell-style")?.visible !== false) {
+    for (const cell of visibleCells) {
+      if (
+        state.cells.get(cell.cellId) !== undefined &&
+        pointInRect(cell.center, rect)
+      )
+        selected.push({ kind: "cell", id: cell.cellId });
+    }
+  }
+  if (state.layers.get("tessera.basic.edge-style")?.visible !== false) {
+    const edgeIds = new Set<string>();
+    const sideCount = state.grid.type === "square" ? 4 : 6;
+    for (const cell of visibleCells)
+      for (let side = 0; side < sideCount; side += 1)
+        edgeIds.add(edgeIdentity(state.grid, cell, side).edgeId);
+    for (const edgeId of edgeIds) {
+      const edge = state.edges.get(edgeId);
+      if (edge?.persistence !== "explicit-style") continue;
+      const segment = edgeSegment(
+        state.grid,
+        edge.edgeId,
+        edge.adjacentCellIds,
+      );
+      if (
+        segment !== undefined &&
+        clipSegmentToRect(segment[0], segment[1], rect) !== null
+      )
+        selected.push({ kind: "edge", id: edge.edgeId });
+    }
+  }
+  for (const connection of state.connections.query(rect)) {
+    if (state.layers.get(connection.layerId)?.visible === false) continue;
+    const start = endpointPoint(state, connection.start);
+    const end = endpointPoint(state, connection.end);
+    if (
+      start !== undefined &&
+      end !== undefined &&
+      clipSegmentToRect(start, end, rect) !== null
+    )
+      selected.push({ kind: "connection", id: connection.connectionId });
+  }
+  for (const overlay of state.overlays.query(rect)) {
+    if (state.layers.get(overlay.layerId)?.visible === false) continue;
+    const point = overlayAnchorPoint(state, overlay);
+    if (point !== undefined && pointInRect(point, rect))
+      selected.push({ kind: "overlay", id: overlay.overlayId });
+  }
+  return selected;
 }
 
 /** 按固定图层高度与层内顺序，返回画布单击的最上层对象。 */

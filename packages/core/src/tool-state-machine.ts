@@ -34,7 +34,7 @@ export class ToolStateMachine {
     };
   }
 
-  pointerDown(point: MapPoint, cellId: string | null): void {
+  pointerDown(point: MapPoint, cellId: string | null): boolean {
     const { tool, phase } = this.#state;
     if (tool === "connection") {
       if (phase === "choosing-start" && cellId !== null) {
@@ -45,7 +45,7 @@ export class ToolStateMachine {
           previewPoint: point,
           startCellId: cellId,
         };
-        return;
+        return true;
       }
       if (phase === "previewing-end" && cellId !== null) {
         if (cellId === this.#state.startCellId) {
@@ -56,7 +56,7 @@ export class ToolStateMachine {
           phase: "committing",
           previewPoint: point,
         };
-        return;
+        return true;
       }
       throw new InvalidToolTransitionError("connection-pointer-down-invalid");
     }
@@ -67,7 +67,7 @@ export class ToolStateMachine {
         startPoint: point,
         previewPoint: point,
       };
-      return;
+      return true;
     }
     if (DRAG_TOOLS.includes(tool)) {
       this.#state = {
@@ -76,25 +76,32 @@ export class ToolStateMachine {
         startPoint: point,
         previewPoint: point,
       };
-      return;
+      return true;
     }
     if (tool !== "select" && tool !== "marker") {
       throw new InvalidToolTransitionError("tool-pointer-down-invalid");
     }
+    return false;
   }
 
-  pointerMove(point: MapPoint): void {
+  pointerMove(point: MapPoint): boolean {
     if (
       this.#state.phase !== "dragging" &&
       this.#state.phase !== "box-selecting" &&
       this.#state.phase !== "previewing-end"
     ) {
-      return;
+      return false;
     }
+    if (
+      this.#state.previewPoint?.x === point.x &&
+      this.#state.previewPoint.y === point.y
+    )
+      return false;
     this.#state = { ...this.#state, previewPoint: point };
+    return true;
   }
 
-  pointerUp(point: MapPoint): void {
+  pointerUp(point: MapPoint): boolean {
     if (
       this.#state.phase === "dragging" ||
       this.#state.phase === "box-selecting"
@@ -105,7 +112,9 @@ export class ToolStateMachine {
         startPoint: null,
         previewPoint: point,
       };
+      return true;
     }
+    return false;
   }
 
   commitSucceeded(): void {

@@ -1,9 +1,7 @@
 import "pixi.js/unsafe-eval";
 import { Application, Container, Graphics } from "pixi.js";
 import {
-  clipSegmentToRect,
   edgeIdentity,
-  edgeSegment,
   hitTestCell,
   nearestEdge,
   visibleCellsInRect,
@@ -16,14 +14,18 @@ import {
   type VisibleCell,
 } from "@tessera/core";
 import { ConnectionRenderer } from "./connection-renderer.js";
+import { connectionTargetToken } from "./connection-target-token.js";
 import { GridRenderer } from "./grid-renderer.js";
 import {
   GenericModuleRenderer,
   type GenericModuleVisualResolver,
 } from "./generic-module-renderer.js";
 import { OverlayRenderer } from "./overlay-renderer.js";
-import { endpointPoint, overlayAnchorPoint } from "./render-utils.js";
-import { hitTestProjectObject, topmostProjectHit } from "./project-hit-test.js";
+import {
+  boxSelectProjectObjects,
+  hitTestProjectObject,
+  topmostProjectHit,
+} from "./project-hit-test.js";
 import { enableRenderLayerSorting } from "./render-layer-order.js";
 import { InteractionRangeState } from "./interaction-range-state.js";
 import {
@@ -494,89 +496,13 @@ export class TesseraRenderer {
   }
 
   #boxSelection(rect: MapRect): SelectedObject[] {
-    const selected: SelectedObject[] = this.#visible
-      .filter(
-        (cell) =>
-          cell.center.x >= rect.minX &&
-          cell.center.x <= rect.maxX &&
-          cell.center.y >= rect.minY &&
-          cell.center.y <= rect.maxY,
-      )
-      .map((cell) => ({ kind: "cell", id: cell.cellId }));
-    const visibleEdgeIds = new Set<string>();
-    for (const cell of this.#visible) {
-      const sideCount = this.#state.grid.type === "square" ? 4 : 6;
-      for (let side = 0; side < sideCount; side += 1) {
-        visibleEdgeIds.add(edgeIdentity(this.#state.grid, cell, side).edgeId);
-      }
-    }
-    for (const edgeId of visibleEdgeIds) {
-      const edge = this.#state.edges.get(edgeId);
-      if (edge?.persistence !== "explicit-style") continue;
-      const segment = edgeSegment(
-        this.#state.grid,
-        edge.edgeId,
-        edge.adjacentCellIds,
-      );
-      if (
-        segment !== undefined &&
-        clipSegmentToRect(segment[0], segment[1], rect) !== null
-      ) {
-        selected.push({ kind: "edge", id: edge.edgeId });
-      }
-    }
-    for (const connection of this.#state.connections.query(rect)) {
-      const points = this.#connectionPoints(connection.start, connection.end);
-      if (
-        points !== undefined &&
-        clipSegmentToRect(points[0], points[1], rect) !== null
-      ) {
-        selected.push({ kind: "connection", id: connection.connectionId });
-      }
-    }
-    for (const overlay of this.#state.overlays.query(rect)) {
-      const point = overlayAnchorPoint(this.#state, overlay);
-      if (
-        point !== undefined &&
-        point.x >= rect.minX &&
-        point.x <= rect.maxX &&
-        point.y >= rect.minY &&
-        point.y <= rect.maxY
-      ) {
-        selected.push({ kind: "overlay", id: overlay.overlayId });
-      }
-    }
+    const selected = boxSelectProjectObjects(this.#state, rect, this.#visible);
     selected.push(
       ...(this.#genericModuleRenderer
         ?.boxSelection(this.#state, rect, this.#visible)
         .map((id) => ({ kind: "module-instance" as const, id })) ?? []),
     );
     return selected;
-  }
-
-  #connectionPoints(
-    start: ConnectionEndpoint,
-    end: ConnectionEndpoint,
-  ): readonly [MapPoint, MapPoint] | undefined {
-    const resolve = (endpoint: ConnectionEndpoint) => {
-      if (endpoint.kind === "map-point") return endpoint.point;
-      if (endpoint.kind === "cell-center") {
-        return endpointPoint(this.#state, endpoint);
-      }
-      const edge = this.#state.edges.get(endpoint.edgeId);
-      const segment =
-        edge &&
-        edgeSegment(this.#state.grid, edge.edgeId, edge.adjacentCellIds);
-      return segment
-        ? {
-            x: (segment[0].x + segment[1].x) / 2,
-            y: (segment[0].y + segment[1].y) / 2,
-          }
-        : undefined;
-    };
-    const startPoint = resolve(start);
-    const endPoint = resolve(end);
-    return startPoint && endPoint ? [startPoint, endPoint] : undefined;
   }
 
   #renderPreview(): void {
@@ -668,14 +594,10 @@ export class TesseraRenderer {
       toolBefore.tool === "connection"
         ? this.#connectionEndpoint(point, cell)
         : null;
-    const targetToken =
-      connectionTarget?.endpoint.kind === "map-point"
-        ? `point:${connectionTarget.endpoint.point.x}:${connectionTarget.endpoint.point.y}`
-        : connectionTarget?.endpoint.kind === "edge-midpoint"
-          ? connectionTarget.endpoint.edgeId
-          : connectionTarget?.endpoint.kind === "cell-center"
-            ? connectionTarget.endpoint.cellId
-            : (cell?.cellId ?? null);
+    const targetToken = connectionTargetToken(
+      connectionTarget?.endpoint ?? null,
+      cell?.cellId ?? null,
+    );
     try {
       this.#interaction.pointerDown(point, targetToken);
     } catch (error) {

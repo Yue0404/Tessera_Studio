@@ -185,6 +185,47 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     expect(runtime.errors).toEqual([]);
     runtime.dispose();
   });
+
+  test(`${gridLabel}：非元素工具关闭设置，框选只选编辑对象且清空可撤销`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await createProject(page, gridLabel, `${gridLabel}框选清空`);
+    const canvas = page.getByLabel("地图编辑画布");
+    const activeSettings = page.getByRole("region", {
+      name: "当前元素设置",
+    });
+    await expect(activeSettings).toHaveCount(0);
+
+    await page.getByRole("button", { name: "画刷" }).click();
+    await expect(activeSettings).toBeVisible();
+    await canvas.click({ position: { x: 650, y: 360 } });
+    await expect(page.getByTestId("cell-count")).toContainText("1");
+
+    await page.getByRole("button", { name: "框选" }).click();
+    await expect(activeSettings).toHaveCount(0);
+    await drag(page, canvas, "left", { x: 610, y: 320 }, { x: 690, y: 400 });
+    await expect(
+      page.getByText("已选择 1 个对象", { exact: true }),
+    ).toBeVisible();
+
+    const clear = page.getByRole("button", { name: "清空画布" });
+    await expect(clear).toBeEnabled();
+    await clear.click();
+    await expect(page.getByTestId("cell-count")).toContainText("0");
+    await expect(clear).toBeDisabled();
+    await page.getByRole("button", { name: "撤销" }).click();
+    await expect(page.getByTestId("cell-count")).toContainText("1");
+    await page.getByRole("button", { name: "重做" }).click();
+    await expect(page.getByTestId("cell-count")).toContainText("0");
+
+    await page.getByRole("button", { name: "画刷" }).click();
+    await expect(activeSettings).toBeVisible();
+    await page.getByRole("button", { name: "选择" }).click();
+    await expect(activeSettings).toHaveCount(0);
+    await page.getByRole("button", { name: "平移" }).click();
+    await expect(activeSettings).toHaveCount(0);
+  });
 }
 
 test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生产包闭环", async ({
@@ -199,6 +240,8 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
   const activeSettings = page.getByRole("region", { name: "当前元素设置" });
   const catalogPanel = page.getByTestId("element-catalog-panel");
   const search = page.getByRole("searchbox", { name: "搜索元素" });
+  await expect(activeSettings).toHaveCount(0);
+  await page.getByRole("button", { name: "画刷" }).click();
   await expect(activeSettings).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "地格颜色设置" }),
@@ -234,6 +277,7 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
   await canvas.click({ position: { x: 700, y: 360 } });
   await expect(page.getByTestId("overlay-count")).toContainText("1");
   await page.getByRole("button", { name: "选择" }).click();
+  await expect(activeSettings).toHaveCount(0);
   // 锚定标记绘制在地格中心，而不是首次点击的任意点。
   await canvas.click({ position: { x: 702, y: 378 } });
   let inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
@@ -321,9 +365,12 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
   await expect(page.getByText(/正在重新绑定起点/)).toHaveCount(0);
   await page.getByRole("button", { name: "重新绑定起点" }).click();
   await canvas.click({ position: { x: 460, y: 300 } });
-  await expect(page.getByRole("alert")).toContainText("不能是同一目标");
+  await expect(page.getByTestId("connection-notice")).toContainText(
+    "不能是同一目标",
+  );
   await expect(page.getByText(/正在重新绑定起点/)).toBeVisible();
   await canvas.click({ position: { x: 420, y: 360 } });
+  await expect(page.getByTestId("connection-notice")).toHaveCount(0);
   await expect(page.getByText(/正在重新绑定起点/)).toHaveCount(0);
   await page.getByRole("button", { name: "撤销" }).click();
   await page.getByRole("button", { name: "撤销" }).click();
