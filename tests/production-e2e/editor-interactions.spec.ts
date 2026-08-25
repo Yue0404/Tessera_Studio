@@ -228,6 +228,74 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
   });
 }
 
+for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
+  test(`${gridLabel}：地图设置扩大、合法缩小、格子尺寸与越界原子拒绝`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const runtime = captureRuntimeErrors(page);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await createProject(page, gridLabel, `${gridLabel}地图设置闭环`);
+    const editor = page.locator("main[data-project-revision]");
+    const canvas = page.getByLabel("地图编辑画布");
+    await page.getByRole("button", { name: "地图设置" }).click();
+    const panel = page.locator("aside").filter({ hasText: "地图设置" });
+    const width = panel.getByLabel("宽度");
+    const height = panel.getByLabel("高度");
+    const cellSize = panel.getByLabel("单元格尺寸");
+    const apply = panel.getByRole("button", { name: "应用地图设置" });
+
+    await width.fill("24");
+    await height.fill("22");
+    await cellSize.fill("40");
+    await apply.click();
+    await expect(width).toHaveValue("24");
+    await expect(height).toHaveValue("22");
+    await expect(cellSize).toHaveValue("40");
+    await page.getByRole("button", { name: "撤销" }).click();
+    await expect(width).toHaveValue("20");
+    await expect(height).toHaveValue("20");
+    await expect(cellSize).toHaveValue("36");
+    await page.getByRole("button", { name: "重做" }).click();
+    await expect(width).toHaveValue("24");
+    await expect(height).toHaveValue("22");
+    await expect(cellSize).toHaveValue("40");
+
+    await width.fill("18");
+    await height.fill("18");
+    await apply.click();
+    await expect(width).toHaveValue("18");
+    await expect(height).toHaveValue("18");
+    await page.getByRole("button", { name: "画刷" }).click();
+    await canvas.click({ position: { x: 640, y: 360 } });
+    await expect(page.getByTestId("cell-count")).toContainText("1");
+    const revisionBeforeRejection = await editor.getAttribute(
+      "data-project-revision",
+    );
+    const countBeforeRejection = await page
+      .getByTestId("cell-count")
+      .textContent();
+    const exportBeforeRejection = await exportProject(page);
+
+    await width.fill("4");
+    await height.fill("4");
+    await apply.click();
+    await expect(panel.getByRole("alert")).toHaveText(
+      "地图中存在超出新边界的内容；尺寸未修改。",
+    );
+    await expect(editor).toHaveAttribute(
+      "data-project-revision",
+      revisionBeforeRejection ?? "",
+    );
+    await expect(page.getByTestId("cell-count")).toHaveText(
+      countBeforeRejection ?? "",
+    );
+    expect(await exportProject(page)).toEqual(exportBeforeRejection);
+    expect(runtime.errors).toEqual([]);
+    runtime.dispose();
+  });
+}
+
 test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生产包闭环", async ({
   page,
 }) => {
@@ -274,7 +342,16 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
   ).toHaveAttribute("aria-pressed", "true");
   await activeSettings.getByLabel("标记形状").selectOption("circle");
   await activeSettings.getByLabel("标记颜色").fill("#123456");
+  await page.getByRole("button", { name: "标记", exact: true }).click();
+  const markerQuick = page.getByRole("dialog", { name: "选择放置类型" });
+  await markerQuick.getByLabel("标记附文").fill("前线哨站");
+  await markerQuick.getByRole("radio", { name: "标记" }).click();
   await canvas.click({ position: { x: 700, y: 360 } });
+  await expect(page.getByTestId("overlay-count")).toContainText("1");
+  await page.getByRole("button", { name: "橡皮擦" }).click();
+  await canvas.click({ position: { x: 702, y: 378 } });
+  await expect(page.getByTestId("overlay-count")).toContainText("0");
+  await page.getByRole("button", { name: "撤销" }).click();
   await expect(page.getByTestId("overlay-count")).toContainText("1");
   await page.getByRole("button", { name: "选择" }).click();
   await expect(activeSettings).toHaveCount(0);
@@ -282,6 +359,8 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
   await canvas.click({ position: { x: 702, y: 378 } });
   let inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
   await expect(inspector).toBeVisible();
+  await expect(inspector.getByLabel("标记附文")).toHaveValue("前线哨站");
+  await inspector.getByLabel("标记附文").fill("集结点");
   await expect(inspector.getByLabel("标记颜色")).toHaveValue("#123456");
   await inspector.getByLabel("标记形状").selectOption("diamond");
   await inspector.getByLabel("标记尺寸").fill("48");
@@ -395,6 +474,7 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
     color: "#abcdefFF",
     opacity: 0.4,
   });
+  expect(marker.attributes).toMatchObject({ label: "集结点" });
   const text = document.managers.overlayManager.overlays.find(
     (overlay: { overlayType?: string }) => overlay.overlayType === "text",
   );

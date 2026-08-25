@@ -3,7 +3,9 @@ import {
   distanceToSegment,
   edgeIdentity,
   edgeSegment,
-  nearestEdge,
+  markerLabelBounds,
+  markerLabelFontSize,
+  markerLabelPoint,
   pointInRotatedBounds,
   type MapPoint,
   type MapRect,
@@ -23,7 +25,7 @@ function compareCodePoint(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function selectionLayerId(
+export function projectHitLayerId(
   state: Readonly<ProjectState>,
   selected: SelectedObject,
 ): string | undefined {
@@ -54,8 +56,8 @@ function compareSelections(
   left: SelectedObject,
   right: SelectedObject,
 ): number {
-  const leftLayerId = selectionLayerId(state, left) ?? "";
-  const rightLayerId = selectionLayerId(state, right) ?? "";
+  const leftLayerId = projectHitLayerId(state, left) ?? "";
+  const rightLayerId = projectHitLayerId(state, right) ?? "";
   const leftLayer = state.layers.get(leftLayerId);
   const rightLayer = state.layers.get(rightLayerId);
   return (
@@ -67,15 +69,56 @@ function compareSelections(
   );
 }
 
-function topmostSelection(
+function isPersistedSelection(
+  state: Readonly<ProjectState>,
+  selected: SelectedObject,
+): boolean {
+  if (selected.kind === "cell")
+    return state.cells.get(selected.id) !== undefined;
+  if (selected.kind === "edge")
+    return state.edges.get(selected.id)?.persistence === "explicit-style";
+  if (selected.kind === "overlay")
+    return state.overlays.get(selected.id) !== undefined;
+  if (selected.kind === "connection")
+    return state.connections.get(selected.id) !== undefined;
+  return state.moduleInstances.get(selected.id) !== undefined;
+}
+
+/** 去重并按实际图层、层内顺序和稳定 ID 从上到下排列真实持久对象。 */
+export function orderProjectHitCandidates(
+  state: Readonly<ProjectState>,
+  candidates: readonly SelectedObject[],
+): SelectedObject[] {
+  const unique = new Map<string, SelectedObject>();
+  for (const candidate of candidates) {
+    if (!isPersistedSelection(state, candidate)) continue;
+    const layerId = projectHitLayerId(state, candidate);
+    if (layerId === undefined || state.layers.get(layerId)?.visible === false)
+      continue;
+    unique.set(`${candidate.kind}:${candidate.id}`, candidate);
+  }
+  return [...unique.values()].sort((left, right) =>
+    compareSelections(state, right, left),
+  );
+}
+
+/** 返回有序候选中的首个可编辑对象；锁层仍保留在原候选列表中。 */
+export function firstEditableProjectHit(
   state: Readonly<ProjectState>,
   candidates: readonly SelectedObject[],
 ): SelectedObject | null {
-  return (
-    [...candidates]
-      .sort((left, right) => compareSelections(state, left, right))
-      .at(-1) ?? null
-  );
+  for (const candidate of candidates) {
+    const layerId = projectHitLayerId(state, candidate);
+    const layer = layerId === undefined ? undefined : state.layers.get(layerId);
+    if (
+      layer !== undefined &&
+      layer.visible &&
+      !layer.locked &&
+      layer.runtimeStatus !== "missing"
+    )
+      return candidate;
+  }
+  return null;
 }
 
 /** 在基础与扩展命中候选间复用实际图层高度，避免低层对象抢占选择。 */
@@ -90,7 +133,11 @@ export function topmostProjectHit(
     id: moduleInstanceId,
   };
   if (basic === null) return moduleHit;
-  return topmostSelection(state, [basic, moduleHit]);
+  return (
+    [basic, moduleHit].sort((left, right) =>
+      compareSelections(state, right, left),
+    )[0] ?? null
+  );
 }
 
 function pointInRect(point: MapPoint, rect: MapRect): boolean {
@@ -159,13 +206,13 @@ export function boxSelectProjectObjects(
   return selected;
 }
 
-/** 按固定图层高度与层内顺序，返回画布单击的最上层对象。 */
-export function hitTestProjectObject(
+/** 按固定图层高度与层内顺序，返回画布单击的全部真实持久对象。 */
+export function hitTestProjectObjects(
   state: Readonly<ProjectState>,
   point: MapPoint,
   cell: VisibleCell | undefined,
   zoom = 1,
-): SelectedObject | null {
+): SelectedObject[] {
   const queryRadius = Math.max(
     MARKER_MAX_CSS_PX / Math.max(zoom, 0.01),
     state.grid.cellSize * 2,
@@ -183,8 +230,33 @@ export function hitTestProjectObject(
     if (anchor === undefined) continue;
     const matches =
       overlay.overlayType === "marker"
-        ? Math.hypot(point.x - anchor.x, point.y - anchor.y) <=
-          markerMapSize(overlay.style.size, zoom) / 2
+        ? (() => {
+            const markerSize = markerMapSize(overlay.style.size, zoom);
+            if (
+              Math.hypot(point.x - anchor.x, point.y - anchor.y) <=
+              markerSize / 2
+            )
+              return true;
+            if (overlay.label === null) return false;
+            const fontSize = textMapSize(
+              markerLabelFontSize(overlay.style.size),
+              zoom,
+            );
+            const bounds = markerLabelBounds(
+              anchor,
+              overlay.label,
+              markerSize,
+              fontSize,
+            );
+            const labelPoint = markerLabelPoint(anchor, markerSize, fontSize);
+            return pointInRotatedBounds(
+              point,
+              labelPoint,
+              bounds.maxX - bounds.minX,
+              bounds.maxY - bounds.minY,
+              0,
+            );
+          })()
         : (() => {
             const size = conservativeTextBoundsSize(
               overlay.text,
@@ -216,19 +288,50 @@ export function hitTestProjectObject(
       candidates.push({ kind: "connection", id: connection.connectionId });
     }
   }
-  if (cell === undefined) return topmostSelection(state, candidates);
-  const identity = edgeIdentity(state.grid, cell, nearestEdge(cell, point));
-  const edge = state.edges.get(identity.edgeId);
-  if (edge?.persistence === "explicit-style") {
-    const segment = edgeSegment(state.grid, edge.edgeId, edge.adjacentCellIds);
-    if (
-      segment !== undefined &&
-      distanceToSegment(point, segment[0], segment[1]) <=
-        Math.max(6, edge.strokeWidth + 3)
-    ) {
-      candidates.push({ kind: "edge", id: edge.edgeId });
+  if (cell !== undefined) {
+    const sideCount = state.grid.type === "square" ? 4 : 6;
+    const seenEdges = new Set<string>();
+    for (let side = 0; side < sideCount; side += 1) {
+      const identity = edgeIdentity(state.grid, cell, side);
+      if (seenEdges.has(identity.edgeId)) continue;
+      seenEdges.add(identity.edgeId);
+      const edge = state.edges.get(identity.edgeId);
+      if (edge?.persistence !== "explicit-style") continue;
+      const segment = edgeSegment(
+        state.grid,
+        edge.edgeId,
+        edge.adjacentCellIds,
+      );
+      if (
+        segment !== undefined &&
+        distanceToSegment(point, segment[0], segment[1]) <=
+          Math.max(6, edge.strokeWidth + 3)
+      ) {
+        candidates.push({ kind: "edge", id: edge.edgeId });
+      }
     }
+    if (state.cells.get(cell.cellId) !== undefined)
+      candidates.push({ kind: "cell", id: cell.cellId });
   }
-  candidates.push({ kind: "cell", id: cell.cellId });
-  return topmostSelection(state, candidates);
+  return orderProjectHitCandidates(state, candidates);
+}
+
+/**
+ * 单选返回最上层持久对象；若没有持久对象，则回退到当前可见基础地格。
+ * 空白地格只服务选择与领域成员预选，不进入复数候选，避免被橡皮或框选误删。
+ */
+export function hitTestProjectObject(
+  state: Readonly<ProjectState>,
+  point: MapPoint,
+  cell: VisibleCell | undefined,
+  zoom = 1,
+): SelectedObject | null {
+  const persisted = hitTestProjectObjects(state, point, cell, zoom)[0];
+  if (persisted !== undefined) return persisted;
+  if (
+    cell !== undefined &&
+    state.layers.get("tessera.basic.cell-style")?.visible !== false
+  )
+    return { kind: "cell", id: cell.cellId };
+  return null;
 }

@@ -78,7 +78,7 @@ export class ToolStateMachine {
       };
       return true;
     }
-    if (tool !== "select" && tool !== "marker") {
+    if (tool !== "select" && tool !== "marker" && tool !== "eraser") {
       throw new InvalidToolTransitionError("tool-pointer-down-invalid");
     }
     return false;

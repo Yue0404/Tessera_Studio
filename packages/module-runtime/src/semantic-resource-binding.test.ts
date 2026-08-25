@@ -128,7 +128,7 @@ describe("模块样式资源语义绑定", () => {
       anchors: ["cell"] as const,
       group: {
         minMembers: 2,
-        maxMembers: 64,
+        maxMembers: 4096,
         connectivity: "edge" as const,
         memberRules: [],
       },
@@ -141,6 +141,12 @@ describe("模块样式资源语义绑定", () => {
     expect(() =>
       validateElementFile([domain], "domain-elements.json"),
     ).not.toThrow();
+    expect(() =>
+      validateElementFile(
+        [{ ...domain, group: { ...domain.group, maxMembers: 4097 } }],
+        "domain-elements.json",
+      ),
+    ).toThrowError(expect.objectContaining({ code: "package-schema-invalid" }));
     expectCode(
       () =>
         validateModuleSemantics(

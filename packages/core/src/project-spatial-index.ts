@@ -1,6 +1,11 @@
 import { CHUNK_SIZE, parseCellId } from "./coordinates.js";
 import { cellCenter, cellPolygon, edgeSegment } from "./geometry.js";
 import {
+  markerLabelBounds,
+  markerLabelFontSize,
+  unionMapRects,
+} from "./marker-label.js";
+import {
   conservativeTextBoundsSize,
   rotatedRectBounds,
 } from "./text-visual-bounds.js";
@@ -76,7 +81,28 @@ function overlayBounds(
   const point = projectOverlayAnchorPoint(state, overlay);
   if (point === undefined) return undefined;
   if (overlay.overlayType === "marker") {
-    return pointBounds(point, Math.max(1, overlay.style.size * 1.5));
+    const markerBounds = pointBounds(
+      point,
+      Math.max(1, overlay.style.size * 1.5),
+    );
+    if (overlay.label === null) return markerBounds;
+    const indexedMarkerSize = Math.max(
+      overlay.style.size,
+      8 / PROJECT_MIN_ZOOM,
+    );
+    const indexedFontSize = Math.max(
+      markerLabelFontSize(overlay.style.size),
+      TEXT_MIN_CSS_PX / PROJECT_MIN_ZOOM,
+    );
+    return unionMapRects(
+      markerBounds,
+      markerLabelBounds(
+        point,
+        overlay.label,
+        indexedMarkerSize,
+        indexedFontSize,
+      ),
+    );
   }
   const indexedFontSize = Math.max(
     overlay.style.fontSize,
@@ -145,17 +171,26 @@ function moduleDomainGroupBounds(
   state: Readonly<ProjectState>,
   group: ModuleDomainGroupInstance,
 ): MapRect | undefined {
-  const points = group.memberCellIds.flatMap((cellId) => {
+  let bounds: MapRect | undefined;
+  for (const cellId of group.memberCellIds) {
     const coordinate = parseCellId(cellId);
-    return cellPolygon(state.grid, coordinate.row, coordinate.column);
-  });
-  if (points.length === 0) return undefined;
-  return {
-    minX: Math.min(...points.map((point) => point.x)),
-    minY: Math.min(...points.map((point) => point.y)),
-    maxX: Math.max(...points.map((point) => point.x)),
-    maxY: Math.max(...points.map((point) => point.y)),
-  };
+    for (const point of cellPolygon(
+      state.grid,
+      coordinate.row,
+      coordinate.column,
+    )) {
+      bounds =
+        bounds === undefined
+          ? { minX: point.x, minY: point.y, maxX: point.x, maxY: point.y }
+          : {
+              minX: Math.min(bounds.minX, point.x),
+              minY: Math.min(bounds.minY, point.y),
+              maxX: Math.max(bounds.maxX, point.x),
+              maxY: Math.max(bounds.maxY, point.y),
+            };
+    }
+  }
+  return bounds;
 }
 
 /** 工程构造或恢复后调用一次；后续 Manager 写操作会同步维护索引。 */

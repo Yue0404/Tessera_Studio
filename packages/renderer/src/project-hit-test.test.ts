@@ -11,6 +11,8 @@ import {
 import {
   boxSelectProjectObjects,
   hitTestProjectObject,
+  hitTestProjectObjects,
+  orderProjectHitCandidates,
   topmostProjectHit,
 } from "./project-hit-test.js";
 
@@ -37,6 +39,7 @@ describe("固定图层直接命中", () => {
     const cells = visibleCells(cellStore.state.grid, 640, 640);
     const cell = cells.find((item) => item.row === 2 && item.column === 2);
     if (cell === undefined) throw new Error("missing-cell");
+    cellStore.paintCell(2, 2, "#FFFFFFFF");
     expect(hitTestProjectObject(cellStore.state, cell.center, cell)).toEqual({
       kind: "cell",
       id: cell.cellId,
@@ -112,10 +115,36 @@ describe("固定图层直接命中", () => {
       y: (segment[0].y + segment[1].y) / 2,
     };
 
+    expect(hitTestProjectObjects(edgeStore.state, midpoint, cell)).toEqual([]);
     expect(hitTestProjectObject(edgeStore.state, midpoint, cell)).toEqual({
       kind: "cell",
       id: cell.cellId,
     });
+  });
+
+  it("空白地格可供直接选择，但不进入橡皮候选且不产生历史", () => {
+    const editor = store();
+    const cell = visibleCells(editor.state.grid, 640, 640).find(
+      (item) => item.row === 2 && item.column === 2,
+    );
+    if (cell === undefined) throw new Error("missing-cell");
+    const beforeRevision = editor.state.revision;
+    const beforeTransactionId = editor.state.lastTransactionId;
+
+    expect(hitTestProjectObject(editor.state, cell.center, cell)).toEqual({
+      kind: "cell",
+      id: cell.cellId,
+    });
+    const eraserCandidates = hitTestProjectObjects(
+      editor.state,
+      cell.center,
+      cell,
+    );
+    expect(eraserCandidates).toEqual([]);
+    expect(editor.eraseFirstEditable(eraserCandidates)).toBeNull();
+    expect(editor.state.cells.size).toBe(0);
+    expect(editor.state.revision).toBe(beforeRevision);
+    expect(editor.state.lastTransactionId).toBe(beforeTransactionId);
   });
 
   it.each(["line", "arrow"] as const)(
@@ -407,6 +436,121 @@ describe("固定图层直接命中", () => {
     expect(
       hitTestProjectObject(editor.state, minimumZoomEdge, undefined, 0.25),
     ).toEqual({ kind: "overlay", id: overlayId });
+  });
+});
+
+describe("有序全候选命中", () => {
+  it.each(["square", "hex-pointy"] as const)(
+    "%s 只返回真实持久对象并按顶层到低层排序",
+    (type) => {
+      const editor = new EditorStore(createProject(inputForGrid(type)));
+      const cells = visibleCells(editor.state.grid, 640, 640);
+      const cell = cells.find((item) => item.row === 2 && item.column === 2);
+      if (cell === undefined) throw new Error("missing-cell");
+      expect(hitTestProjectObjects(editor.state, cell.center, cell)).toEqual(
+        [],
+      );
+
+      editor.paintCell(2, 2, "#FFFFFFFF");
+      const identity = edgeIdentity(editor.state.grid, cell, 1);
+      editor.paintEdge(identity.edgeId, identity.adjacentCellIds, "#FFFFFFFF");
+      const segment = edgeSegment(
+        editor.state.grid,
+        identity.edgeId,
+        identity.adjacentCellIds,
+      );
+      if (segment === undefined) throw new Error("missing-segment");
+      const midpoint = {
+        x: (segment[0].x + segment[1].x) / 2,
+        y: (segment[0].y + segment[1].y) / 2,
+      };
+      const first = editor.placeMarker(midpoint);
+      const second = editor.placeMarker(midpoint);
+      const firstOverlay = editor.state.overlays.get(first);
+      const secondOverlay = editor.state.overlays.get(second);
+      if (firstOverlay === undefined || secondOverlay === undefined)
+        throw new Error("overlay-missing");
+      editor.state.overlays.replace({ ...firstOverlay, orderInLayer: 1 });
+      editor.state.overlays.replace({ ...secondOverlay, orderInLayer: 2 });
+
+      expect(hitTestProjectObjects(editor.state, midpoint, cell)).toEqual([
+        { kind: "overlay", id: second },
+        { kind: "overlay", id: first },
+        { kind: "edge", id: identity.edgeId },
+        { kind: "cell", id: cell.cellId },
+      ]);
+    },
+  );
+
+  it("隐藏对象和 reference-only edge 不进入候选，锁定对象保留顺序", () => {
+    const editor = store();
+    const cells = visibleCells(editor.state.grid, 640, 640);
+    const cell = cells.find((item) => item.row === 2 && item.column === 2);
+    if (cell === undefined) throw new Error("missing-cell");
+    editor.paintCell(2, 2, "#FFFFFFFF");
+    const visibleMarker = editor.placeMarker(cell.center);
+    editor.placeText(cell.center, "隐藏");
+    const layers = editor.state.layers as Map<string, FixedLayerState>;
+    const overlayLayer = layers.get("tessera.basic.placed-object");
+    if (overlayLayer === undefined) throw new Error("layer-missing");
+    layers.set(overlayLayer.layerId, { ...overlayLayer, locked: true });
+    const annotationLayer = layers.get("tessera.basic.annotation");
+    if (annotationLayer === undefined) throw new Error("layer-missing");
+    layers.set(annotationLayer.layerId, {
+      ...annotationLayer,
+      visible: false,
+    });
+    const identity = edgeIdentity(editor.state.grid, cell, 1);
+    editor.state.edges.ensure({
+      instanceId: `structure:${identity.edgeId}`,
+      edgeId: identity.edgeId,
+      adjacentCellIds: identity.adjacentCellIds,
+      strokeColor: "#FFFFFFFF",
+      strokeWidth: 2,
+      strokeOpacity: 1,
+      lineStyle: "solid",
+      persistence: "reference-only",
+    });
+
+    expect(hitTestProjectObjects(editor.state, cell.center, cell)).toEqual([
+      { kind: "overlay", id: visibleMarker },
+      { kind: "cell", id: cell.cellId },
+    ]);
+  });
+
+  it("基础与 generic 候选使用同一稳定层级排序", () => {
+    const editor = store();
+    const cellId = "cell:square:2:2";
+    editor.paintCell(2, 2, "#FFFFFFFF");
+    const basic: { kind: "cell"; id: string } = { kind: "cell", id: cellId };
+    const layers = editor.state.layers as Map<string, FixedLayerState>;
+    layers.set("example.high", {
+      layerId: "example.high",
+      moduleVersion: "1.0.0",
+      zIndex: 9_000,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      allowedKinds: ["cell"],
+      runtimeStatus: "available",
+    });
+    editor.state.moduleInstances.add({
+      kind: "cell",
+      instanceId: "generic-high",
+      elementId: "example:cell",
+      layerId: "example.high",
+      cellId,
+      attributes: {},
+      styleOverrides: {},
+      extensions: {},
+      runtimeStatus: "available",
+    });
+    expect(
+      orderProjectHitCandidates(editor.state, [
+        basic,
+        { kind: "module-instance", id: "generic-high" },
+      ]),
+    ).toEqual([{ kind: "module-instance", id: "generic-high" }, basic]);
   });
 });
 

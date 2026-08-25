@@ -1,10 +1,12 @@
 import {
+  DOMAIN_GROUP_LAYOUT_EXTENSION_KEY,
   axialToOddR,
   cellId,
   cellPolygon,
   edgeIdentity,
   oddRToAxial,
   parseCellId,
+  resolveDomainGroupLayout,
   type CellCoordinate,
   type GridType,
   type Point,
@@ -872,14 +874,35 @@ function translateObjects(
       end: rewriteEndpoint(connection.end),
     }),
   );
-  const domainGroups = (fragment.objects.domainGroups as any[]).map(
-    (group) => ({
-      ...structuredClone(group),
-      memberCellIds: group.memberCellIds.map((value: string) =>
-        translatedCellId(sourceGrid.type, value, translation),
+  const domainGroups = (fragment.objects.domainGroups as any[]).map((group) => {
+    const sourceLayout = resolveDomainGroupLayout(
+      sourceGrid,
+      group.memberCellIds,
+      group.extensions,
+    );
+    const memberCellIds = group.memberCellIds.map((value: string) =>
+      translatedCellId(sourceGrid.type, value, translation),
+    );
+    const layout = {
+      ...structuredClone(sourceLayout),
+      anchorCellId: translatedCellId(
+        sourceGrid.type,
+        sourceLayout.anchorCellId,
+        translation,
       ),
-    }),
-  );
+    };
+    const extensions = {
+      ...structuredClone(group.extensions),
+      [DOMAIN_GROUP_LAYOUT_EXTENSION_KEY]: layout,
+    };
+    // 平移只改锚点；派生成员必须继续与 v1 事实完全一致。
+    resolveDomainGroupLayout(targetGrid, memberCellIds, extensions);
+    return {
+      ...structuredClone(group),
+      memberCellIds,
+      extensions,
+    };
+  });
   return {
     objects: {
       cellOverrides,
@@ -1345,7 +1368,12 @@ function buildCanonicalChunks(target: any, merged: any): any[] {
     ensure(ownerCellId).ownedOverlayIds.push(overlay.overlayId);
   }
   for (const group of merged.groups) {
-    ensure(group.memberCellIds[0]).ownedDomainGroupIds.push(group.groupId);
+    const owner = resolveDomainGroupLayout(
+      target.grid,
+      group.memberCellIds,
+      group.extensions,
+    ).anchorCellId;
+    ensure(owner).ownedDomainGroupIds.push(group.groupId);
   }
   for (const chunk of chunks.values()) {
     chunk.cellOverrides.sort((left: any, right: any) =>

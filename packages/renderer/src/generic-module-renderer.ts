@@ -6,12 +6,16 @@ import {
   domainGroupGeometry,
   edgeIdentity,
   edgeSegment,
+  markerLabelBounds,
+  markerLabelFontSize,
+  markerLabelPoint,
   parseCellId,
   pointInRotatedBounds,
   pointInRect,
   projectConnectionEndpointPoint,
   rotatedRectBounds,
   SparseSpatialIndex,
+  unionMapRects,
   visibleCellsInRect,
   type MapRect,
   type ModuleRuntimeInstance,
@@ -71,6 +75,7 @@ export type GenericModuleVisualDescriptor =
       readonly opacity: number;
       readonly displaySize: number;
       readonly rotation: number;
+      readonly label?: string | null;
       readonly image?: GenericModuleResourceIdentity;
     }
   | {
@@ -169,7 +174,7 @@ function compareInstanceOrder(
   );
 }
 
-function genericConnectionPoints(
+export function genericConnectionPoints(
   state: Readonly<ProjectState>,
   instance: Extract<ModuleRuntimeInstance, { kind: "connection" }>,
 ) {
@@ -206,6 +211,36 @@ function genericTextContainsPoint(
   );
 }
 
+function genericMarkerContainsPoint(
+  descriptor: Extract<GenericModuleVisualDescriptor, { kind: "marker" }>,
+  anchor: { readonly x: number; readonly y: number },
+  point: { readonly x: number; readonly y: number },
+  zoom: number,
+): boolean {
+  const markerSize = markerMapSize(descriptor.displaySize, zoom);
+  if (Math.hypot(point.x - anchor.x, point.y - anchor.y) <= markerSize / 2)
+    return true;
+  if (descriptor.label == null) return false;
+  const fontSize = textMapSize(
+    markerLabelFontSize(descriptor.displaySize),
+    zoom,
+  );
+  const bounds = markerLabelBounds(
+    anchor,
+    descriptor.label,
+    markerSize,
+    fontSize,
+  );
+  const center = markerLabelPoint(anchor, markerSize, fontSize);
+  return pointInRotatedBounds(
+    point,
+    center,
+    bounds.maxX - bounds.minX,
+    bounds.maxY - bounds.minY,
+    0,
+  );
+}
+
 function genericOverlayHitCandidate(
   instance: ModuleRuntimeInstance,
   descriptor: Extract<
@@ -217,16 +252,27 @@ function genericOverlayHitCandidate(
 ): RenderedGenericOverlayHitCandidate {
   if (descriptor.kind === "marker") {
     const radius = markerMapSize(descriptor.displaySize, zoom) / 2;
+    const markerBounds = {
+      minX: anchor.x - radius,
+      minY: anchor.y - radius,
+      maxX: anchor.x + radius,
+      maxY: anchor.y + radius,
+    };
+    const fontSize = textMapSize(
+      markerLabelFontSize(descriptor.displaySize),
+      zoom,
+    );
     return {
       instance,
       descriptor,
       anchor,
-      bounds: {
-        minX: anchor.x - radius,
-        minY: anchor.y - radius,
-        maxX: anchor.x + radius,
-        maxY: anchor.y + radius,
-      },
+      bounds:
+        descriptor.label == null
+          ? markerBounds
+          : unionMapRects(
+              markerBounds,
+              markerLabelBounds(anchor, descriptor.label, radius * 2, fontSize),
+            ),
     };
   }
   const fontSize = textMapSize(descriptor.fontSize, zoom);
@@ -259,8 +305,12 @@ function renderedOverlayCandidateContainsPoint(
   zoom: number,
 ): boolean {
   return candidate.descriptor.kind === "marker"
-    ? Math.hypot(point.x - candidate.anchor.x, point.y - candidate.anchor.y) <=
-        markerMapSize(candidate.descriptor.displaySize, zoom) / 2
+    ? genericMarkerContainsPoint(
+        candidate.descriptor,
+        candidate.anchor,
+        point,
+        zoom,
+      )
     : genericTextContainsPoint(
         candidate.descriptor,
         candidate.anchor,
@@ -313,14 +363,14 @@ export function visibleGenericOverlays(
   });
 }
 
-export function hitTestGenericModule(
+export function hitTestGenericModules(
   state: Readonly<ProjectState>,
   resolver: GenericModuleVisualResolver,
   point: { readonly x: number; readonly y: number },
   cell: VisibleCell | undefined,
   zoom = 1,
   renderedOverlayCandidates?: readonly RenderedGenericOverlayHitCandidate[],
-): string | null {
+): readonly string[] {
   // 最大 CSS 尺寸换算回地图单位，避免低缩放下漏掉仍可见的超大事实尺寸实例。
   const queryRadius = Math.max(
     MARKER_MAX_CSS_PX / Math.max(zoom, 0.01),
@@ -346,8 +396,7 @@ export function hitTestGenericModule(
       if (anchor === undefined) continue;
       if (
         descriptor?.kind === "marker" &&
-        Math.hypot(point.x - anchor.x, point.y - anchor.y) <=
-          markerMapSize(descriptor.displaySize, zoom) / 2
+        genericMarkerContainsPoint(descriptor, anchor, point, zoom)
       )
         candidates.set(instance.instanceId, instance);
       else if (
@@ -443,17 +492,35 @@ export function hitTestGenericModule(
           );
         })) ||
       (descriptor.kind === "marker" &&
-        Math.hypot(point.x - geometry.center.x, point.y - geometry.center.y) <=
-          markerMapSize(descriptor.displaySize, zoom) / 2) ||
+        genericMarkerContainsPoint(descriptor, geometry.center, point, zoom)) ||
       (descriptor.kind === "text" &&
         genericTextContainsPoint(descriptor, geometry.center, point, zoom))
     )
       candidates.set(instance.instanceId, instance);
   }
+  return [...candidates.values()]
+    .sort((left, right) => compareInstanceOrder(state, right, left))
+    .map((instance) => instance.instanceId);
+}
+
+/** 兼容单选调用方，返回有序候选中的最上层实例。 */
+export function hitTestGenericModule(
+  state: Readonly<ProjectState>,
+  resolver: GenericModuleVisualResolver,
+  point: { readonly x: number; readonly y: number },
+  cell: VisibleCell | undefined,
+  zoom = 1,
+  renderedOverlayCandidates?: readonly RenderedGenericOverlayHitCandidate[],
+): string | null {
   return (
-    [...candidates.values()]
-      .sort((left, right) => compareInstanceOrder(state, left, right))
-      .at(-1)?.instanceId ?? null
+    hitTestGenericModules(
+      state,
+      resolver,
+      point,
+      cell,
+      zoom,
+      renderedOverlayCandidates,
+    )[0] ?? null
   );
 }
 
@@ -531,18 +598,14 @@ export function boxSelectGenericModules(
     if (descriptor === null) continue;
     const geometry = domainGroupGeometry(state.grid, instance.memberCellIds);
     if (
-      ((descriptor.kind === "cell-style" ||
-        descriptor.kind === "marker" ||
-        descriptor.kind === "text") &&
-        (descriptor.kind === "cell-style"
-          ? geometry.memberCellIds.some((cellId) => {
-              const coordinate = parseCellId(cellId);
-              return pointInRect(
-                cellCenter(state.grid, coordinate.row, coordinate.column),
-                rect,
-              );
-            })
-          : pointInRect(geometry.center, rect))) ||
+      (descriptor.kind === "cell-style" &&
+        geometry.memberCellIds.some((cellId) => {
+          const coordinate = parseCellId(cellId);
+          return pointInRect(
+            cellCenter(state.grid, coordinate.row, coordinate.column),
+            rect,
+          );
+        })) ||
       (descriptor.kind === "edge-style" &&
         geometry.boundaryEdges.some((edge) => {
           const segment = edgeSegment(
@@ -554,7 +617,9 @@ export function boxSelectGenericModules(
             segment !== undefined &&
             clipSegmentToRect(segment[0], segment[1], rect) !== null
           );
-        }))
+        })) ||
+      ((descriptor.kind === "marker" || descriptor.kind === "text") &&
+        pointInRect(geometry.center, rect))
     )
       ids.add(instance.instanceId);
   }
@@ -809,7 +874,8 @@ export class GenericModuleRenderer {
         if (descriptor.image !== undefined)
           observeResource(descriptor.image, state);
         const image = this.#imageTexture(state);
-        layerContainer(instance.layerId).addChild(
+        const item = new Container();
+        item.addChild(
           descriptor.image === undefined
             ? createPixiMarker(
                 point,
@@ -836,6 +902,29 @@ export class GenericModuleRenderer {
                   descriptor.opacity * (layer?.opacity ?? 1),
                 ),
         );
+        if (descriptor.label != null) {
+          const fontSize = textMapSize(
+            markerLabelFontSize(descriptor.displaySize),
+            zoom,
+          );
+          item.addChild(
+            createPixiText(
+              markerLabelPoint(point, displaySize, fontSize),
+              descriptor.label,
+              {
+                fontSize,
+                rotation: 0,
+                opacity: descriptor.opacity * (layer?.opacity ?? 1),
+                color: descriptor.color,
+                fontWeight: "normal",
+                align: "center",
+                backgroundVisible: false,
+              },
+              null,
+            ),
+          );
+        }
+        layerContainer(instance.layerId).addChild(item);
       } else if (descriptor?.kind === "text") {
         const fontSize = textMapSize(descriptor.fontSize, zoom);
         this.#cacheOverlayHitCandidate(instance, descriptor, point, zoom);
@@ -974,7 +1063,8 @@ export class GenericModuleRenderer {
         if (descriptor.image !== undefined)
           observeResource(descriptor.image, resource);
         const image = this.#imageTexture(resource);
-        container.addChild(
+        const item = new Container();
+        item.addChild(
           descriptor.image === undefined
             ? createPixiMarker(
                 geometry.center,
@@ -1001,6 +1091,29 @@ export class GenericModuleRenderer {
                   descriptor.opacity * opacity,
                 ),
         );
+        if (descriptor.label != null) {
+          const fontSize = textMapSize(
+            markerLabelFontSize(descriptor.displaySize),
+            zoom,
+          );
+          item.addChild(
+            createPixiText(
+              markerLabelPoint(geometry.center, displaySize, fontSize),
+              descriptor.label,
+              {
+                fontSize,
+                rotation: 0,
+                opacity: descriptor.opacity * opacity,
+                color: descriptor.color,
+                fontWeight: "normal",
+                align: "center",
+                backgroundVisible: false,
+              },
+              null,
+            ),
+          );
+        }
+        container.addChild(item);
       } else if (
         descriptor.kind === "text" &&
         pointInRect(geometry.center, overlayViewport)
@@ -1139,6 +1252,15 @@ export class GenericModuleRenderer {
     cell: VisibleCell | undefined,
     zoom = 1,
   ): string | null {
+    return this.hitTests(state, point, cell, zoom)[0] ?? null;
+  }
+
+  hitTests(
+    state: Readonly<ProjectState>,
+    point: { readonly x: number; readonly y: number },
+    cell: VisibleCell | undefined,
+    zoom = 1,
+  ): readonly string[] {
     const pointRect = {
       minX: point.x,
       minY: point.y,
@@ -1151,7 +1273,7 @@ export class GenericModuleRenderer {
         const candidate = this.#overlayHitCandidates.get(instanceId);
         return candidate === undefined ? [] : [candidate];
       });
-    return hitTestGenericModule(
+    return hitTestGenericModules(
       state,
       this.#resolver,
       point,

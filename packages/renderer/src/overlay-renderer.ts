@@ -1,5 +1,10 @@
 import { Container } from "pixi.js";
-import { type MapRect, type ProjectState } from "@tessera/core";
+import {
+  markerLabelFontSize,
+  markerLabelPoint,
+  type MapRect,
+  type ProjectState,
+} from "@tessera/core";
 import { createPixiMarker, createPixiText } from "./pixi-visual.js";
 import { overlayAnchorPoint } from "./render-utils.js";
 import { configureRenderLayer } from "./render-layer-order.js";
@@ -56,16 +61,41 @@ export class OverlayRenderer {
       const opacity = overlay.style.opacity * (layer?.opacity ?? 1);
       const container = this.#containerFor(state, overlay.layerId);
       if (overlay.overlayType === "marker") {
-        container.addChild(
+        const markerSize = markerMapSize(overlay.style.size, zoom);
+        const item = new Container();
+        item.addChild(
           createPixiMarker(
             point,
             overlay.style.markerShape,
-            markerMapSize(overlay.style.size, zoom),
+            markerSize,
             overlay.style.rotation,
             overlay.style.color,
             opacity,
           ),
         );
+        if (overlay.label !== null) {
+          const fontSize = textMapSize(
+            markerLabelFontSize(overlay.style.size),
+            zoom,
+          );
+          item.addChild(
+            createPixiText(
+              markerLabelPoint(point, markerSize, fontSize),
+              overlay.label,
+              {
+                fontSize,
+                rotation: 0,
+                opacity,
+                color: overlay.style.color,
+                fontWeight: "normal",
+                align: "center",
+                backgroundVisible: false,
+              },
+              null,
+            ),
+          );
+        }
+        container.addChild(item);
       } else {
         container.addChild(
           createPixiText(

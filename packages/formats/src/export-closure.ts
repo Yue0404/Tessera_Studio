@@ -4,6 +4,7 @@ import {
   edgeSegment,
   parseCellId,
   pointInRect,
+  resolveDomainGroupLayout,
   type MapRect,
   type ProjectGrid,
   type ProjectState,
@@ -378,7 +379,12 @@ function buildPartialChunks(source: any, objects: SelectedObjects): any[] {
     ensureChunk(ownerCellId).ownedOverlayIds.push(overlay.overlayId);
   }
   for (const group of objects.domainGroups) {
-    ensureChunk(group.memberCellIds[0]).ownedDomainGroupIds.push(group.groupId);
+    const owner = resolveDomainGroupLayout(
+      source.grid as ProjectGrid,
+      group.memberCellIds,
+      group.extensions,
+    ).anchorCellId;
+    ensureChunk(owner).ownedDomainGroupIds.push(group.groupId);
   }
   for (const chunk of chunks.values()) {
     chunk.cellOverrides.sort((left: any, right: any) =>

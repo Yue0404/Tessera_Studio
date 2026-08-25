@@ -1,6 +1,7 @@
 import {
   BoxSelect,
   Brush,
+  Eraser,
   Hand,
   Layers3,
   Map,
@@ -9,8 +10,10 @@ import {
   Package,
   PanelRight,
   PenLine,
+  Type,
   Waypoints,
 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { EditorTool } from "@tessera/core";
 import { ToolButton } from "./ToolButton.js";
@@ -19,12 +22,38 @@ import styles from "./CanvasToolRail.module.css";
 interface Props {
   tool: EditorTool;
   catalogCollapsed: boolean;
+  overlayType: "marker" | "text";
+  markerLabel?: string;
   onTool(tool: EditorTool): void;
+  onOverlayType(type: "marker" | "text"): void;
+  onMarkerLabel?(label: string): void;
   onContext(panel: "properties" | "layers" | "modules" | "map"): void;
 }
 
 export function CanvasToolRail(props: Props) {
   const { t } = useTranslation();
+  const [markerMenuOpen, setMarkerMenuOpen] = useState(false);
+  const markerEntry = useRef<HTMLDivElement>(null);
+  const markerButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!markerMenuOpen) return undefined;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!markerEntry.current?.contains(event.target as Node)) {
+        setMarkerMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () =>
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [markerMenuOpen]);
+
+  const chooseOverlayType = (type: "marker" | "text") => {
+    props.onOverlayType(type);
+    setMarkerMenuOpen(false);
+    markerButton.current?.focus();
+  };
+
   return (
     <>
       <div
@@ -56,19 +85,82 @@ export function CanvasToolRail(props: Props) {
           <Brush size={19} />
         </ToolButton>
         <ToolButton
+          label={t("tool.eraser")}
+          active={props.tool === "eraser"}
+          onClick={() => props.onTool("eraser")}
+        >
+          <Eraser size={19} />
+        </ToolButton>
+        <ToolButton
           label={t("tool.edge")}
           active={props.tool === "edge"}
           onClick={() => props.onTool("edge")}
         >
           <PenLine size={19} />
         </ToolButton>
-        <ToolButton
-          label={t("tool.marker")}
-          active={props.tool === "marker"}
-          onClick={() => props.onTool("marker")}
-        >
-          <MapPin size={19} />
-        </ToolButton>
+        <div className={styles.markerQuickEntry} ref={markerEntry}>
+          <ToolButton
+            buttonRef={markerButton}
+            label={t("tool.marker")}
+            active={props.tool === "marker"}
+            onClick={() => setMarkerMenuOpen((open) => !open)}
+          >
+            {props.overlayType === "text" ? (
+              <Type size={19} />
+            ) : (
+              <MapPin size={19} />
+            )}
+          </ToolButton>
+          {markerMenuOpen && (
+            <div
+              className={styles.markerPopover}
+              data-popover-side="right"
+              role="dialog"
+              aria-label={t("markerQuick.title")}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.stopPropagation();
+                setMarkerMenuOpen(false);
+                markerButton.current?.focus();
+              }}
+            >
+              <strong>{t("markerQuick.title")}</strong>
+              <div className={styles.markerChoices} role="radiogroup">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={props.overlayType === "marker"}
+                  onClick={() => chooseOverlayType("marker")}
+                >
+                  <MapPin size={16} />
+                  {t("markerQuick.marker")}
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={props.overlayType === "text"}
+                  onClick={() => chooseOverlayType("text")}
+                >
+                  <Type size={16} />
+                  {t("markerQuick.text")}
+                </button>
+              </div>
+              {props.onMarkerLabel !== undefined && (
+                <label>
+                  <span>{t("markerQuick.label")}</span>
+                  <input
+                    type="text"
+                    value={props.markerLabel ?? ""}
+                    maxLength={64}
+                    onChange={(event) =>
+                      props.onMarkerLabel?.(event.currentTarget.value)
+                    }
+                  />
+                </label>
+              )}
+            </div>
+          )}
+        </div>
         <ToolButton
           label={t("tool.connection")}
           active={props.tool === "connection"}

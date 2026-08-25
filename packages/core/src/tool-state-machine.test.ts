@@ -11,12 +11,20 @@ describe("工具状态机", () => {
     ["brush", "ready"],
     ["edge", "ready"],
     ["marker", "ready"],
+    ["eraser", "ready"],
     ["connection", "choosing-start"],
     ["box-select", "ready"],
   ] as const)("选择 %s 后进入 %s", (tool, phase) => {
     const machine = new ToolStateMachine();
     machine.selectTool(tool);
     expect(machine.state.phase).toBe(phase);
+  });
+
+  it("橡皮点击不创建拖拽态，由领域删除事务处理", () => {
+    const machine = new ToolStateMachine();
+    machine.selectTool("eraser");
+    expect(machine.pointerDown({ x: 1, y: 1 }, null)).toBe(false);
+    expect(machine.state).toMatchObject({ tool: "eraser", phase: "ready" });
   });
 
   it("连线按 choosing-start → previewing-end → committing → choosing-start 转换", () => {

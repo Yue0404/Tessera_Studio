@@ -911,8 +911,8 @@ export const elementFileSchema = {
         additionalProperties: false,
         required: ["minMembers", "maxMembers", "connectivity", "memberRules"],
         properties: {
-          minMembers: { type: "integer", minimum: 2, maximum: 64 },
-          maxMembers: { type: "integer", minimum: 2, maximum: 64 },
+          minMembers: { type: "integer", minimum: 2, maximum: 4096 },
+          maxMembers: { type: "integer", minimum: 2, maximum: 4096 },
           connectivity: { const: "edge" },
           memberRules: {
             type: "array",

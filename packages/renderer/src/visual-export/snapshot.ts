@@ -77,6 +77,7 @@ function copyOverlay(overlay: OverlayData): SnapshotOverlay {
         overlayType: overlay.overlayType,
         elementId: overlay.elementId,
         style: { ...overlay.style },
+        label: overlay.label,
         text: null,
       }
     : {

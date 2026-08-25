@@ -1,6 +1,7 @@
 import { Container, Graphics, Texture } from "pixi.js";
 import { describe, expect, it, vi } from "vitest";
 import {
+  cellCenter,
   createProject,
   configureProjectSpatialIndexes,
   domainGroupGeometry,
@@ -19,6 +20,7 @@ import {
   GenericModuleRenderer,
   genericOverlayPoint,
   hitTestGenericModule,
+  hitTestGenericModules,
   visibleGenericOverlays,
 } from "./generic-module-renderer.js";
 import {
@@ -90,6 +92,66 @@ function stateWith(
 }
 
 describe("GenericModuleRenderer 查询", () => {
+  it.each(["square", "hex-pointy"] as const)(
+    "%s 领域组任一可见 cell-style 成员都命中同一实例，范围外不命中",
+    (type) => {
+      const projectGrid = { ...grid, type, width: 100, height: 100 };
+      const memberCellIds = [`cell:${type}:2:2`, `cell:${type}:2:3`];
+      const domain: ModuleRuntimeInstance = {
+        kind: "domain-group",
+        instanceId: `domain-${type}`,
+        elementId: "example.weather:domain.region",
+        layerId: "example.weather.surface",
+        memberCellIds,
+        attributes: {},
+        styleOverrides: {},
+        extensions: {},
+        runtimeStatus: "available",
+      };
+      const state = stateWith([domain], projectGrid);
+      const memberPoint = cellCenter(projectGrid, 2, 3);
+      const member = visibleCellsInRect(
+        projectGrid,
+        memberPoint.x - 64,
+        memberPoint.y - 64,
+        memberPoint.x + 64,
+        memberPoint.y + 64,
+      ).find((candidate) => candidate.cellId === memberCellIds[1]);
+      const outsidePoint = cellCenter(projectGrid, 6, 6);
+      const outside = visibleCellsInRect(
+        projectGrid,
+        outsidePoint.x - 64,
+        outsidePoint.y - 64,
+        outsidePoint.x + 64,
+        outsidePoint.y + 64,
+      ).find((candidate) => candidate.row === 6 && candidate.column === 6);
+      const resolver = {
+        resolve: () => ({
+          kind: "cell-style" as const,
+          fillColor: "#FFFFFFFF",
+          fillOpacity: 1,
+        }),
+      };
+
+      expect(hitTestGenericModule(state, resolver, memberPoint, member)).toBe(
+        domain.instanceId,
+      );
+      expect(
+        hitTestGenericModule(state, resolver, outsidePoint, outside),
+      ).toBeNull();
+      expect(
+        state.moduleInstances
+          .queryDomainGroups({
+            minX: memberPoint.x - 1,
+            minY: memberPoint.y - 1,
+            maxX: memberPoint.x + 1,
+            maxY: memberPoint.y + 1,
+          })
+          .map((candidate) => candidate.instanceId),
+      ).toContain(domain.instanceId);
+    },
+  );
+
   it("按缩放把 marker 与 text 钳制到 CSS 可读范围", () => {
     expect(markerMapSize(1, 0.1) * 0.1).toBeCloseTo(8);
     expect(markerMapSize(100, 10) * 10).toBeCloseTo(256);
@@ -931,4 +993,53 @@ describe("GenericModuleRenderer 查询", () => {
       ).toEqual([genericEdge.instanceId]);
     },
   );
+
+  it("同点 generic 与 domain-group 候选按真实图层和稳定 ID 全量返回", () => {
+    const memberCellIds = ["cell:square:0:0", "cell:square:1:0"];
+    const point = domainGroupGeometry(grid, memberCellIds).center;
+    const lower = overlay("overlay-lower", 1, point);
+    const upper = overlay("overlay-upper", 2, point);
+    const domain: ModuleRuntimeInstance = {
+      kind: "domain-group",
+      instanceId: "domain-top",
+      elementId: "example.weather:domain.top",
+      layerId: "example.weather.surface",
+      memberCellIds,
+      attributes: {},
+      styleOverrides: {},
+      extensions: {},
+      runtimeStatus: "available",
+    };
+    const state = stateWith([lower, upper, domain]);
+    const cell = visibleCellsInRect(grid, 0, 0, 64, 64).find(
+      (candidate) => candidate.row === 0 && candidate.column === 0,
+    );
+    expect(
+      hitTestGenericModules(
+        state,
+        {
+          resolve: (instance) =>
+            instance.kind === "domain-group"
+              ? {
+                  kind: "marker",
+                  shape: "circle",
+                  color: "#FFFFFFFF",
+                  opacity: 1,
+                  displaySize: 20,
+                  rotation: 0,
+                }
+              : {
+                  kind: "marker",
+                  shape: "circle",
+                  color: "#FFFFFFFF",
+                  opacity: 1,
+                  displaySize: 20,
+                  rotation: 0,
+                },
+        },
+        point,
+        cell,
+      ),
+    ).toEqual(["overlay-upper", "overlay-lower", "domain-top"]);
+  });
 });

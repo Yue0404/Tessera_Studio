@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import type { TFunction } from "i18next";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   normalizeRotationDegrees,
+  parseCellId,
   projectTextContentValid,
 } from "@tessera/core";
 import type {
@@ -41,21 +43,242 @@ interface Props {
   onBeginConnectionRebind(target: ConnectionRebindTarget): void;
   onCancelConnectionRebind(): void;
   onDelete(): void;
+  onDeleteObject?(selected: SelectedObject): void;
+  onSelectionHover?(selected: SelectedObject | null): void;
 }
 
 function colorWithoutAlpha(color: string): string {
   return color.slice(0, 7);
 }
 
+function compactNumber(value: number): string {
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(2).replace(/0+$/u, "").replace(/\.$/u, "");
+}
+
+function cellCoordinate(t: TFunction, id: string): string {
+  try {
+    const coordinate = parseCellId(id);
+    return t("inspector.coordinate.cell", {
+      row: coordinate.row,
+      column: coordinate.column,
+    });
+  } catch {
+    return id;
+  }
+}
+
+function pointCoordinate(
+  t: TFunction,
+  point: { x: number; y: number },
+): string {
+  return t("inspector.coordinate.point", {
+    x: compactNumber(point.x),
+    y: compactNumber(point.y),
+  });
+}
+
+function endpointCoordinate(
+  t: TFunction,
+  endpoint:
+    | ConnectionData["start"]
+    | {
+        readonly kind: "cell-center";
+        readonly cellId: string;
+      }
+    | {
+        readonly kind: "edge-midpoint";
+        readonly edgeId: string;
+      }
+    | {
+        readonly kind: "map-point";
+        readonly point: { readonly x: number; readonly y: number };
+      },
+): string {
+  if (endpoint.kind === "cell-center")
+    return cellCoordinate(t, endpoint.cellId);
+  if (endpoint.kind === "edge-midpoint") return endpoint.edgeId;
+  return pointCoordinate(t, endpoint.point);
+}
+
+function selectionSummary(
+  t: TFunction,
+  state: Readonly<ProjectState>,
+  selected: SelectedObject,
+): { coordinate: string; description: string } {
+  if (selected.kind === "cell") {
+    return {
+      coordinate: cellCoordinate(t, selected.id),
+      description: t("inspector.summary.cell"),
+    };
+  }
+  if (selected.kind === "edge") {
+    const edge = state.edges.get(selected.id);
+    return {
+      coordinate:
+        edge === undefined
+          ? selected.id
+          : edge.adjacentCellIds.map((id) => cellCoordinate(t, id)).join(" ↔ "),
+      description: t("inspector.summary.edge"),
+    };
+  }
+  if (selected.kind === "overlay") {
+    const overlay = state.overlays.get(selected.id);
+    if (overlay === undefined)
+      return { coordinate: selected.id, description: selected.id };
+    const coordinate =
+      overlay.kind === "free-overlay"
+        ? pointCoordinate(t, overlay.point)
+        : overlay.anchor.kind === "cell"
+          ? cellCoordinate(t, overlay.anchor.cellId)
+          : overlay.anchor.edgeId;
+    return {
+      coordinate,
+      description:
+        overlay.overlayType === "text"
+          ? overlay.text.slice(0, 32) || t("inspector.summary.text")
+          : overlay.label?.slice(0, 32) ||
+            t("inspector.summary.marker", {
+              shape: t(`markerShape.${overlay.style.markerShape}`),
+            }),
+    };
+  }
+  if (selected.kind === "connection") {
+    const connection = state.connections.get(selected.id);
+    return connection === undefined
+      ? { coordinate: selected.id, description: selected.id }
+      : {
+          coordinate: `${endpointCoordinate(t, connection.start)} → ${endpointCoordinate(t, connection.end)}`,
+          description:
+            connection.label ??
+            t(
+              connection.kind === "arrow"
+                ? "inspector.summary.arrow"
+                : "inspector.summary.connection",
+            ),
+        };
+  }
+  const instance = state.moduleInstances.get(selected.id);
+  if (instance === undefined)
+    return { coordinate: selected.id, description: selected.id };
+  let coordinate = selected.id;
+  if (instance.kind === "cell") coordinate = cellCoordinate(t, instance.cellId);
+  else if (instance.kind === "edge") coordinate = instance.edgeId;
+  else if (instance.kind === "overlay") {
+    coordinate =
+      instance.objectKind === "free-overlay" && instance.point !== undefined
+        ? pointCoordinate(t, instance.point)
+        : instance.anchor?.kind === "cell"
+          ? cellCoordinate(t, instance.anchor.cellId)
+          : (instance.anchor?.edgeId ?? selected.id);
+  } else if (instance.kind === "connection") {
+    coordinate = `${endpointCoordinate(t, instance.start)} → ${endpointCoordinate(t, instance.end)}`;
+  } else if (instance.memberCellIds[0] !== undefined) {
+    coordinate = t("inspector.coordinate.group", {
+      anchor: cellCoordinate(t, instance.memberCellIds[0]),
+      count: instance.memberCellIds.length,
+    });
+  }
+  return { coordinate, description: instance.elementId };
+}
+
 export function SelectionInspector(props: Props) {
   const { t } = useTranslation();
-  const selected = props.selection[0];
+  const { onSelectionHover } = props;
+  const [focusedSelectionKey, setFocusedSelectionKey] = useState<string | null>(
+    null,
+  );
+  const summaryList = useRef<HTMLUListElement>(null);
+  const summaryScrollTop = useRef(0);
+  const selected =
+    props.selection.length > 1 && focusedSelectionKey !== null
+      ? props.selection.find(
+          (candidate) =>
+            `${candidate.kind}:${candidate.id}` === focusedSelectionKey,
+        )
+      : props.selection.length === 1
+        ? props.selection[0]
+        : undefined;
   const [moduleError, setModuleError] = useState(false);
   const [basicTextError, setBasicTextError] = useState(false);
   useEffect(() => {
     setModuleError(false);
     setBasicTextError(false);
   }, [selected?.id, selected?.kind]);
+  useEffect(() => {
+    if (
+      focusedSelectionKey !== null &&
+      !props.selection.some(
+        (candidate) =>
+          `${candidate.kind}:${candidate.id}` === focusedSelectionKey,
+      )
+    ) {
+      setFocusedSelectionKey(null);
+    }
+  }, [focusedSelectionKey, props.selection]);
+  useEffect(
+    () => () => {
+      onSelectionHover?.(null);
+    },
+    [onSelectionHover],
+  );
+  useLayoutEffect(() => {
+    if (focusedSelectionKey === null && summaryList.current !== null) {
+      summaryList.current.scrollTop = summaryScrollTop.current;
+    }
+  }, [focusedSelectionKey]);
+
+  if (props.selection.length > 1 && selected === undefined) {
+    return (
+      <section className={styles.properties}>
+        <div className={styles.inspectorTopActions}>
+          <p>
+            {t("inspector.selectionCount", { count: props.selection.length })}
+          </p>
+          <button
+            className={styles.danger}
+            type="button"
+            onClick={props.onDelete}
+          >
+            {t("action.deleteSelection", { count: props.selection.length })}
+          </button>
+        </div>
+        <ul
+          ref={summaryList}
+          className={styles.selectionList}
+          aria-label={t("inspector.selectionSummary")}
+        >
+          {props.selection.map((item) => {
+            const summary = selectionSummary(t, props.state, item);
+            const key = `${item.kind}:${item.id}`;
+            return (
+              <li key={key}>
+                <button
+                  type="button"
+                  data-selection-key={key}
+                  onMouseEnter={() => props.onSelectionHover?.(item)}
+                  onMouseLeave={() => props.onSelectionHover?.(null)}
+                  onFocus={() => props.onSelectionHover?.(item)}
+                  onBlur={() => props.onSelectionHover?.(null)}
+                  onClick={() => {
+                    summaryScrollTop.current =
+                      summaryList.current?.scrollTop ?? 0;
+                    props.onSelectionHover?.(null);
+                    setFocusedSelectionKey(key);
+                  }}
+                >
+                  <strong>{t(`object.${item.kind}`)}</strong>
+                  <span>{summary.coordinate}</span>
+                  <small>{summary.description}</small>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    );
+  }
   if (selected === undefined) return <p>{t("inspector.emptySelection")}</p>;
   const edge =
     selected.kind === "edge" ? props.state.edges.get(selected.id) : undefined;
@@ -137,9 +360,48 @@ export function SelectionInspector(props: Props) {
       style: { ...connection.style, ...patch },
     });
   };
+  const detailSummary = selectionSummary(t, props.state, selected);
   return (
     <section className={styles.properties}>
-      <p>{t("inspector.selectionCount", { count: props.selection.length })}</p>
+      <div className={styles.inspectorTopActions}>
+        {props.selection.length > 1 && (
+          <button
+            type="button"
+            className={styles.backButton}
+            onClick={() => {
+              props.onSelectionHover?.(null);
+              setFocusedSelectionKey(null);
+            }}
+          >
+            {t("action.back")}
+          </button>
+        )}
+        <p>
+          {t("inspector.selectionCount", { count: props.selection.length })}
+        </p>
+        <button
+          className={styles.danger}
+          type="button"
+          disabled={
+            moduleReadonly ||
+            (props.selection.length > 1 && props.onDeleteObject === undefined)
+          }
+          onClick={() => {
+            if (props.selection.length > 1) props.onDeleteObject?.(selected);
+            else props.onDelete();
+            setFocusedSelectionKey(null);
+          }}
+        >
+          {props.selection.length > 1
+            ? t("action.deleteObject")
+            : t("action.delete")}
+        </button>
+      </div>
+      <div className={styles.detailIdentity}>
+        <strong>{t(`object.${selected.kind}`)}</strong>
+        <span>{detailSummary.coordinate}</span>
+        <small>{detailSummary.description}</small>
+      </div>
       {moduleInstance === undefined && (
         <label>
           <span>{t("inspector.commonColor")}</span>
@@ -422,6 +684,20 @@ export function SelectionInspector(props: Props) {
       {overlay?.overlayType === "marker" && (
         <div className={styles.fieldGrid}>
           <label>
+            <span>{t("markerQuick.label")}</span>
+            <input
+              type="text"
+              value={overlay.label ?? ""}
+              maxLength={64}
+              onChange={(event) =>
+                props.onOverlay(overlay.overlayId, {
+                  ...overlay,
+                  label: event.currentTarget.value || null,
+                })
+              }
+            />
+          </label>
+          <label>
             <span>{t("inspector.markerShape")}</span>
             <select
               value={overlay.style.markerShape}
@@ -633,22 +909,6 @@ export function SelectionInspector(props: Props) {
           )}
         </div>
       )}
-      <ul>
-        {props.selection.map((item) => (
-          <li key={`${item.kind}:${item.id}`}>
-            <span>{t(`object.${item.kind}`)}</span>
-            <small>{item.id}</small>
-          </li>
-        ))}
-      </ul>
-      <button
-        className={styles.danger}
-        type="button"
-        disabled={moduleReadonly}
-        onClick={props.onDelete}
-      >
-        {t("action.delete")}
-      </button>
     </section>
   );
 }
