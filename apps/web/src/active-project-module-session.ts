@@ -24,6 +24,8 @@ import {
 } from "@tessera/module-runtime";
 import {
   GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER,
+  arrowPolygon,
+  arrowShaftSegment,
   genericOverlayPoint,
   type GenericModuleVisualDescriptor,
 } from "@tessera/renderer";
@@ -1446,43 +1448,39 @@ export class ActiveProjectModuleSession {
         const start = projectConnectionEndpointPoint(state, instance.start);
         const end = projectConnectionEndpointPoint(state, instance.end);
         if (start === undefined || end === undefined) continue;
-        result.push({
-          ...base,
-          kind: "stroke",
-          originalStart: start,
-          originalEnd: end,
+        const shaft = arrowShaftSegment(
           start,
           end,
-          strokeColor: descriptor.strokeColor,
-          strokeWidth: descriptor.strokeWidth,
-          opacity: descriptor.strokeOpacity * layerOpacity,
-          lineStyle: descriptor.lineStyle,
-          ...(descriptor.dashPattern === undefined
-            ? {}
-            : { dashPattern: descriptor.dashPattern }),
-          ...(descriptor.lineCap === undefined
-            ? {}
-            : { lineCap: descriptor.lineCap }),
-        });
-        const arrow = (from: typeof start, tip: typeof start) => {
-          const length = Math.hypot(tip.x - from.x, tip.y - from.y);
-          if (length === 0) return [];
-          const unitX = (tip.x - from.x) / length;
-          const unitY = (tip.y - from.y) / length;
-          const baseX = tip.x - unitX * descriptor.arrowSize;
-          const baseY = tip.y - unitY * descriptor.arrowSize;
-          const half = descriptor.arrowSize * 0.45;
-          return [
-            tip,
-            { x: baseX - unitY * half, y: baseY + unitX * half },
-            { x: baseX + unitY * half, y: baseY - unitX * half },
-          ];
-        };
+          descriptor.arrowStart,
+          descriptor.arrowEnd,
+          descriptor.arrowSize,
+        );
+        if (shaft !== null)
+          result.push({
+            ...base,
+            kind: "stroke",
+            originalStart: shaft[0],
+            originalEnd: shaft[1],
+            start: shaft[0],
+            end: shaft[1],
+            strokeColor: descriptor.strokeColor,
+            strokeWidth: descriptor.strokeWidth,
+            opacity: descriptor.strokeOpacity * layerOpacity,
+            lineStyle: descriptor.lineStyle,
+            ...(descriptor.dashPattern === undefined
+              ? {}
+              : { dashPattern: descriptor.dashPattern }),
+            ...(descriptor.arrowStart || descriptor.arrowEnd
+              ? { lineCap: "butt" as const }
+              : descriptor.lineCap === undefined
+                ? {}
+                : { lineCap: descriptor.lineCap }),
+          });
         if (descriptor.arrowStart)
           result.push({
             ...base,
             kind: "polygon",
-            points: arrow(end, start),
+            points: arrowPolygon(end, start, descriptor.arrowSize),
             fillColor: descriptor.strokeColor,
             opacity: descriptor.strokeOpacity * layerOpacity,
             stableId: `${instance.instanceId}:arrow-start`,
@@ -1492,7 +1490,7 @@ export class ActiveProjectModuleSession {
           result.push({
             ...base,
             kind: "polygon",
-            points: arrow(start, end),
+            points: arrowPolygon(start, end, descriptor.arrowSize),
             fillColor: descriptor.strokeColor,
             opacity: descriptor.strokeOpacity * layerOpacity,
             stableId: `${instance.instanceId}:arrow-end`,

@@ -6,6 +6,8 @@ interface Props {
   label: string;
   active?: boolean;
   disabled?: boolean;
+  expandable?: boolean;
+  tooltipSide?: "top" | "right" | "bottom" | "left";
   buttonRef?: Ref<HTMLButtonElement>;
   onClick(): void;
   children: ReactNode;
@@ -15,6 +17,8 @@ export function ToolButton({
   label,
   active,
   disabled = false,
+  expandable = false,
+  tooltipSide = "left",
   buttonRef,
   onClick,
   children,
@@ -33,12 +37,15 @@ export function ToolButton({
           onClick={onClick}
         >
           {children}
+          {expandable ? (
+            <span className={styles.menuIndicator} aria-hidden="true" />
+          ) : null}
         </button>
       </Tooltip.Trigger>
       <Tooltip.Portal>
         <Tooltip.Content
           className={styles.tooltip}
-          side="left"
+          side={tooltipSide}
           sideOffset={6}
           collisionPadding={8}
         >

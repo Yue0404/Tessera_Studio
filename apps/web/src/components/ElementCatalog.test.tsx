@@ -21,6 +21,7 @@ describe("ElementCatalog", () => {
           brushColor="#E3614D"
           brushMode="paint"
           edgeColor="#D9B866"
+          markerLabel=""
           overlay={{ type: "marker", anchor: "cell", markerShape: "pin" }}
           textOptions={{
             text: "",
@@ -39,6 +40,7 @@ describe("ElementCatalog", () => {
           onBrushColor={vi.fn()}
           onBrushMode={vi.fn()}
           onEdgeColor={vi.fn()}
+          onMarkerLabel={vi.fn()}
           onOverlay={vi.fn()}
           onTextOptions={vi.fn()}
           onConnection={vi.fn()}
@@ -58,6 +60,50 @@ describe("ElementCatalog", () => {
     );
   }
 
+  it("标记附文在左侧标记设置中编辑", () => {
+    const onMarkerLabel = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ElementCatalog
+          collapsed={false}
+          onToggle={vi.fn()}
+          activeElementId="tessera.basic:marker"
+          activeTool="marker"
+          brushColor="#E3614D"
+          brushMode="paint"
+          edgeColor="#D9B866"
+          markerLabel="港口"
+          overlay={{ type: "marker", anchor: "cell", markerShape: "pin" }}
+          textOptions={{
+            text: "",
+            fontSize: 18,
+            color: "#F4EFE4",
+            fontWeight: "normal",
+            align: "center",
+            rotation: 0,
+          }}
+          connection={{
+            kind: "arrow",
+            endpoint: "cell-center",
+            arrowMode: "end",
+            label: "",
+          }}
+          onBrushColor={vi.fn()}
+          onBrushMode={vi.fn()}
+          onEdgeColor={vi.fn()}
+          onMarkerLabel={onMarkerLabel}
+          onOverlay={vi.fn()}
+          onTextOptions={vi.fn()}
+          onConnection={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const input = screen.getByLabelText("标记附文");
+    expect((input as HTMLInputElement).value).toBe("港口");
+    fireEvent.change(input, { target: { value: "城邦" } });
+    expect(onMarkerLabel).toHaveBeenCalledWith("城邦");
+  });
+
   it("放置文字的旋转输入保持度数并规范化到 [0,360)", () => {
     const onTextOptions = vi.fn();
     const onTextInvalid = vi.fn();
@@ -71,6 +117,7 @@ describe("ElementCatalog", () => {
           brushColor="#E3614D"
           brushMode="paint"
           edgeColor="#D9B866"
+          markerLabel=""
           overlay={{
             type: "text",
             anchor: "map-point",
@@ -93,6 +140,7 @@ describe("ElementCatalog", () => {
           onBrushColor={vi.fn()}
           onBrushMode={vi.fn()}
           onEdgeColor={vi.fn()}
+          onMarkerLabel={vi.fn()}
           onOverlay={vi.fn()}
           onTextOptions={onTextOptions}
           validateText={(value) => value !== "invalid"}

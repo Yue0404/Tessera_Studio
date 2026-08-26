@@ -49,6 +49,7 @@ export class ToolStateMachine {
       }
       if (phase === "previewing-end" && cellId !== null) {
         if (cellId === this.#state.startCellId) {
+          this.#resetConnectionDraft();
           throw new InvalidToolTransitionError("connection-self-not-allowed");
         }
         this.#state = {
@@ -58,6 +59,7 @@ export class ToolStateMachine {
         };
         return true;
       }
+      if (phase === "previewing-end") this.#resetConnectionDraft();
       throw new InvalidToolTransitionError("connection-pointer-down-invalid");
     }
     if (tool === "box-select") {
@@ -140,7 +142,17 @@ export class ToolStateMachine {
     ) {
       throw new InvalidToolTransitionError("connection-commit-failure-invalid");
     }
-    this.#state = { ...this.#state, phase: "previewing-end" };
+    this.#resetConnectionDraft();
+  }
+
+  #resetConnectionDraft(): void {
+    this.#state = {
+      ...this.#state,
+      phase: "choosing-start",
+      startPoint: null,
+      previewPoint: null,
+      startCellId: null,
+    };
   }
 
   cancel(): void {

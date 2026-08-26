@@ -120,6 +120,7 @@ export function EditorView({
   const [brushMode, setBrushMode] = useState<BrushMode>("paint");
   const [edgeColor, setEdgeColor] = useState("#D9B866");
   const [markerLabel, setMarkerLabel] = useState("");
+  const [eraserMode, setEraserMode] = useState<"click" | "drag">("click");
   const [overlay, setOverlay] = useState<OverlayPlacement>({
     type: "marker",
     anchor: "cell",
@@ -144,6 +145,7 @@ export function EditorView({
     brushMode,
     edgeColor,
     markerLabel,
+    eraserMode,
     overlay,
     textOptions,
     connection,
@@ -196,6 +198,7 @@ export function EditorView({
     brushMode,
     edgeColor,
     markerLabel,
+    eraserMode,
     overlay,
     textOptions,
     connection,
@@ -298,6 +301,7 @@ export function EditorView({
         eraseCell: (row, column) => store.eraseCell(row, column),
         fillCells: (row, column) => startFill(row, column),
         getBrushMode: () => placementRef.current.brushMode,
+        getEraserMode: () => placementRef.current.eraserMode,
         paintEdge: (edgeId, adjacentCellIds) => {
           const elementId = activeModuleElementId.current;
           if (
@@ -823,6 +827,7 @@ export function EditorView({
           brushColor={brushColor}
           brushMode={brushMode}
           edgeColor={edgeColor}
+          markerLabel={markerLabel}
           overlay={overlay}
           textOptions={textOptions}
           connection={connection}
@@ -830,6 +835,7 @@ export function EditorView({
           onBrushColor={setBrushColor}
           onBrushMode={setBrushMode}
           onEdgeColor={setEdgeColor}
+          onMarkerLabel={setMarkerLabel}
           onOverlay={setOverlay}
           onTextOptions={setTextOptions}
           validateText={(value) => {
@@ -950,8 +956,14 @@ export function EditorView({
           tool={store.toolState.tool}
           catalogCollapsed={catalogCollapsed}
           overlayType={overlay.type}
-          markerLabel={markerLabel}
-          onMarkerLabel={setMarkerLabel}
+          eraserMode={eraserMode}
+          onEraserMode={(mode) => {
+            setEraserMode(mode);
+            setConnectionRebind(null);
+            activeModuleElementId.current = null;
+            setActiveElementId(null);
+            store.setTool("eraser");
+          }}
           onOverlayType={(type) => {
             setConnectionRebind(null);
             activeModuleElementId.current = null;

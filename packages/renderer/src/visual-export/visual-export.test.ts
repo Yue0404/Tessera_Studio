@@ -222,7 +222,7 @@ describe("视觉导出快照与安全规划", () => {
     const bounds = visibleContentBounds(snapshotOf(store.state));
     expect(bounds).not.toBeNull();
     expect(bounds?.minX).toBeLessThan(80);
-    expect(bounds?.maxX).toBeGreaterThan(160);
+    expect(bounds?.maxX).toBeGreaterThanOrEqual(160);
   });
 
   it("content-bounds 将 outline 描边向外扩 strokeWidth 的一半", () => {
@@ -456,9 +456,39 @@ describe("确定性场景与 SVG", () => {
     if (stroke?.kind !== "stroke") return;
     expect(stroke.start.x).toBe(50);
     expect(stroke.end.x).toBe(150);
-    expect(stroke.originalStart.x).toBe(10);
+    expect(stroke.originalStart.x).toBe(19);
     const svg = serializeVisualExportSvg(plan);
-    expect(svg).toContain('stroke-dashoffset="-40"');
+    expect(svg).toContain('stroke-dashoffset="-31"');
+  });
+
+  it.each([2, 12])("箭头导出在线宽 %d 时把箭杆精确截到三角底边", (width) => {
+    const store = createStore("square", 20, 20, 10);
+    const connectionId = store.createConnection(
+      { kind: "map-point", point: { x: 10, y: 50 } },
+      { kind: "map-point", point: { x: 190, y: 50 } },
+      { kind: "arrow", arrowMode: "end" },
+    );
+    const connection = store.state.connections.get(connectionId);
+    if (connection === undefined) throw new Error("test-connection-missing");
+    store.updateConnection(connectionId, {
+      ...connection,
+      style: { ...connection.style, strokeWidth: width },
+    });
+    const plan = planVisualExport(snapshotOf(store.state), svgRequest());
+    const primitives = [...iterateVisualPrimitives(plan)].filter(
+      (primitive) => primitive.stableId === connectionId,
+    );
+    const stroke = primitives.find((primitive) => primitive.kind === "stroke");
+    const arrow = primitives.find((primitive) => primitive.kind === "polygon");
+    if (stroke?.kind !== "stroke" || arrow?.kind !== "polygon")
+      throw new Error("test-arrow-primitives-missing");
+    const expectedSize = Math.max(width * 3, 10 * 0.18);
+    expect(stroke.end).toEqual({ x: 190 - expectedSize, y: 50 });
+    expect(stroke.lineCap).toBe("butt");
+    expect(arrow.points.slice(1).map((point) => point.x)).toEqual([
+      190 - expectedSize,
+      190 - expectedSize,
+    ]);
   });
 
   it("共享虚线 helper 的局部首段延续原线相位", () => {

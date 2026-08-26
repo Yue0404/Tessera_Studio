@@ -6,7 +6,7 @@ import i18n from "../i18n.js";
 import { AppCommandBar } from "./AppCommandBar.js";
 
 describe("AppCommandBar", () => {
-  it("按可清内容状态禁用或触发一键清空", () => {
+  it("按可清内容状态禁用，并只在二次确认后清空", () => {
     const onClear = vi.fn();
     const common = {
       projectName: "测试工程",
@@ -42,7 +42,15 @@ describe("AppCommandBar", () => {
         </Tooltip.Provider>
       </I18nextProvider>,
     );
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "清空画布" }));
+    expect(confirm).toHaveBeenCalledWith(
+      "确定清空所有可编辑内容吗？此操作可以撤销。",
+    );
+    expect(onClear).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "清空画布" }));
     expect(onClear).toHaveBeenCalledOnce();
+    confirm.mockRestore();
   });
 });

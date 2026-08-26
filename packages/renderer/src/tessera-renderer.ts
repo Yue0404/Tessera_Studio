@@ -18,6 +18,8 @@ import {
   type VisibleCell,
 } from "@tessera/core";
 import { ConnectionRenderer } from "./connection-renderer.js";
+import { ConnectionDraftState } from "./connection-draft-state.js";
+import { EraserGestureState } from "./eraser-gesture-state.js";
 import { connectionTargetToken } from "./connection-target-token.js";
 import { GridRenderer } from "./grid-renderer.js";
 import {
@@ -63,6 +65,7 @@ import {
 } from "./viewport-navigation.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
+export type EraserMode = "click" | "drag";
 export interface OverlayPlacement {
   type: "marker" | "text";
   anchor: "cell" | "edge" | "map-point";
@@ -109,6 +112,7 @@ export interface RendererInteraction {
   eraseCell(row: number, column: number): void;
   fillCells(row: number, column: number): void;
   getBrushMode(): BrushMode;
+  getEraserMode(): EraserMode;
   paintEdge(edgeId: string, adjacentCellIds: readonly string[]): void;
   getOverlayPlacement(): OverlayPlacement;
   placeOverlay(
@@ -161,8 +165,8 @@ export class TesseraRenderer {
   #state: Readonly<ProjectState>;
   #visible: VisibleCell[] = [];
   #painting = false;
-  #connectionStart: ConnectionEndpoint | null = null;
-  #connectionEdges: EdgePlacementTarget[] = [];
+  readonly #eraserGesture = new EraserGestureState();
+  readonly #connectionDraft = new ConnectionDraftState();
   #transientHighlight: SelectedObject | null = null;
   #camera = { x: 0, y: 0 };
   #zoom = 1;
@@ -747,6 +751,11 @@ export class TesseraRenderer {
     if (toolBefore.tool === "brush" || toolBefore.tool === "edge") {
       this.#painting = true;
       this.#interaction.beginStroke();
+    } else if (
+      toolBefore.tool === "eraser" &&
+      this.#interaction.getEraserMode() === "drag"
+    ) {
+      this.#eraserGesture.begin("drag", () => this.#interaction.beginStroke());
     }
     const connectionTarget =
       toolBefore.tool === "connection"
@@ -759,6 +768,8 @@ export class TesseraRenderer {
     try {
       this.#interaction.pointerDown(point, targetToken);
     } catch (error) {
+      this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
+      this.#connectionDraft.reset();
       this.#interaction.operationRejected(
         error instanceof Error &&
           error.message === "connection-self-not-allowed"
@@ -794,30 +805,27 @@ export class TesseraRenderer {
       toolBefore.phase === "choosing-start" &&
       connectionTarget !== null
     ) {
-      this.#connectionStart = connectionTarget.endpoint;
-      this.#connectionEdges = connectionTarget.edge
-        ? [connectionTarget.edge]
-        : [];
+      this.#connectionDraft.begin(
+        connectionTarget.endpoint,
+        connectionTarget.edge,
+      );
     } else if (
       toolBefore.tool === "connection" &&
       toolBefore.phase === "previewing-end" &&
       connectionTarget !== null &&
-      this.#connectionStart !== null
+      this.#connectionDraft.hasStart
     ) {
       try {
-        const committed = this.#interaction.commitConnection(
-          this.#connectionStart,
+        const committed = this.#connectionDraft.commit(
           connectionTarget.endpoint,
-          [
-            ...this.#connectionEdges,
-            ...(connectionTarget.edge ? [connectionTarget.edge] : []),
-          ],
+          connectionTarget.edge,
+          (start, end, edges) =>
+            this.#interaction.commitConnection(start, end, edges),
         );
-        if (committed) {
-          this.#connectionStart = null;
-          this.#connectionEdges = [];
-        }
+        if (!committed)
+          this.#interaction.operationRejected("connection-commit-failed");
       } catch {
+        this.#connectionDraft.reset();
         this.#interaction.operationRejected("connection-commit-failed");
       }
     }
@@ -839,6 +847,10 @@ export class TesseraRenderer {
     const point = this.#mapPoint(screen);
     this.#interaction.pointerMove(point);
     if (this.#painting) this.#paintAt(point);
+    if (this.#eraserGesture.active) {
+      const cell = this.#target(point);
+      this.#interaction.eraseCandidates?.(this.#hitCandidates(point, cell));
+    }
     if (this.#interaction.getToolState().tool === "eraser") {
       const cell = this.#target(point);
       this.#transientHighlight = firstEditableProjectHit(
@@ -881,6 +893,7 @@ export class TesseraRenderer {
     const toolState = this.#interaction.getToolState();
     const start = toolState.startPoint;
     if (this.#painting) this.#interaction.endStroke();
+    this.#eraserGesture.finish(() => this.#interaction.endStroke());
     this.#painting = false;
     this.#interaction.pointerUp(point);
     if (toolState.tool === "box-select" && start !== null) {
@@ -905,9 +918,9 @@ export class TesseraRenderer {
     event.preventDefault();
     if (this.#contextLost) return;
     if (this.#painting) this.#interaction.cancelStroke();
+    this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
     this.#painting = false;
-    this.#connectionStart = null;
-    this.#connectionEdges = [];
+    this.#connectionDraft.reset();
     this.#interaction.cancelTool();
     this.render(this.#state);
   };
@@ -949,9 +962,9 @@ export class TesseraRenderer {
     }
     if (event.key !== "Escape") return;
     if (this.#painting) this.#interaction.cancelStroke();
+    this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
     this.#painting = false;
-    this.#connectionStart = null;
-    this.#connectionEdges = [];
+    this.#connectionDraft.reset();
     this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.render(this.#state);
@@ -972,9 +985,9 @@ export class TesseraRenderer {
 
   #cancelTransientInteraction(): void {
     if (this.#painting) this.#interaction.cancelStroke();
+    this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
     this.#painting = false;
-    this.#connectionStart = null;
-    this.#connectionEdges = [];
+    this.#connectionDraft.reset();
     this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.render(this.#state);
@@ -997,9 +1010,9 @@ export class TesseraRenderer {
     this.#preview.clear();
     this.#application.stop();
     if (this.#painting) this.#interaction.cancelStroke();
+    this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
     this.#painting = false;
-    this.#connectionStart = null;
-    this.#connectionEdges = [];
+    this.#connectionDraft.reset();
     this.#spacePressed = false;
     this.#pan.cancel();
     this.#interaction.cancelConnectionRebind();

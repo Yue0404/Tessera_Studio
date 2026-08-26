@@ -44,4 +44,34 @@ describe("ToolButton", () => {
       /:global\(\[data-radix-popper-content-wrapper\]\):has\(> \.tooltip\)\s*\{[^}]*pointer-events:\s*none;/u,
     );
   });
+
+  it("横向工具组可把提示改到下方并显示展开角标", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const user = userEvent.setup();
+    render(
+      <Tooltip.Provider delayDuration={0}>
+        <ToolButton
+          label="清空画布"
+          tooltipSide="bottom"
+          expandable
+          onClick={vi.fn()}
+        >
+          C
+        </ToolButton>
+      </Tooltip.Provider>,
+    );
+    const button = screen.getByRole("button", { name: "清空画布" });
+    await user.hover(button);
+    expect((await screen.findByRole("tooltip")).getAttribute("data-side")).toBe(
+      "bottom",
+    );
+    expect(button.querySelector('[aria-hidden="true"]')).not.toBeNull();
+  });
 });

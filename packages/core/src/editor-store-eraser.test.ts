@@ -41,6 +41,22 @@ function addModuleLayer(store: EditorStore, locked: boolean): void {
 }
 
 describe("橡皮单对象事务", () => {
+  it("滑动擦除可把多个命中合并为一次撤销", () => {
+    const store = new EditorStore(createProject(input));
+    const first = store.placeMarker({ x: 16, y: 16 });
+    const second = store.placeMarker({ x: 48, y: 16 });
+
+    store.beginBatch();
+    store.eraseFirstEditable([{ kind: "overlay", id: first }]);
+    store.eraseFirstEditable([{ kind: "overlay", id: second }]);
+    store.commitBatch();
+
+    expect(store.state.overlays.size).toBe(0);
+    store.undo();
+    expect(store.state.overlays.get(first)).toBeDefined();
+    expect(store.state.overlays.get(second)).toBeDefined();
+  });
+
   it("基础标记通过同一 API 删除且一次撤销恢复", () => {
     const store = new EditorStore(createProject(input));
     const markerId = store.placeMarker({ x: 48, y: 48 });

@@ -41,7 +41,10 @@ import {
   textWrapMapSize,
 } from "./overlay-visibility.js";
 import { colorValue } from "./render-utils.js";
-import { conservativeTextBoundsSize } from "./visual-style.js";
+import {
+  arrowShaftSegment,
+  conservativeTextBoundsSize,
+} from "./visual-style.js";
 import type {
   GenericModuleResourceIdentity,
   GenericModuleResourceState,
@@ -1171,22 +1174,36 @@ export class GenericModuleRenderer {
       const descriptor = this.#resolver.resolve(instance);
       const points = genericConnectionPoints(state, instance);
       if (descriptor?.kind !== "connection" || points === undefined) continue;
-      const clipped = clipSegmentToRect(points[0], points[1], viewport);
-      if (clipped === null) continue;
+      const shaft = arrowShaftSegment(
+        points[0],
+        points[1],
+        descriptor.arrowStart,
+        descriptor.arrowEnd,
+        descriptor.arrowSize,
+      );
+      const clipped =
+        shaft === null ? null : clipSegmentToRect(shaft[0], shaft[1], viewport);
+      const arrowVisible =
+        (descriptor.arrowStart && pointInRect(points[0], viewport)) ||
+        (descriptor.arrowEnd && pointInRect(points[1], viewport));
+      if (clipped === null && !arrowVisible) continue;
       const opacity = descriptor.strokeOpacity * (layer?.opacity ?? 1);
       const graphics = new Graphics();
-      drawPixiStroke(graphics, points[0], points[1], clipped[0], clipped[1], {
-        color: descriptor.strokeColor,
-        width: descriptor.strokeWidth,
-        opacity,
-        lineStyle: descriptor.lineStyle,
-        ...(descriptor.dashPattern === undefined
-          ? {}
-          : { dashPattern: descriptor.dashPattern }),
-        ...(descriptor.lineCap === undefined
-          ? {}
-          : { lineCap: descriptor.lineCap }),
-      });
+      if (shaft !== null && clipped !== null)
+        drawPixiStroke(graphics, shaft[0], shaft[1], clipped[0], clipped[1], {
+          color: descriptor.strokeColor,
+          width: descriptor.strokeWidth,
+          opacity,
+          lineStyle: descriptor.lineStyle,
+          ...(descriptor.dashPattern === undefined
+            ? {}
+            : { dashPattern: descriptor.dashPattern }),
+          ...(descriptor.arrowStart || descriptor.arrowEnd
+            ? { lineCap: "butt" as const }
+            : descriptor.lineCap === undefined
+              ? {}
+              : { lineCap: descriptor.lineCap }),
+        });
       if (descriptor.arrowStart)
         drawPixiArrow(
           graphics,

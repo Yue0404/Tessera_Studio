@@ -12,7 +12,11 @@ import {
 } from "./pixi-visual.js";
 import { endpointPoint } from "./render-utils.js";
 import { configureRenderLayer } from "./render-layer-order.js";
-import { arrowSize, connectionLabelStyle } from "./visual-style.js";
+import {
+  arrowShaftSegment,
+  arrowSize,
+  connectionLabelStyle,
+} from "./visual-style.js";
 
 export class ConnectionRenderer {
   readonly #container = new Container();
@@ -38,22 +42,39 @@ export class ConnectionRenderer {
       const start = endpointPoint(state, connection.start);
       const end = endpointPoint(state, connection.end);
       if (start === undefined || end === undefined) continue;
-      const clipped = clipSegmentToRect(start, end, viewport);
-      if (clipped === null) continue;
+      const size =
+        connection.kind === "arrow"
+          ? arrowSize(connection.style.strokeWidth, state.grid.cellSize)
+          : 0;
+      const shaft =
+        connection.kind === "arrow"
+          ? arrowShaftSegment(
+              start,
+              end,
+              connection.arrowStart,
+              connection.arrowEnd,
+              size,
+            )
+          : ([start, end] as const);
+      const clipped =
+        shaft === null ? null : clipSegmentToRect(shaft[0], shaft[1], viewport);
+      const arrowVisible =
+        connection.kind === "arrow" &&
+        ((connection.arrowStart && pointInRect(start, viewport)) ||
+          (connection.arrowEnd && pointInRect(end, viewport)));
+      if (clipped === null && !arrowVisible) continue;
       const item = new Container();
       const graphics = new Graphics();
       const opacity = connection.style.strokeOpacity * (layer?.opacity ?? 1);
-      drawPixiStroke(graphics, start, end, clipped[0], clipped[1], {
-        color: connection.style.strokeColor,
-        width: connection.style.strokeWidth,
-        opacity,
-        lineStyle: connection.style.lineStyle,
-      });
+      if (shaft !== null && clipped !== null)
+        drawPixiStroke(graphics, shaft[0], shaft[1], clipped[0], clipped[1], {
+          color: connection.style.strokeColor,
+          width: connection.style.strokeWidth,
+          opacity,
+          lineStyle: connection.style.lineStyle,
+          ...(connection.kind === "arrow" ? { lineCap: "butt" as const } : {}),
+        });
       if (connection.kind === "arrow") {
-        const size = arrowSize(
-          connection.style.strokeWidth,
-          state.grid.cellSize,
-        );
         if (connection.arrowStart && pointInRect(start, viewport)) {
           drawPixiArrow(
             graphics,
