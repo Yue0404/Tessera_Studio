@@ -2,7 +2,6 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
-import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n.js";
 import { CanvasToolRail } from "./CanvasToolRail.js";
@@ -10,7 +9,7 @@ import { CanvasToolRail } from "./CanvasToolRail.js";
 describe("CanvasToolRail", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("在标记入口右侧独立选择标记或文字，并支持可选附文契约", async () => {
+  it("在标记入口右侧只选择标记或文字，并显示可展开角标", async () => {
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -21,29 +20,19 @@ describe("CanvasToolRail", () => {
     );
     const user = userEvent.setup();
     const onOverlayType = vi.fn();
-    const onMarkerLabel = vi.fn();
-    function Harness() {
-      const [label, setLabel] = useState("港口");
-      return (
-        <CanvasToolRail
-          tool="marker"
-          catalogCollapsed={false}
-          overlayType="marker"
-          markerLabel={label}
-          onTool={vi.fn()}
-          onOverlayType={onOverlayType}
-          onMarkerLabel={(value) => {
-            setLabel(value);
-            onMarkerLabel(value);
-          }}
-          onContext={vi.fn()}
-        />
-      );
-    }
     render(
       <I18nextProvider i18n={i18n}>
         <Tooltip.Provider delayDuration={0}>
-          <Harness />
+          <CanvasToolRail
+            tool="marker"
+            catalogCollapsed={false}
+            overlayType="marker"
+            eraserMode="click"
+            onTool={vi.fn()}
+            onOverlayType={onOverlayType}
+            onEraserMode={vi.fn()}
+            onContext={vi.fn()}
+          />
         </Tooltip.Provider>
       </I18nextProvider>,
     );
@@ -54,9 +43,12 @@ describe("CanvasToolRail", () => {
     expect(
       screen.getByRole("radio", { name: "标记" }).getAttribute("aria-checked"),
     ).toBe("true");
-    await user.clear(screen.getByLabelText("标记附文"));
-    await user.type(screen.getByLabelText("标记附文"), "城邦");
-    expect(onMarkerLabel).toHaveBeenLastCalledWith("城邦");
+    expect(screen.queryByLabelText("标记附文")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "标记" })
+        .querySelector('[aria-hidden="true"]'),
+    ).not.toBeNull();
     await user.click(screen.getByRole("radio", { name: "文字" }));
     expect(onOverlayType).toHaveBeenCalledWith("text");
     expect(screen.queryByRole("dialog", { name: "选择放置类型" })).toBeNull();
@@ -65,9 +57,18 @@ describe("CanvasToolRail", () => {
     );
   });
 
-  it("提供独立橡皮擦按钮并切换到 eraser 工具", async () => {
+  it("橡皮擦入口选择单击或滑动模式后切换工具", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
     const user = userEvent.setup();
     const onTool = vi.fn();
+    const onEraserMode = vi.fn();
     render(
       <I18nextProvider i18n={i18n}>
         <Tooltip.Provider delayDuration={0}>
@@ -75,8 +76,10 @@ describe("CanvasToolRail", () => {
             tool="select"
             catalogCollapsed={false}
             overlayType="marker"
+            eraserMode="click"
             onTool={onTool}
             onOverlayType={vi.fn()}
+            onEraserMode={onEraserMode}
             onContext={vi.fn()}
           />
         </Tooltip.Provider>
@@ -84,6 +87,8 @@ describe("CanvasToolRail", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "橡皮擦" }));
-    expect(onTool).toHaveBeenCalledWith("eraser");
+    expect(screen.getByRole("dialog", { name: "选择擦除方式" })).toBeDefined();
+    await user.click(screen.getByRole("radio", { name: "滑动擦除" }));
+    expect(onEraserMode).toHaveBeenCalledWith("drag");
   });
 });

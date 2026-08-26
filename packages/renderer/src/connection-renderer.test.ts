@@ -93,6 +93,22 @@ function stateWithLine(startX: number, endX: number) {
   return store.state;
 }
 
+function stateWithArrow(startX: number, endX: number, strokeWidth: number) {
+  const store = new EditorStore(stateWithLine(startX, endX));
+  const connectionId = store.createConnection(
+    { kind: "map-point", point: { x: startX, y: 70 } },
+    { kind: "map-point", point: { x: endX, y: 70 } },
+    { kind: "arrow", arrowMode: "end" },
+  );
+  const connection = store.state.connections.get(connectionId);
+  if (connection === undefined) throw new Error("test-connection-missing");
+  store.updateConnection(connectionId, {
+    ...connection,
+    style: { ...connection.style, strokeWidth },
+  });
+  return store.state;
+}
+
 describe("ConnectionRenderer 视口集成裁切", () => {
   beforeEach(() => pixiMock.instances.splice(0));
 
@@ -125,4 +141,26 @@ describe("ConnectionRenderer 视口集成裁切", () => {
       ["lineTo", 50, 50],
     ]);
   });
+
+  it.each([3, 12])(
+    "箭杆在线宽 %d 时都精确结束于三角箭头底边",
+    (strokeWidth) => {
+      const container = { addChild: vi.fn() } as any;
+      const renderer = new ConnectionRenderer(container);
+      renderer.render(stateWithArrow(20, 80, strokeWidth), {
+        minX: 0,
+        minY: 0,
+        maxX: 100,
+        maxY: 100,
+      });
+      const arrowGraphics = pixiMock.instances.find((instance) =>
+        instance.calls.some((call) => call[2] === 70),
+      );
+      expect(arrowGraphics?.calls[0]).toEqual(["moveTo", 20, 70]);
+      expect(arrowGraphics?.calls[1]?.[0]).toBe("lineTo");
+      expect(arrowGraphics?.calls[1]?.[1]).toBe(
+        80 - Math.max(strokeWidth * 3, 32 * 0.18),
+      );
+    },
+  );
 });

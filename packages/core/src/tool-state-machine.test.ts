@@ -39,21 +39,21 @@ describe("工具状态机", () => {
     expect(machine.state.phase).toBe("choosing-start");
   });
 
-  it("提交失败保留预览，取消清空临时状态", () => {
+  it("提交失败清空预览并立即允许重新选择起点", () => {
     const machine = new ToolStateMachine();
     machine.selectTool("connection");
     machine.pointerDown({ x: 1, y: 1 }, "cell:square:0:0");
     machine.pointerDown({ x: 5, y: 5 }, "cell:square:0:1");
     machine.commitFailed();
     expect(machine.state).toMatchObject({
-      phase: "previewing-end",
-      startCellId: "cell:square:0:0",
-    });
-    machine.cancel();
-    expect(machine.state).toMatchObject({
-      phase: "idle",
+      phase: "choosing-start",
       startCellId: null,
       startPoint: null,
+    });
+    machine.pointerDown({ x: 2, y: 2 }, "cell:square:1:1");
+    expect(machine.state).toMatchObject({
+      phase: "previewing-end",
+      startCellId: "cell:square:1:1",
     });
   });
 
@@ -64,7 +64,10 @@ describe("工具状态机", () => {
     expect(() =>
       machine.pointerDown({ x: 1, y: 1 }, "cell:square:0:0"),
     ).toThrow(InvalidToolTransitionError);
-    expect(machine.state.phase).toBe("previewing-end");
+    expect(machine.state).toMatchObject({
+      phase: "choosing-start",
+      startCellId: null,
+    });
   });
 
   it("切换工具取消未完成连线", () => {

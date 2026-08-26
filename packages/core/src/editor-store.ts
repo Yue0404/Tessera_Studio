@@ -1274,7 +1274,8 @@ export class EditorStore {
       const layerId = this.#selectedObjectLayerId(selected);
       if (layerId !== undefined && this.#rejectBlockedLayer(layerId)) return;
     }
-    this.beginBatch();
+    const ownsBatch = this.#batch === undefined;
+    if (ownsBatch) this.beginBatch();
     try {
       for (const selected of objects) {
         if (selected.kind === "module-instance") {
@@ -1449,10 +1450,10 @@ export class EditorStore {
       else
         for (const selected of objects)
           this.#selection.delete(`${selected.kind}:${selected.id}`);
-      this.commitBatch();
+      if (ownsBatch) this.commitBatch();
       if (clearSelection) this.#publish(false);
     } catch (error) {
-      this.cancelBatch();
+      if (ownsBatch) this.cancelBatch();
       throw error;
     }
   }

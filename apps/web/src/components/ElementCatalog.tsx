@@ -73,6 +73,7 @@ interface Props {
   brushColor: string;
   brushMode: BrushMode;
   edgeColor: string;
+  markerLabel: string;
   overlay: OverlayPlacement;
   textOptions: TextPlacementOptions;
   connection: ConnectionPlacement;
@@ -80,6 +81,7 @@ interface Props {
   onBrushColor(color: string): void;
   onBrushMode(mode: BrushMode): void;
   onEdgeColor(color: string): void;
+  onMarkerLabel(label: string): void;
   onOverlay(value: OverlayPlacement): void;
   onTextOptions(value: TextPlacementOptions): void;
   validateText?(value: string): boolean;
@@ -381,6 +383,17 @@ export function ElementCatalog(props: Props) {
                       value={props.brushColor}
                       onChange={(event) =>
                         props.onBrushColor(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t("inspector.markerLabel")}</span>
+                    <input
+                      type="text"
+                      maxLength={64}
+                      value={props.markerLabel}
+                      onChange={(event) =>
+                        props.onMarkerLabel(event.currentTarget.value)
                       }
                     />
                   </label>

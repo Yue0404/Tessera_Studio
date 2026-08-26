@@ -1400,7 +1400,7 @@ describe("ActiveProjectModuleSession", () => {
       primitives.some(
         (primitive) =>
           primitive.kind === "stroke" &&
-          primitive.lineCap === "square" &&
+          primitive.lineCap === "butt" &&
           primitive.dashPattern?.join(",") === "7,2",
       ),
     ).toBe(true);

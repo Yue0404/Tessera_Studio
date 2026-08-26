@@ -32,6 +32,7 @@ interface Props {
 
 export function AppCommandBar(props: Props) {
   const { t } = useTranslation();
+  const toolButton = { tooltipSide: "bottom" as const };
   return (
     <div
       className={styles.wrap}
@@ -43,40 +44,62 @@ export function AppCommandBar(props: Props) {
         <small>{t("app.englishName")}</small>
       </div>
       <div className={styles.group}>
-        <ToolButton label={t("action.new")} onClick={props.onNew}>
+        <ToolButton
+          {...toolButton}
+          label={t("action.new")}
+          onClick={props.onNew}
+        >
           <FileUp size={18} />
         </ToolButton>
-        <ToolButton label={t("action.open")} onClick={props.onOpen}>
+        <ToolButton
+          {...toolButton}
+          label={t("action.open")}
+          onClick={props.onOpen}
+        >
           <FolderOpen size={18} />
         </ToolButton>
         <ToolButton
+          {...toolButton}
           label={t("action.importFragment")}
           onClick={props.onImportFragment}
         >
           <FileInput size={18} />
         </ToolButton>
-        <ToolButton label={t("action.save")} onClick={props.onSave}>
+        <ToolButton
+          {...toolButton}
+          label={t("action.save")}
+          onClick={props.onSave}
+        >
           <Save size={18} />
         </ToolButton>
-        <ToolButton label={t("action.export")} onClick={props.onExport}>
+        <ToolButton
+          {...toolButton}
+          label={t("action.export")}
+          onClick={props.onExport}
+        >
           <Download size={18} />
         </ToolButton>
         <ToolButton
+          {...toolButton}
           label={t("package.settings.open")}
           onClick={props.onPackageSettings}
         >
           <Settings size={18} />
         </ToolButton>
         <ToolButton
+          {...toolButton}
           label={t("action.clearCanvas")}
           disabled={!props.canClear}
-          onClick={props.onClear}
+          onClick={() => {
+            if (window.confirm(t("action.clearCanvasConfirm"))) props.onClear();
+          }}
         >
           <Trash2 size={18} />
         </ToolButton>
       </div>
       <div className={styles.group}>
         <ToolButton
+          {...toolButton}
           label={t("action.undo")}
           disabled={!props.canUndo}
           onClick={props.onUndo}
@@ -84,6 +107,7 @@ export function AppCommandBar(props: Props) {
           <Undo2 size={18} />
         </ToolButton>
         <ToolButton
+          {...toolButton}
           label={t("action.redo")}
           disabled={!props.canRedo}
           onClick={props.onRedo}

@@ -14,6 +14,7 @@ import {
 } from "@tessera/core";
 import {
   arrowPolygon,
+  arrowShaftSegment,
   arrowSize,
   cellLabelStyle,
   conservativeTextBoundsSize,
@@ -321,38 +322,56 @@ function connectionPrimitives(
   const start = endpointPoint(snapshot, edges, connection.start);
   const end = endpointPoint(snapshot, edges, connection.end);
   if (start === undefined || end === undefined) return [];
+  const size =
+    connection.kind === "arrow"
+      ? arrowSize(connection.style.strokeWidth, snapshot.grid.cellSize)
+      : 0;
+  const shaft =
+    connection.kind === "arrow"
+      ? arrowShaftSegment(
+          start,
+          end,
+          connection.arrowStart,
+          connection.arrowEnd,
+          size,
+        )
+      : ([start, end] as const);
   const clipped =
-    bounds === null
-      ? ([start, end] as const)
-      : clipSegmentToRect(start, end, bounds);
-  if (clipped === null) return [];
+    shaft === null
+      ? null
+      : bounds === null
+        ? shaft
+        : clipSegmentToRect(shaft[0], shaft[1], bounds);
+  const arrowVisible =
+    connection.kind === "arrow" &&
+    ((connection.arrowStart &&
+      (bounds === null || pointInRect(start, bounds))) ||
+      (connection.arrowEnd && (bounds === null || pointInRect(end, bounds))));
+  if (clipped === null && !arrowVisible) return [];
   const opacity =
     connection.style.strokeOpacity * (connectionLayer?.opacity ?? 1);
   if (!paintVisible(connection.style.strokeColor, opacity)) return [];
   const zIndex = connectionLayer?.zIndex ?? 0;
-  const result: VisualPrimitive[] = [
-    {
+  const result: VisualPrimitive[] = [];
+  if (shaft !== null && clipped !== null)
+    result.push({
       kind: "stroke",
       layerId: connection.layerId,
       zIndex,
       orderInLayer: 0,
       stableId: connection.connectionId,
       partRank: 0,
-      originalStart: { ...start },
-      originalEnd: { ...end },
+      originalStart: { ...shaft[0] },
+      originalEnd: { ...shaft[1] },
       start: { ...clipped[0] },
       end: { ...clipped[1] },
       strokeColor: connection.style.strokeColor,
       strokeWidth: connection.style.strokeWidth,
       opacity,
       lineStyle: connection.style.lineStyle,
-    },
-  ];
+      ...(connection.kind === "arrow" ? { lineCap: "butt" as const } : {}),
+    });
   if (connection.kind === "arrow") {
-    const size = arrowSize(
-      connection.style.strokeWidth,
-      snapshot.grid.cellSize,
-    );
     if (
       connection.arrowStart &&
       (bounds === null || pointInRect(start, bounds))

@@ -1,4 +1,6 @@
 export * from "./connection-renderer.js";
+export * from "./connection-draft-state.js";
+export * from "./eraser-gesture-state.js";
 export * from "./grid-renderer.js";
 export * from "./generic-module-renderer.js";
 export * from "./generic-module-assets.js";
@@ -14,3 +16,4 @@ export * from "./webgl-context-lifecycle.js";
 export * from "./camera-transform.js";
 export * from "./pan-interaction-state.js";
 export * from "./viewport-navigation.js";
+export { arrowPolygon, arrowShaftSegment } from "./visual-style.js";

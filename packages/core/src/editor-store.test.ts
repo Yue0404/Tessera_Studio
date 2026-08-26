@@ -53,7 +53,7 @@ describe("EditorStore", () => {
     expect(published).toBe(3);
   });
 
-  it("扩展模块连接提交后复位状态机，失败时保留可修正预览", () => {
+  it("扩展模块连接无论提交成功或失败都复位状态机", () => {
     const store = new EditorStore(createProject(input));
     store.setTool("connection");
     store.pointerDown({ x: 1, y: 1 }, "cell:square:0:0");
@@ -67,18 +67,19 @@ describe("EditorStore", () => {
     store.pointerDown({ x: 2, y: 2 }, "cell:square:0:1");
     expect(store.commitExternalConnection(() => "")).toBe("");
     expect(store.toolState).toMatchObject({
-      phase: "previewing-end",
-      startCellId: "cell:square:0:0",
-      startPoint: { x: 1, y: 1 },
+      phase: "choosing-start",
+      startCellId: null,
+      startPoint: null,
     });
 
+    store.pointerDown({ x: 1, y: 1 }, "cell:square:0:0");
     store.pointerDown({ x: 2, y: 2 }, "cell:square:0:1");
     expect(() =>
       store.commitExternalConnection(() => {
         throw new Error("module-placement-failed");
       }),
     ).toThrow("module-placement-failed");
-    expect(store.toolState.phase).toBe("previewing-end");
+    expect(store.toolState.phase).toBe("choosing-start");
   });
 
   it("可撤销和重做地格修改", () => {

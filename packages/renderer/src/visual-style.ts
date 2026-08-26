@@ -69,17 +69,45 @@ export function arrowPolygon(
   tip: Point,
   size: number,
 ): readonly Point[] {
-  const angle = Math.atan2(tip.y - from.y, tip.x - from.x);
+  const length = Math.hypot(tip.x - from.x, tip.y - from.y);
+  if (length === 0) return [tip, tip, tip];
+  const unitX = (tip.x - from.x) / length;
+  const unitY = (tip.y - from.y) / length;
+  const baseX = tip.x - unitX * size;
+  const baseY = tip.y - unitY * size;
+  const halfWidth = size * 0.45;
   return [
     { x: tip.x, y: tip.y },
     {
-      x: tip.x - size * Math.cos(angle - Math.PI / 6),
-      y: tip.y - size * Math.sin(angle - Math.PI / 6),
+      x: baseX - unitY * halfWidth,
+      y: baseY + unitX * halfWidth,
     },
     {
-      x: tip.x - size * Math.cos(angle + Math.PI / 6),
-      y: tip.y - size * Math.sin(angle + Math.PI / 6),
+      x: baseX + unitY * halfWidth,
+      y: baseY - unitX * halfWidth,
     },
+  ];
+}
+
+/** 把箭杆截到箭头三角形底边，避免粗线末端覆盖实心箭头。 */
+export function arrowShaftSegment(
+  start: Point,
+  end: Point,
+  arrowStart: boolean,
+  arrowEnd: boolean,
+  size: number,
+): readonly [Point, Point] | null {
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+  if (length === 0) return null;
+  const inset = size;
+  const startInset = arrowStart ? inset : 0;
+  const endInset = arrowEnd ? inset : 0;
+  if (length <= startInset + endInset) return null;
+  const unitX = (end.x - start.x) / length;
+  const unitY = (end.y - start.y) / length;
+  return [
+    { x: start.x + unitX * startInset, y: start.y + unitY * startInset },
+    { x: end.x - unitX * endInset, y: end.y - unitY * endInset },
   ];
 }
 

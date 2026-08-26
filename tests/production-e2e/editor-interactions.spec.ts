@@ -211,6 +211,10 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
 
     const clear = page.getByRole("button", { name: "清空画布" });
     await expect(clear).toBeEnabled();
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await clear.click();
+    await expect(page.getByTestId("cell-count")).toContainText("1");
+    page.once("dialog", (dialog) => dialog.accept());
     await clear.click();
     await expect(page.getByTestId("cell-count")).toContainText("0");
     await expect(clear).toBeDisabled();
@@ -342,13 +346,18 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
   ).toHaveAttribute("aria-pressed", "true");
   await activeSettings.getByLabel("标记形状").selectOption("circle");
   await activeSettings.getByLabel("标记颜色").fill("#123456");
+  await activeSettings.getByLabel("标记附文").fill("前线哨站");
   await page.getByRole("button", { name: "标记", exact: true }).click();
   const markerQuick = page.getByRole("dialog", { name: "选择放置类型" });
-  await markerQuick.getByLabel("标记附文").fill("前线哨站");
+  await expect(markerQuick.getByLabel("标记附文")).toHaveCount(0);
   await markerQuick.getByRole("radio", { name: "标记" }).click();
   await canvas.click({ position: { x: 700, y: 360 } });
   await expect(page.getByTestId("overlay-count")).toContainText("1");
   await page.getByRole("button", { name: "橡皮擦" }).click();
+  await page
+    .getByRole("dialog", { name: "选择擦除方式" })
+    .getByRole("radio", { name: "单击擦除" })
+    .click();
   await canvas.click({ position: { x: 702, y: 378 } });
   await expect(page.getByTestId("overlay-count")).toContainText("0");
   await page.getByRole("button", { name: "撤销" }).click();

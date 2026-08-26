@@ -23,35 +23,42 @@ interface Props {
   tool: EditorTool;
   catalogCollapsed: boolean;
   overlayType: "marker" | "text";
-  markerLabel?: string;
+  eraserMode: "click" | "drag";
   onTool(tool: EditorTool): void;
   onOverlayType(type: "marker" | "text"): void;
-  onMarkerLabel?(label: string): void;
+  onEraserMode(mode: "click" | "drag"): void;
   onContext(panel: "properties" | "layers" | "modules" | "map"): void;
 }
 
 export function CanvasToolRail(props: Props) {
   const { t } = useTranslation();
-  const [markerMenuOpen, setMarkerMenuOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<"marker" | "eraser" | null>(null);
   const markerEntry = useRef<HTMLDivElement>(null);
   const markerButton = useRef<HTMLButtonElement>(null);
+  const eraserEntry = useRef<HTMLDivElement>(null);
+  const eraserButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (!markerMenuOpen) return undefined;
+    if (openMenu === null) return undefined;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!markerEntry.current?.contains(event.target as Node)) {
-        setMarkerMenuOpen(false);
-      }
+      const entry = openMenu === "marker" ? markerEntry : eraserEntry;
+      if (!entry.current?.contains(event.target as Node)) setOpenMenu(null);
     };
     document.addEventListener("pointerdown", closeOnOutsidePointer);
     return () =>
       document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [markerMenuOpen]);
+  }, [openMenu]);
 
   const chooseOverlayType = (type: "marker" | "text") => {
     props.onOverlayType(type);
-    setMarkerMenuOpen(false);
+    setOpenMenu(null);
     markerButton.current?.focus();
+  };
+
+  const chooseEraserMode = (mode: "click" | "drag") => {
+    props.onEraserMode(mode);
+    setOpenMenu(null);
+    eraserButton.current?.focus();
   };
 
   return (
@@ -84,13 +91,49 @@ export function CanvasToolRail(props: Props) {
         >
           <Brush size={19} />
         </ToolButton>
-        <ToolButton
-          label={t("tool.eraser")}
-          active={props.tool === "eraser"}
-          onClick={() => props.onTool("eraser")}
-        >
-          <Eraser size={19} />
-        </ToolButton>
+        <div className={styles.quickEntry} ref={eraserEntry}>
+          <ToolButton
+            buttonRef={eraserButton}
+            label={t("tool.eraser")}
+            active={props.tool === "eraser"}
+            expandable
+            onClick={() =>
+              setOpenMenu((current) => (current === "eraser" ? null : "eraser"))
+            }
+          >
+            <Eraser size={19} />
+          </ToolButton>
+          {openMenu === "eraser" ? (
+            <div
+              className={styles.quickPopover}
+              data-popover-side="right"
+              role="dialog"
+              aria-label={t("eraserQuick.title")}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.stopPropagation();
+                setOpenMenu(null);
+                eraserButton.current?.focus();
+              }}
+            >
+              <strong>{t("eraserQuick.title")}</strong>
+              <div className={styles.quickChoices} role="radiogroup">
+                {(["click", "drag"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={props.eraserMode === mode}
+                    onClick={() => chooseEraserMode(mode)}
+                  >
+                    <Eraser size={16} />
+                    {t(`eraserMode.${mode}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
         <ToolButton
           label={t("tool.edge")}
           active={props.tool === "edge"}
@@ -98,12 +141,15 @@ export function CanvasToolRail(props: Props) {
         >
           <PenLine size={19} />
         </ToolButton>
-        <div className={styles.markerQuickEntry} ref={markerEntry}>
+        <div className={styles.quickEntry} ref={markerEntry}>
           <ToolButton
             buttonRef={markerButton}
             label={t("tool.marker")}
             active={props.tool === "marker"}
-            onClick={() => setMarkerMenuOpen((open) => !open)}
+            expandable
+            onClick={() =>
+              setOpenMenu((current) => (current === "marker" ? null : "marker"))
+            }
           >
             {props.overlayType === "text" ? (
               <Type size={19} />
@@ -111,21 +157,21 @@ export function CanvasToolRail(props: Props) {
               <MapPin size={19} />
             )}
           </ToolButton>
-          {markerMenuOpen && (
+          {openMenu === "marker" && (
             <div
-              className={styles.markerPopover}
+              className={styles.quickPopover}
               data-popover-side="right"
               role="dialog"
               aria-label={t("markerQuick.title")}
               onKeyDown={(event) => {
                 if (event.key !== "Escape") return;
                 event.stopPropagation();
-                setMarkerMenuOpen(false);
+                setOpenMenu(null);
                 markerButton.current?.focus();
               }}
             >
               <strong>{t("markerQuick.title")}</strong>
-              <div className={styles.markerChoices} role="radiogroup">
+              <div className={styles.quickChoices} role="radiogroup">
                 <button
                   type="button"
                   role="radio"
@@ -145,19 +191,6 @@ export function CanvasToolRail(props: Props) {
                   {t("markerQuick.text")}
                 </button>
               </div>
-              {props.onMarkerLabel !== undefined && (
-                <label>
-                  <span>{t("markerQuick.label")}</span>
-                  <input
-                    type="text"
-                    value={props.markerLabel ?? ""}
-                    maxLength={64}
-                    onChange={(event) =>
-                      props.onMarkerLabel?.(event.currentTarget.value)
-                    }
-                  />
-                </label>
-              )}
             </div>
           )}
         </div>
