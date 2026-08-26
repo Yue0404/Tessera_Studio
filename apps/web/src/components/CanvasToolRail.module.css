@@ -26,6 +26,19 @@
 .quickEntry {
   position: relative;
 }
+.eraserEntry > button {
+  width: 58px;
+}
+.eraserCurrentMode {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.eraserCurrentMode small {
+  font-size: 10px;
+  line-height: 1;
+}
 .quickPopover {
   position: absolute;
   z-index: 12;

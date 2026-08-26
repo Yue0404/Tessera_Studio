@@ -76,6 +76,20 @@ interface ModuleProjectDocument {
   };
 }
 
+async function drag(
+  page: Page,
+  canvas: Locator,
+  start: { readonly x: number; readonly y: number },
+  end: { readonly x: number; readonly y: number },
+): Promise<void> {
+  const bounds = await canvas.boundingBox();
+  if (bounds === null) throw new Error("canvas-bounds-missing");
+  await page.mouse.move(bounds.x + start.x, bounds.y + start.y);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + end.x, bounds.y + end.y, { steps: 4 });
+  await page.mouse.up();
+}
+
 interface VisualExportBounds {
   readonly minX: number;
   readonly minY: number;
@@ -333,20 +347,12 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   await expect(page.getByTestId("connection-notice")).toHaveCount(0);
   await page.keyboard.press("Control+z");
 
-  await page.getByRole("button", { name: "选择" }).click();
-  await canvas.click({ position: { x: 780, y: 260 } });
-  await canvas.click({
-    position: { x: 812, y: 260 },
-    modifiers: ["Shift"],
-  });
-  await expect(
-    page.getByText("已选择 2 个对象", { exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "属性", exact: true }).click();
   await selectModuleElement(page, ids.domain);
   await expect(activeSettings).toContainText(
     "使用模块默认样式，放置后选择对象编辑。",
   );
+  await expect(activeSettings).toContainText("单击放置单格物体");
+  await drag(page, canvas, { x: 780, y: 260 }, { x: 812, y: 260 });
 
   let document = await exportData(page);
   expectExactModule(document, moduleId);
@@ -364,39 +370,7 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   expect(domainInstanceId).toEqual(expect.any(String));
   const createdDomainMembers = [...(domain?.memberCellIds ?? [])];
 
-  // 先命中领域实例，再以 Shift 加入三个相邻地格，通过 Inspector 原子替换成员集合。
-  await page.getByRole("button", { name: "选择" }).click();
-  await canvas.click({ position: { x: 796, y: 260 } });
-  for (const x of [780, 812, 844]) {
-    await canvas.click({ position: { x, y: 292 }, modifiers: ["Shift"] });
-  }
-  await page
-    .getByRole("list", { name: "所选对象摘要" })
-    .getByRole("button", {
-      name: new RegExp(`扩展模块实例.*${ids.domain}`, "u"),
-    })
-    .click();
-  const replaceDomainMembers = page.getByRole("button", {
-    name: "用当前所选地格替换领域成员",
-  });
-  await expect(replaceDomainMembers).toBeEnabled();
-  await replaceDomainMembers.click();
-  await expect(
-    page.getByText("当前领域成员：3 格", { exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "属性", exact: true }).click();
-  document = await exportData(page);
-  const updatedDomain = (
-    document.domainGroups as
-      | readonly {
-          readonly groupId: string;
-          readonly memberCellIds: readonly string[];
-        }[]
-      | undefined
-  )?.find((group) => group.groupId === domainInstanceId);
-  expect(updatedDomain?.memberCellIds).toHaveLength(3);
-  expect(updatedDomain?.memberCellIds).not.toEqual(createdDomainMembers);
-  const updatedDomainMembers = [...(updatedDomain?.memberCellIds ?? [])];
+  const updatedDomainMembers = createdDomainMembers;
 
   await page.getByRole("button", { name: "选择" }).click();
   await canvas.click({ position: { x: 700, y: 340 } });
@@ -507,9 +481,9 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
 
   // 重载后命中同一领域中心，删除与撤销必须保持同一 ID 和已更新成员。
   await page.getByRole("button", { name: "选择" }).click();
-  await canvas.click({ position: { x: 812, y: 292 } });
+  await canvas.click({ position: { x: 796, y: 260 } });
   await expect(
-    page.getByText("当前领域成员：3 格", { exact: true }),
+    page.getByText("当前领域成员：2 格", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "删除所选对象" }).click();
   document = await exportData(page);

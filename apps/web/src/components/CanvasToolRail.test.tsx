@@ -72,7 +72,7 @@ describe("CanvasToolRail", () => {
     const user = userEvent.setup();
     const onTool = vi.fn();
     const onEraserMode = vi.fn();
-    render(
+    const view = render(
       <I18nextProvider i18n={i18n}>
         <Tooltip.Provider delayDuration={0}>
           <CanvasToolRail
@@ -89,7 +89,16 @@ describe("CanvasToolRail", () => {
       </I18nextProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: "橡皮擦" }));
+    const eraser = screen.getByRole("button", {
+      name: "橡皮擦 · 单击擦除",
+    });
+    expect(eraser.textContent).toContain("单击");
+    await user.hover(eraser);
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      "单击擦除",
+    );
+    await user.unhover(eraser);
+    await user.click(eraser);
     expect(screen.getByRole("dialog", { name: "选择擦除方式" })).toBeDefined();
     const click = screen.getByRole("radio", { name: "单击擦除" });
     const drag = screen.getByRole("radio", { name: "滑动擦除" });
@@ -103,6 +112,30 @@ describe("CanvasToolRail", () => {
     ).toBe("drag");
     await user.click(drag);
     expect(onEraserMode).toHaveBeenCalledWith("drag");
+    view.rerender(
+      <I18nextProvider i18n={i18n}>
+        <Tooltip.Provider delayDuration={0}>
+          <CanvasToolRail
+            tool="eraser"
+            catalogCollapsed={false}
+            overlayType="marker"
+            eraserMode="drag"
+            onTool={onTool}
+            onOverlayType={vi.fn()}
+            onEraserMode={onEraserMode}
+            onContext={vi.fn()}
+          />
+        </Tooltip.Provider>
+      </I18nextProvider>,
+    );
+    const dragEraser = screen.getByRole("button", {
+      name: "橡皮擦 · 滑动擦除",
+    });
+    expect(dragEraser.textContent).toContain("滑动");
+    await user.hover(dragEraser);
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      "滑动擦除",
+    );
   });
 
   it("所有快捷子选项共用桌面单行排版契约", () => {

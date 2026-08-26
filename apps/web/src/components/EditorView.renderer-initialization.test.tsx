@@ -164,6 +164,41 @@ describe("EditorView renderer initialization", () => {
     expect(within(inspector).getByLabelText("标记形状")).toBeDefined();
   });
 
+  it("空白普通点击清除选择并关闭属性，Shift 空白保持原选择且不误开", async () => {
+    rendererMocks.initialize.mockResolvedValue();
+    const store = new EditorStore(project());
+    const overlayId = store.placeMarker({ x: 36, y: 36 });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EditorView
+          store={store}
+          repository={{ save: vi.fn(async () => undefined) }}
+          onNew={vi.fn()}
+          onOpenFile={vi.fn(async () => undefined)}
+          onOpenFragmentFile={vi.fn(async () => undefined)}
+        />
+      </I18nextProvider>,
+    );
+
+    await act(async () => rendererMocks.interaction?.select([], true));
+    expect(screen.queryByRole("heading", { name: "属性" })).toBeNull();
+
+    await act(async () =>
+      rendererMocks.interaction?.select(
+        [{ kind: "overlay", id: overlayId }],
+        false,
+      ),
+    );
+    expect(screen.getByRole("heading", { name: "属性" })).toBeDefined();
+    await act(async () => rendererMocks.interaction?.select([], true));
+    expect(store.selection).toEqual([{ kind: "overlay", id: overlayId }]);
+    expect(screen.getByRole("heading", { name: "属性" })).toBeDefined();
+
+    await act(async () => rendererMocks.interaction?.select([], false));
+    expect(store.selection).toEqual([]);
+    expect(screen.queryByRole("heading", { name: "属性" })).toBeNull();
+  });
+
   it("把橡皮擦候选栈交给 Store 删除最顶层可编辑对象", () => {
     rendererMocks.initialize.mockResolvedValue();
     const store = new EditorStore(project());

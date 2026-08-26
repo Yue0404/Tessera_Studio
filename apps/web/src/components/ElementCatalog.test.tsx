@@ -172,7 +172,7 @@ describe("ElementCatalog", () => {
 
   it("按显示名称和分类筛选已载入基础元素，清空搜索恢复全部", () => {
     renderCatalog();
-    expect(screen.getAllByRole("listitem")).toHaveLength(6);
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
     const search = screen.getByRole("searchbox", { name: "搜索元素" });
     fireEvent.change(search, { target: { value: "箭头" } });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
@@ -182,7 +182,7 @@ describe("ElementCatalog", () => {
       ),
     ).toBeDefined();
     fireEvent.change(search, { target: { value: "" } });
-    expect(screen.getAllByRole("listitem")).toHaveLength(6);
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
     fireEvent.change(screen.getByLabelText("分类"), {
       target: { value: "overlay" },
     });
@@ -213,7 +213,7 @@ describe("ElementCatalog", () => {
 
   it("没有选择回调时目录项保持可读但不伪装成按钮", () => {
     renderCatalog();
-    expect(screen.getAllByRole("listitem")).toHaveLength(6);
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
     expect(
       screen.queryByRole("button", { name: /tessera\.basic:marker/u }),
     ).toBeNull();
@@ -224,7 +224,7 @@ describe("ElementCatalog", () => {
     ).toBeDefined();
   });
 
-  it("外部会话误传 basic 重复项时仍保留六个可用内置元素", () => {
+  it("外部会话误传 basic 重复项时仍保留七个可用内置元素", () => {
     renderCatalog({
       onElementSelect: vi.fn(),
       elements: [
@@ -238,7 +238,7 @@ describe("ElementCatalog", () => {
         },
       ],
     });
-    expect(screen.getAllByRole("listitem")).toHaveLength(6);
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
     const text = screen.getByRole("button", {
       name: "使用目录元素 tessera.basic:text",
     });

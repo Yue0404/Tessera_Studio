@@ -457,6 +457,20 @@ export function validateKnownBasicInstance(
       );
       return;
     }
+    case "tessera.basic:object": {
+      if (instance.layerId !== "tessera.basic.domain-object") {
+        throw makeError("basic-layer-mismatch", { pointer });
+      }
+      assertExactKeys(instance.styleOverrides, [], [], stylePointer, makeError);
+      assertExactKeys(
+        instance.attributes,
+        [],
+        [],
+        attributesPointer,
+        makeError,
+      );
+      return;
+    }
     default:
       if (instance.elementId.startsWith("tessera.basic:")) {
         throw makeError("basic-element-unknown", {
@@ -468,7 +482,13 @@ export function validateKnownBasicInstance(
 }
 
 export type BasicPlacement =
-  "cell" | "edge" | "marker-overlay" | "text-overlay" | "line" | "arrow";
+  | "cell"
+  | "edge"
+  | "marker-overlay"
+  | "text-overlay"
+  | "line"
+  | "arrow"
+  | "domain-group";
 
 export function validateKnownBasicPlacement(
   elementId: string,
@@ -483,6 +503,7 @@ export function validateKnownBasicPlacement(
     "tessera.basic:text": "text-overlay",
     "tessera.basic:connection.line": "line",
     "tessera.basic:connection.arrow": "arrow",
+    "tessera.basic:object": "domain-group",
   };
   const expectedPlacement = expected[elementId];
   if (

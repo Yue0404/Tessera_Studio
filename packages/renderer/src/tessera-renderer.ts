@@ -46,6 +46,10 @@ import {
 import { enableRenderLayerSorting } from "./render-layer-order.js";
 import { InteractionRangeState } from "./interaction-range-state.js";
 import {
+  FootprintPlacementState,
+  type FootprintPlacementRejection,
+} from "./footprint-placement.js";
+import {
   WebGlContextLifecycle,
   type RendererContextStatus,
 } from "./webgl-context-lifecycle.js";
@@ -139,6 +143,8 @@ export interface RendererInteraction {
   operationRejected(rejection: RendererInteractionRejection): void;
   select(objects: readonly SelectedObject[], additive: boolean): void;
   eraseCandidates?(objects: readonly SelectedObject[]): SelectedObject | null;
+  placeDomainGroup?(memberCellIds: readonly string[]): void;
+  footprintRejected?(code: FootprintPlacementRejection): void;
   cancelTool(): void;
   contextStatusChanged?(status: RendererContextStatus): void;
   zoomChanged?(zoom: number): void;
@@ -171,6 +177,7 @@ export class TesseraRenderer {
   #painting = false;
   readonly #eraserGesture = new EraserGestureState();
   readonly #connectionDraft = new ConnectionDraftState();
+  readonly #footprintPlacement = new FootprintPlacementState();
   #transientHighlight: SelectedObject | null = null;
   #camera = { x: 0, y: 0 };
   #zoom = 1;
@@ -345,6 +352,7 @@ export class TesseraRenderer {
     if (this.#destroyed) return;
     this.#destroyed = true;
     this.#transientHighlight = null;
+    this.#footprintPlacement.cancel();
     this.#preview.clear();
     this.#resizeObserver?.disconnect();
     this.#contextLifecycle?.destroy();
@@ -695,6 +703,8 @@ export class TesseraRenderer {
   #renderPreview(): void {
     this.#preview.clear();
     this.#renderTransientHighlight();
+    for (const cell of this.#footprintPlacement.preview(this.#visible))
+      this.#drawHighlightPolygon(cell.polygon);
     const state = this.#interaction.getToolState();
     if (
       (state.phase !== "previewing-end" && state.phase !== "committing") ||
@@ -802,6 +812,17 @@ export class TesseraRenderer {
       this.render(this.#state);
       return;
     }
+    if (toolBefore.tool === "object") {
+      event.preventDefault();
+      if (cell === undefined) {
+        this.#interaction.footprintRejected?.("footprint-out-of-bounds");
+        return;
+      }
+      this.#footprintPlacement.begin(event.pointerId, cell.center, cell.cellId);
+      this.#application.canvas.setPointerCapture(event.pointerId);
+      this.render(this.#state);
+      return;
+    }
     if (toolBefore.tool === "brush" || toolBefore.tool === "edge") {
       this.#painting = true;
       this.#interaction.beginStroke();
@@ -848,10 +869,7 @@ export class TesseraRenderer {
         this.#interaction.placeOverlay(point, cell?.cellId ?? null, edge);
       }
     } else if (toolBefore.tool === "select") {
-      // 空白基础地格不是持久擦除候选，但仍可作为领域对象的成员预选。
-      const hit =
-        this.#hitCandidates(point, cell)[0] ??
-        hitTestProjectObject(this.#state, point, cell, this.#zoom);
+      const hit = this.#hitCandidates(point, cell)[0] ?? null;
       this.#interaction.select(hit === null ? [] : [hit], event.shiftKey);
     } else if (toolBefore.tool === "eraser") {
       const candidates = this.#hitCandidates(point, cell);
@@ -921,6 +939,10 @@ export class TesseraRenderer {
       return;
     }
     const point = this.#mapPoint(screen);
+    if (this.#footprintPlacement.move(event.pointerId, point)) {
+      this.render(this.#state);
+      return;
+    }
     this.#interaction.pointerMove(point);
     if (this.#painting) this.#paintAt(point);
     if (this.#eraserGesture.active) {
@@ -966,6 +988,19 @@ export class TesseraRenderer {
     }
     const screen = this.#screenPoint(event);
     const point = this.#mapPoint(screen);
+    const footprint = this.#footprintPlacement.finish(
+      event.pointerId,
+      point,
+      this.#target(point),
+      this.#visible,
+    );
+    if (footprint.status !== "ignored") {
+      if (footprint.status === "committed")
+        this.#interaction.placeDomainGroup?.(footprint.memberCellIds);
+      else this.#interaction.footprintRejected?.(footprint.code);
+      this.render(this.#state);
+      return;
+    }
     const toolState = this.#interaction.getToolState();
     const start = toolState.startPoint;
     if (this.#painting) this.#interaction.endStroke();
@@ -997,6 +1032,7 @@ export class TesseraRenderer {
     this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
     this.#painting = false;
     this.#connectionDraft.reset();
+    this.#footprintPlacement.cancel();
     this.#interaction.cancelTool();
     this.render(this.#state);
   };
@@ -1041,6 +1077,7 @@ export class TesseraRenderer {
     this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
     this.#painting = false;
     this.#connectionDraft.reset();
+    this.#footprintPlacement.cancel();
     this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.render(this.#state);
@@ -1064,6 +1101,7 @@ export class TesseraRenderer {
     this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
     this.#painting = false;
     this.#connectionDraft.reset();
+    this.#footprintPlacement.cancel();
     this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.render(this.#state);
@@ -1089,6 +1127,7 @@ export class TesseraRenderer {
     this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
     this.#painting = false;
     this.#connectionDraft.reset();
+    this.#footprintPlacement.cancel();
     this.#spacePressed = false;
     this.#pan.cancel();
     this.#interaction.cancelConnectionRebind();

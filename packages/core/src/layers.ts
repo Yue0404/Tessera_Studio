@@ -40,6 +40,15 @@ export const FIXED_LAYERS: readonly FixedLayerState[] = Object.freeze([
     allowedKinds: ["overlay"],
   },
   {
+    layerId: "tessera.basic.domain-object",
+    moduleVersion: BASIC_VERSION,
+    zIndex: 3200,
+    visible: true,
+    locked: false,
+    opacity: 1,
+    allowedKinds: ["domain-group"],
+  },
+  {
     layerId: "tessera.basic.connection",
     moduleVersion: BASIC_VERSION,
     zIndex: 4300,

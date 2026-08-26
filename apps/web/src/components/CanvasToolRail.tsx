@@ -94,17 +94,28 @@ export function CanvasToolRail(props: Props) {
         >
           <Brush size={19} />
         </ToolButton>
-        <div className={styles.quickEntry} ref={eraserEntry}>
+        <div
+          className={`${styles.quickEntry} ${styles.eraserEntry}`}
+          ref={eraserEntry}
+          data-eraser-mode={props.eraserMode}
+        >
           <ToolButton
             buttonRef={eraserButton}
-            label={t("tool.eraser")}
+            label={`${t("tool.eraser")} · ${t(`eraserMode.${props.eraserMode}`)}`}
             active={props.tool === "eraser"}
             expandable
             onClick={() =>
               setOpenMenu((current) => (current === "eraser" ? null : "eraser"))
             }
           >
-            <Eraser size={19} />
+            <span className={styles.eraserCurrentMode}>
+              <Eraser size={17} />
+              <small>
+                {props.eraserMode === "click"
+                  ? t("eraserMode.clickShort")
+                  : t("eraserMode.dragShort")}
+              </small>
+            </span>
           </ToolButton>
           {openMenu === "eraser" ? (
             <div

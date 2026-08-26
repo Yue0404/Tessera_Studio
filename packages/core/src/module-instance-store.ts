@@ -9,6 +9,9 @@ import type { MapRect } from "./viewport-clipping.js";
 export type ModuleInstanceRuntimeStatus = "available" | "missing";
 export type ModuleJsonObject = Readonly<Record<string, unknown>>;
 
+export const BASIC_DOMAIN_OBJECT_ELEMENT_ID = "tessera.basic:object";
+export const BASIC_DOMAIN_OBJECT_LAYER_ID = "tessera.basic.domain-object";
+
 interface ModuleInstanceBase {
   readonly instanceId: string;
   readonly elementId: string;
@@ -89,6 +92,17 @@ export type ModuleRuntimeInstance =
   | ModuleOverlayInstance
   | ModuleConnectionInstance
   | ModuleDomainGroupInstance;
+
+/** 初始模块仅允许这个领域对象进入通用实例仓库，其他基础元素仍由专用管理器持有。 */
+export function isBuiltInDomainObjectInstance(
+  instance: Pick<ModuleRuntimeInstance, "elementId" | "layerId" | "kind">,
+): boolean {
+  return (
+    instance.kind === "domain-group" &&
+    instance.elementId === BASIC_DOMAIN_OBJECT_ELEMENT_ID &&
+    instance.layerId === BASIC_DOMAIN_OBJECT_LAYER_ID
+  );
+}
 
 export interface ModuleInstanceStoreContract {
   readonly size: number;
@@ -307,7 +321,10 @@ export class ModuleInstanceStore implements ModuleInstanceStoreContract {
   }
 
   add(instance: ModuleRuntimeInstance): ModuleRuntimeInstance {
-    if (instance.elementId.startsWith("tessera.basic:")) {
+    if (
+      instance.elementId.startsWith("tessera.basic:") &&
+      !isBuiltInDomainObjectInstance(instance)
+    ) {
       throw new Error(`module-instance-basic-owned:${instance.instanceId}`);
     }
     if (this.#byId.has(instance.instanceId)) {
@@ -328,7 +345,10 @@ export class ModuleInstanceStore implements ModuleInstanceStoreContract {
   }
 
   replace(instance: ModuleRuntimeInstance): ModuleRuntimeInstance {
-    if (instance.elementId.startsWith("tessera.basic:")) {
+    if (
+      instance.elementId.startsWith("tessera.basic:") &&
+      !isBuiltInDomainObjectInstance(instance)
+    ) {
       throw new Error(`module-instance-basic-owned:${instance.instanceId}`);
     }
     const previous = this.#byId.get(instance.instanceId);

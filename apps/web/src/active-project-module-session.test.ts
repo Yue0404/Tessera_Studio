@@ -454,6 +454,30 @@ function storeWithActiveModule(): EditorStore {
 }
 
 describe("ActiveProjectModuleSession", () => {
+  it("初始模块对象不依赖 opaque 启用记录，始终可发现并放置", () => {
+    const store = new EditorStore(
+      createProject({
+        name: "基础对象",
+        grid: { type: "square", width: 4, height: 4, cellSize: 32 },
+        style: {
+          canvasBackground: "#09141DFF",
+          defaultCellColor: "#14232DFF",
+          gridColor: "#59656AFF",
+          gridOpacity: 0.7,
+          gridWidth: 1,
+          defaultEdgeColor: "#59656AFF",
+        },
+      }),
+    );
+    const session = new ActiveProjectModuleSession(store, [], "zh-CN");
+    expect(session.get("tessera.basic:object")?.disabledReason).toBeNull();
+    expect(
+      store.state.moduleInstances.get(
+        session.placeDomainGroup("tessera.basic:object", ["cell:square:1:1"]),
+      ),
+    ).toMatchObject({ memberCellIds: ["cell:square:1:1"] });
+  });
+
   it("按精确启用模块发现本地化目录，并显式标记不安全声明", () => {
     const session = new ActiveProjectModuleSession(
       storeWithActiveModule(),
@@ -626,6 +650,61 @@ describe("ActiveProjectModuleSession", () => {
         details: expect.objectContaining({ count: 65, maxMembers: 64 }),
       }),
     );
+  });
+
+  it("初始模块物体支持单格、多格、整体删除与保存重载", () => {
+    const store = storeWithActiveModule();
+    const session = new ActiveProjectModuleSession(
+      store,
+      [BASIC_MODULE_PACKAGE, modulePackage],
+      "zh-CN",
+    );
+    const singleId = session.placeDomainGroup("tessera.basic:object", [
+      "cell:square:1:1",
+    ]);
+    const footprint = [
+      "cell:square:3:2",
+      "cell:square:3:3",
+      "cell:square:3:4",
+      "cell:square:4:2",
+      "cell:square:4:3",
+      "cell:square:4:4",
+    ];
+    const multiId = session.placeDomainGroup("tessera.basic:object", footprint);
+    expect(store.state.moduleInstances.get(singleId)).toMatchObject({
+      kind: "domain-group",
+      memberCellIds: ["cell:square:1:1"],
+    });
+    expect(store.state.moduleInstances.get(multiId)).toMatchObject({
+      kind: "domain-group",
+      memberCellIds: footprint,
+    });
+
+    store.select([{ kind: "module-instance", id: multiId }]);
+    store.deleteSelection();
+    expect(store.state.moduleInstances.get(multiId)).toBeUndefined();
+    store.undo();
+    expect(store.state.moduleInstances.get(multiId)).toBeDefined();
+    store.redo();
+    expect(store.state.moduleInstances.get(multiId)).toBeUndefined();
+    store.undo();
+
+    const document = toProjectV1(store.state);
+    expect(document.domainGroups).toHaveLength(2);
+    const restored = new EditorStore(
+      restoreProjectV1(JSON.stringify(document), {
+        moduleResolver: createInstalledModuleResolver([
+          BASIC_MODULE_PACKAGE,
+          modulePackage,
+        ]),
+        currentAppVersion: "0.1.0",
+        moduleResolutionMode: "strict",
+      }),
+    );
+    expect(restored.state.moduleInstances.get(singleId)).toBeDefined();
+    expect(restored.state.moduleInstances.get(multiId)).toMatchObject({
+      memberCellIds: footprint,
+    });
   });
 
   it("DomainGroup 成员更新跨分块同步索引，支持撤销重做且非法更新回滚", () => {
@@ -900,15 +979,17 @@ describe("ActiveProjectModuleSession", () => {
     );
   });
 
-  it("不把 tessera.basic 重复暴露为 generic 会话元素", () => {
+  it("仅把 tessera.basic 的领域物体暴露给 generic 会话", () => {
     const session = new ActiveProjectModuleSession(
       storeWithActiveModule(),
       [BASIC_MODULE_PACKAGE, modulePackage],
       "zh-CN",
     );
     expect(
-      session.elements.some((element) => element.moduleId === "tessera.basic"),
-    ).toBe(false);
+      session.elements
+        .filter((element) => element.moduleId === "tessera.basic")
+        .map((element) => element.elementId),
+    ).toEqual(["tessera.basic:object"]);
     expect(
       session.elements.some(
         (element) => element.moduleId === "example.weather",
