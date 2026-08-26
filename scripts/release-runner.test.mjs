@@ -6,14 +6,26 @@ import { resolvePnpmInvocation } from "./release-runner.mjs";
 const rootPackage = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
-const [productionConfig, pagesConfig, previewRunner] = await Promise.all([
-  readFile(
-    new URL("../playwright.production.config.ts", import.meta.url),
-    "utf8",
-  ),
-  readFile(new URL("../playwright.pages.config.ts", import.meta.url), "utf8"),
-  readFile(new URL("./run-preview-e2e.mjs", import.meta.url), "utf8"),
-]);
+const [defaultConfig, productionConfig, pagesConfig, previewRunner] =
+  await Promise.all([
+    readFile(new URL("../playwright.config.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../playwright.production.config.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../playwright.pages.config.ts", import.meta.url), "utf8"),
+    readFile(new URL("./run-preview-e2e.mjs", import.meta.url), "utf8"),
+  ]);
+
+test("开发 E2E 在 CI 使用专用端口且不复用残留服务", () => {
+  assert.match(defaultConfig, /resolvePlaywrightWebServerPolicy/u);
+  assert.match(defaultConfig, /--strictPort/u);
+  assert.match(
+    defaultConfig,
+    /reuseExistingServer: webServerPolicy\.reuseExistingServer/u,
+  );
+  assert.doesNotMatch(defaultConfig, /reuseExistingServer:\s*true/u);
+});
 
 test("Windows pnpm.exe 作为可执行文件直接启动", () => {
   assert.deepEqual(
