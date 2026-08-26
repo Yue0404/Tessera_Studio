@@ -46,20 +46,31 @@
 }
 .quickChoices {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
 }
 .quickChoices button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  min-height: 34px;
+  gap: 4px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 5px;
+  overflow: hidden;
   color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   border-radius: 6px;
   cursor: pointer;
+}
+.quickChoices button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .quickChoices button[aria-checked="true"] {
   color: var(--color-bg-app);

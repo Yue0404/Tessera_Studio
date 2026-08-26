@@ -12,6 +12,7 @@ export * from "./render-utils.js";
 export * from "./render-layer-order.js";
 export * from "./renderer-initialization.js";
 export * from "./tessera-renderer.js";
+export * from "./connection-interaction-feedback.js";
 export * from "./webgl-context-lifecycle.js";
 export * from "./camera-transform.js";
 export * from "./pan-interaction-state.js";

@@ -79,7 +79,7 @@ export function ContextPanel({
           ? "tool.modules"
           : "tool.mapSettings";
   return (
-    <aside className={styles.panel}>
+    <aside className={styles.panel} data-canvas-obstruction="right">
       <header>
         <h2>{t(titleKey)}</h2>
         <button

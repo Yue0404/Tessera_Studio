@@ -6,7 +6,10 @@ import {
   type GridType,
   type SelectedObject,
 } from "@tessera/core";
-import type { RendererInteraction } from "@tessera/renderer";
+import type {
+  RendererInteraction,
+  RendererInteractionRejection,
+} from "@tessera/renderer";
 import { I18nextProvider } from "react-i18next";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n.js";
@@ -17,6 +20,9 @@ const rendererMocks = vi.hoisted(() => ({
   initialize: vi.fn<() => Promise<void>>(),
   render: vi.fn(),
   transientHighlight: vi.fn(),
+  centerMap: vi.fn(),
+  setZoom: vi.fn(),
+  zoomByStep: vi.fn(),
   interaction: undefined as RendererInteraction | undefined,
 }));
 
@@ -43,6 +49,18 @@ vi.mock("@tessera/renderer", async (importOriginal) => {
 
       setTransientHighlight(selected: SelectedObject | null): void {
         rendererMocks.transientHighlight(selected);
+      }
+
+      centerMap(insets: unknown): void {
+        rendererMocks.centerMap(insets);
+      }
+
+      setZoom(value: number): void {
+        rendererMocks.setZoom(value);
+      }
+
+      zoomByStep(direction: number): void {
+        rendererMocks.zoomByStep(direction);
       }
 
       destroy(): void {
@@ -83,6 +101,9 @@ describe("EditorView renderer initialization", () => {
     rendererMocks.initialize.mockReset();
     rendererMocks.render.mockReset();
     rendererMocks.transientHighlight.mockReset();
+    rendererMocks.centerMap.mockReset();
+    rendererMocks.setZoom.mockReset();
+    rendererMocks.zoomByStep.mockReset();
     rendererMocks.interaction = undefined;
   });
 
@@ -589,7 +610,19 @@ describe("EditorView renderer initialization", () => {
       </I18nextProvider>,
     );
     act(() =>
-      rendererMocks.interaction?.operationRejected("connection-commit-failed"),
+      rendererMocks.interaction?.operationRejected({
+        code: "connection-commit-failed",
+        expected: "cell-center",
+        target: {
+          hit: "cell-center",
+          point: { x: 36, y: 12 },
+          row: 0,
+          column: 1,
+        },
+      }),
+    );
+    expect(screen.getByTestId("connection-notice").textContent).toContain(
+      "第 1 行、第 2 列",
     );
     expect(
       screen.getByTestId("connection-notice").getAttribute("aria-live"),
@@ -598,6 +631,66 @@ describe("EditorView renderer initialization", () => {
       rendererMocks.interaction?.pointerDown({ x: 1, y: 1 }, "cell:square:0:0"),
     );
     expect(screen.queryByTestId("connection-notice")).toBeNull();
+  });
+
+  it("按实际命中目标说明同起点、无效中心、无效边和无效地图位置", () => {
+    rendererMocks.initialize.mockResolvedValue();
+    const store = new EditorStore(project());
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EditorView
+          store={store}
+          repository={{ save: vi.fn(async () => undefined) }}
+          onNew={vi.fn()}
+          onOpenFile={vi.fn(async () => undefined)}
+          onOpenFragmentFile={vi.fn(async () => undefined)}
+        />
+      </I18nextProvider>,
+    );
+    const cases: readonly [RendererInteractionRejection, string][] = [
+      [
+        {
+          code: "connection-self-not-allowed",
+          expected: "cell-center",
+          target: {
+            hit: "cell-center",
+            point: { x: 36, y: 12 },
+            row: 0,
+            column: 1,
+          },
+        },
+        "当前目标（第 1 行、第 2 列）与起点相同，请选取正确的终点。",
+      ],
+      [
+        {
+          code: "connection-rebind-target-invalid",
+          expected: "cell-center",
+          target: { hit: "map-position", point: { x: 12.5, y: 9 } },
+        },
+        "当前位置（x=12.50，y=9）未命中有效地格中心，请选取正确的地格中心。",
+      ],
+      [
+        {
+          code: "connection-target-invalid",
+          expected: "edge-midpoint",
+          target: { hit: "outside-map", point: { x: -1, y: 20 } },
+        },
+        "当前位置（x=-1，y=20）未命中有效地格边，请选取正确的地格边。",
+      ],
+      [
+        {
+          code: "connection-target-invalid",
+          expected: "map-point",
+          target: { hit: "outside-map", point: { x: 120, y: 20 } },
+        },
+        "当前位置（x=120，y=20）不在有效地图范围内，请选取正确的地图位置。",
+      ],
+    ];
+    for (const [rejection, message] of cases) {
+      act(() => rendererMocks.interaction?.operationRejected(rejection));
+      expect(screen.getByTestId("connection-notice").textContent).toBe(message);
+    }
+    expect(screen.queryByText("连接操作未提交", { exact: false })).toBeNull();
   });
 
   it("重复的同类连接错误会重新计算自动消退时间", () => {
@@ -615,19 +708,94 @@ describe("EditorView renderer initialization", () => {
         />
       </I18nextProvider>,
     );
-    act(() =>
-      rendererMocks.interaction?.operationRejected("connection-commit-failed"),
-    );
+    const rejection = {
+      code: "connection-commit-failed" as const,
+      expected: "edge-midpoint" as const,
+      target: {
+        hit: "cell-edge" as const,
+        point: { x: 24, y: 36 },
+        row: 1,
+        column: 0,
+      },
+    };
+    act(() => rendererMocks.interaction?.operationRejected(rejection));
     const firstNotice = screen.getByTestId("connection-notice");
     act(() => vi.advanceTimersByTime(3_000));
-    act(() =>
-      rendererMocks.interaction?.operationRejected("connection-commit-failed"),
-    );
+    act(() => rendererMocks.interaction?.operationRejected(rejection));
     expect(screen.getByTestId("connection-notice")).not.toBe(firstNotice);
     act(() => vi.advanceTimersByTime(300));
     expect(screen.getByTestId("connection-notice")).toBeDefined();
     act(() => vi.advanceTimersByTime(2_901));
     expect(screen.queryByTestId("connection-notice")).toBeNull();
     vi.useRealTimers();
+  });
+
+  it("居中时按当前左右 DOM 占用计算画布边距", async () => {
+    rendererMocks.initialize.mockResolvedValue();
+    const store = new EditorStore(project());
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EditorView
+          store={store}
+          repository={{ save: vi.fn(async () => undefined) }}
+          onNew={vi.fn()}
+          onOpenFile={vi.fn(async () => undefined)}
+          onOpenFragmentFile={vi.fn(async () => undefined)}
+        />
+      </I18nextProvider>,
+    );
+    const root = screen.getByRole("main");
+    vi.spyOn(root, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 1_000,
+      height: 800,
+      top: 0,
+      right: 1_000,
+      bottom: 800,
+      left: 0,
+      toJSON: () => ({}),
+    });
+    const leftElements = root.querySelectorAll<HTMLElement>(
+      '[data-canvas-obstruction="left"]',
+    );
+    const rightElements = root.querySelectorAll<HTMLElement>(
+      '[data-canvas-obstruction="right"]',
+    );
+    [...leftElements].forEach((element, index) =>
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+        x: 12,
+        y: 76,
+        width: index === 0 ? 316 : 386,
+        height: 600,
+        top: 76,
+        right: index === 0 ? 328 : 398,
+        bottom: 676,
+        left: 12,
+        toJSON: () => ({}),
+      }),
+    );
+    [...rightElements].forEach((element) =>
+      vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+        x: 940,
+        y: 76,
+        width: 48,
+        height: 300,
+        top: 76,
+        right: 988,
+        bottom: 376,
+        left: 940,
+        toJSON: () => ({}),
+      }),
+    );
+
+    await act(async () => Promise.resolve());
+    fireEvent.click(screen.getByRole("button", { name: "居中" }));
+    expect(rendererMocks.centerMap).toHaveBeenCalledWith({
+      top: 0,
+      right: 60,
+      bottom: 0,
+      left: 398,
+    });
   });
 });

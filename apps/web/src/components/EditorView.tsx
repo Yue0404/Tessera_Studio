@@ -39,6 +39,7 @@ import {
 } from "../active-project-module-session.js";
 import { createFillRegionWorker } from "../fill-region-worker-adapter.js";
 import { dispatchEditorShortcut } from "../editor-shortcuts.js";
+import { canvasObstructionInsets } from "../canvas-obstruction-insets.js";
 import {
   downloadSaveRecoveryProject,
   saveFailureTranslationKey,
@@ -90,6 +91,50 @@ function projectHasSelectedObject(
   return state.moduleInstances.get(selected.id) !== undefined;
 }
 
+function coordinateLabel(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function connectionRejectionNotice(rejection: RendererInteractionRejection) {
+  const values = {
+    x: coordinateLabel(rejection.target.point.x),
+    y: coordinateLabel(rejection.target.point.y),
+    row: (rejection.target.row ?? 0) + 1,
+    column: (rejection.target.column ?? 0) + 1,
+  };
+  if (rejection.code === "connection-self-not-allowed") {
+    return {
+      key:
+        rejection.target.hit === "cell-center"
+          ? "error.connectionSelfCell"
+          : rejection.target.hit === "cell-edge"
+            ? "error.connectionSelfEdge"
+            : "error.connectionSelfPosition",
+      values,
+    };
+  }
+  if (rejection.code === "connection-commit-failed") {
+    return {
+      key:
+        rejection.expected === "cell-center"
+          ? "error.connectionCommitCellCenter"
+          : rejection.expected === "edge-midpoint"
+            ? "error.connectionCommitEdge"
+            : "error.connectionCommitMapPoint",
+      values,
+    };
+  }
+  return {
+    key:
+      rejection.expected === "cell-center"
+        ? "error.connectionInvalidCellCenter"
+        : rejection.expected === "edge-midpoint"
+          ? "error.connectionInvalidEdge"
+          : "error.connectionInvalidMapPoint",
+    values,
+  };
+}
+
 export function EditorView({
   store,
   repository,
@@ -107,6 +152,7 @@ export function EditorView({
   const state = store.state;
   const revision = state.revision;
   const canvasHost = useRef<HTMLDivElement>(null);
+  const editorRoot = useRef<HTMLElement>(null);
   const renderer = useRef<TesseraRenderer | undefined>(undefined);
   const fileInput = useRef<HTMLInputElement>(null);
   const fragmentInput = useRef<HTMLInputElement>(null);
@@ -166,6 +212,7 @@ export function EditorView({
   );
   const [connectionNotice, setConnectionNotice] = useState<{
     readonly key: string;
+    readonly values: Readonly<Record<string, string | number>>;
     readonly sequence: number;
   } | null>(null);
   const [fillBusy, setFillBusy] = useState(false);
@@ -452,16 +499,10 @@ export function EditorView({
           return committed;
         },
         cancelConnectionRebind: () => setConnectionRebind(null),
-        operationRejected: (code: RendererInteractionRejection) => {
-          const keyByCode = {
-            "connection-self-not-allowed": "error.connectionSelf",
-            "connection-rebind-target-invalid":
-              "error.connectionRebindTargetInvalid",
-            "connection-commit-failed": "error.connectionCommitFailed",
-          } as const;
-          const key = keyByCode[code];
+        operationRejected: (rejection: RendererInteractionRejection) => {
+          const notice = connectionRejectionNotice(rejection);
           setConnectionNotice({
-            key,
+            ...notice,
             sequence: ++connectionNoticeSequence.current,
           });
         },
@@ -764,6 +805,7 @@ export function EditorView({
   return (
     <Tooltip.Provider delayDuration={280}>
       <main
+        ref={editorRoot}
         className={styles.editor}
         data-project-revision={revision}
         data-grid-type={state.grid.type}
@@ -1099,8 +1141,34 @@ export function EditorView({
           pointerStatus={pointerStatus}
           onZoomOut={() => renderer.current?.zoomByStep(-1)}
           onZoomIn={() => renderer.current?.zoomByStep(1)}
+          onZoomChange={(value) => renderer.current?.setZoom(value)}
           onResetZoom={() => renderer.current?.setZoom(1)}
-          onCenterMap={() => renderer.current?.centerMap()}
+          onCenterMap={() => {
+            const root = editorRoot.current;
+            if (root === null) return;
+            const viewport = root.getBoundingClientRect();
+            const obstructions = [
+              ...root.querySelectorAll<HTMLElement>(
+                "[data-canvas-obstruction]",
+              ),
+            ].flatMap((element) => {
+              const side = element.dataset.canvasObstruction;
+              return side === "left" || side === "right"
+                ? [
+                    {
+                      side:
+                        side === "left"
+                          ? ("left" as const)
+                          : ("right" as const),
+                      rect: element.getBoundingClientRect(),
+                    },
+                  ]
+                : [];
+            });
+            renderer.current?.centerMap(
+              canvasObstructionInsets(viewport, obstructions),
+            );
+          }}
           onFitMap={() => {
             const result = renderer.current?.fitMap();
             if (result?.status === "limited")
@@ -1132,7 +1200,7 @@ export function EditorView({
             aria-live="polite"
             data-testid="connection-notice"
           >
-            {t(connectionNotice.key)}
+            {t(connectionNotice.key, connectionNotice.values)}
           </div>
         ) : null}
         {(errorKey !== null ||

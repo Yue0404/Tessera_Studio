@@ -253,9 +253,24 @@ export const zhCN = {
     "operation.layer-module-missing":
       "“{{layer}}”所属模块缺失，数据保持只读且未执行操作。",
     "operation.layer-unavailable": "目标图层“{{layer}}”不可用，未执行操作。",
-    "error.connectionSelf": "连接的起点和终点不能是同一目标，请重新选择。",
-    "error.connectionRebindTargetInvalid": "重绑定端点需要点击合法地格。",
-    "error.connectionCommitFailed": "连接操作未提交，请修正目标后重试。",
+    "error.connectionSelfCell":
+      "当前目标（第 {{row}} 行、第 {{column}} 列）与起点相同，请选取正确的终点。",
+    "error.connectionSelfEdge":
+      "当前目标（第 {{row}} 行、第 {{column}} 列的地格边）与起点相同，请选取正确的终点。",
+    "error.connectionSelfPosition":
+      "当前位置（x={{x}}，y={{y}}）与起点相同，请选取正确的终点。",
+    "error.connectionInvalidCellCenter":
+      "当前位置（x={{x}}，y={{y}}）未命中有效地格中心，请选取正确的地格中心。",
+    "error.connectionInvalidEdge":
+      "当前位置（x={{x}}，y={{y}}）未命中有效地格边，请选取正确的地格边。",
+    "error.connectionInvalidMapPoint":
+      "当前位置（x={{x}}，y={{y}}）不在有效地图范围内，请选取正确的地图位置。",
+    "error.connectionCommitCellCenter":
+      "当前目标（第 {{row}} 行、第 {{column}} 列）未能作为终点提交，请选取正确的地格中心。",
+    "error.connectionCommitEdge":
+      "当前目标（第 {{row}} 行、第 {{column}} 列的地格边）未能作为终点提交，请选取正确的地格边。",
+    "error.connectionCommitMapPoint":
+      "当前位置（x={{x}}，y={{y}}）未能作为终点提交，请选取正确的地图位置。",
     "error.moduleTextInvalid": "文字最多 256 个字素、8 行，未保存更改。",
     "error.domainGroupMemberCount":
       "领域对象必须由当前选择中的 2–64 个地格创建，工程未更改。",
@@ -329,6 +344,7 @@ export const zhCN = {
     "status.connections": "连线与箭头",
     "status.zoom": "缩放 {{percent}}%",
     "zoom.controls": "地图缩放",
+    "zoom.input": "缩放百分比",
     "zoom.in": "放大地图",
     "zoom.out": "缩小地图",
     "zoom.reset": "100%",

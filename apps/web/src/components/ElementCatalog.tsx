@@ -256,6 +256,7 @@ export function ElementCatalog(props: Props) {
     return (
       <button
         className={styles.restore}
+        data-canvas-obstruction="left"
         type="button"
         onClick={props.onToggle}
         aria-label={t("catalog.expand")}
@@ -268,6 +269,7 @@ export function ElementCatalog(props: Props) {
     <aside
       ref={panelRef}
       className={styles.panel}
+      data-canvas-obstruction="left"
       data-testid="element-catalog-panel"
     >
       <header>
