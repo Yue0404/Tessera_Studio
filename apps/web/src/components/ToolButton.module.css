@@ -25,12 +25,18 @@
 }
 .tooltip {
   z-index: 20;
+  /* 提示只负责说明，不参与指针命中，避免遮挡相邻工具。 */
+  pointer-events: none;
   padding: 6px 9px;
   font-size: 12px;
   color: var(--color-text);
   background: var(--color-surface-1);
   border: 1px solid var(--color-border);
   border-radius: 6px;
+}
+/* Radix 的定位包装层同样参与命中；只关闭含本组件提示的包装层。 */
+:global([data-radix-popper-content-wrapper]):has(> .tooltip) {
+  pointer-events: none;
 }
 .arrow {
   fill: var(--color-border);

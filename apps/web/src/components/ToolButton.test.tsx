@@ -1,8 +1,15 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToolButton } from "./ToolButton.js";
+
+const toolButtonCss = readFileSync(
+  resolve(process.cwd(), "apps/web/src/components/ToolButton.module.css"),
+  "utf8",
+);
 
 describe("ToolButton", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -30,5 +37,11 @@ describe("ToolButton", () => {
     await user.hover(button);
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.getAttribute("data-side")).toBe("left");
+    expect(toolButtonCss).toMatch(
+      /\.tooltip\s*\{[^}]*pointer-events:\s*none;/u,
+    );
+    expect(toolButtonCss).toMatch(
+      /:global\(\[data-radix-popper-content-wrapper\]\):has\(> \.tooltip\)\s*\{[^}]*pointer-events:\s*none;/u,
+    );
   });
 });
