@@ -19,6 +19,27 @@ export type ViewNavigationPlan =
   | { readonly status: "limited"; readonly requiredZoom: number }
   | { readonly status: "empty" };
 
+export interface ScreenRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface ScreenInsets {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
+export const EMPTY_SCREEN_INSETS: ScreenInsets = {
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+};
+
 function includePoint(
   bounds: MapRect | null,
   point: MapPoint,
@@ -125,13 +146,21 @@ export function centerBoundsPlan(
   viewportWidth: number,
   viewportHeight: number,
   zoom: number,
+  insets: Readonly<ScreenInsets> = EMPTY_SCREEN_INSETS,
 ): ViewNavigationPlan {
+  const left = Math.max(0, Math.min(viewportWidth, insets.left));
+  const right = Math.max(0, Math.min(viewportWidth - left, insets.right));
+  const top = Math.max(0, Math.min(viewportHeight, insets.top));
+  const bottom = Math.max(0, Math.min(viewportHeight - top, insets.bottom));
+  const availableCenterX = left + (viewportWidth - left - right) / 2;
+  const availableCenterY = top + (viewportHeight - top - bottom) / 2;
+  const safeZoom = clampZoom(zoom);
   return {
     status: "applied",
-    zoom: clampZoom(zoom),
+    zoom: safeZoom,
     camera: {
-      x: viewportWidth / 2 - ((bounds.minX + bounds.maxX) / 2) * zoom,
-      y: viewportHeight / 2 - ((bounds.minY + bounds.maxY) / 2) * zoom,
+      x: availableCenterX - ((bounds.minX + bounds.maxX) / 2) * safeZoom,
+      y: availableCenterY - ((bounds.minY + bounds.maxY) / 2) * safeZoom,
     },
   };
 }

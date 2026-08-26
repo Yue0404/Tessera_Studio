@@ -49,3 +49,40 @@
   min-width: 72px;
   text-align: center;
 }
+
+.zoomLevel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.zoomInput {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-text-muted);
+}
+
+.zoomInput > span:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.zoomInput input {
+  width: 48px;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  font: inherit;
+  text-align: right;
+}

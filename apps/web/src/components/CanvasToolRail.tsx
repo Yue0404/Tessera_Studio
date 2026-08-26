@@ -6,7 +6,9 @@ import {
   Layers3,
   Map,
   MapPin,
+  MousePointerClick,
   MousePointer2,
+  MoveHorizontal,
   Package,
   PanelRight,
   PenLine,
@@ -66,6 +68,7 @@ export function CanvasToolRail(props: Props) {
       <div
         className={styles.toolRail}
         data-collapsed={props.catalogCollapsed}
+        data-canvas-obstruction="left"
         data-testid="canvas-tool-rail"
         role="toolbar"
         aria-label={t("toolbar.canvasTools")}
@@ -124,10 +127,18 @@ export function CanvasToolRail(props: Props) {
                     type="button"
                     role="radio"
                     aria-checked={props.eraserMode === mode}
+                    data-quick-choice-layout="single-line"
                     onClick={() => chooseEraserMode(mode)}
                   >
-                    <Eraser size={16} />
-                    {t(`eraserMode.${mode}`)}
+                    {mode === "click" ? (
+                      <MousePointerClick
+                        size={15}
+                        data-quick-choice-icon="click"
+                      />
+                    ) : (
+                      <MoveHorizontal size={15} data-quick-choice-icon="drag" />
+                    )}
+                    <span>{t(`eraserMode.${mode}`)}</span>
                   </button>
                 ))}
               </div>
@@ -176,19 +187,21 @@ export function CanvasToolRail(props: Props) {
                   type="button"
                   role="radio"
                   aria-checked={props.overlayType === "marker"}
+                  data-quick-choice-layout="single-line"
                   onClick={() => chooseOverlayType("marker")}
                 >
                   <MapPin size={16} />
-                  {t("markerQuick.marker")}
+                  <span>{t("markerQuick.marker")}</span>
                 </button>
                 <button
                   type="button"
                   role="radio"
                   aria-checked={props.overlayType === "text"}
+                  data-quick-choice-layout="single-line"
                   onClick={() => chooseOverlayType("text")}
                 >
                   <Type size={16} />
-                  {t("markerQuick.text")}
+                  <span>{t("markerQuick.text")}</span>
                 </button>
               </div>
             </div>
@@ -211,6 +224,7 @@ export function CanvasToolRail(props: Props) {
       </div>
       <div
         className={styles.contextRail}
+        data-canvas-obstruction="right"
         role="toolbar"
         aria-label={t("toolbar.contextPanels")}
       >

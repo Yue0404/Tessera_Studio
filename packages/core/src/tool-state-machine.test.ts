@@ -70,6 +70,25 @@ describe("工具状态机", () => {
     });
   });
 
+  it("终点未命中时复位草稿并允许立即重新选择起点", () => {
+    const machine = new ToolStateMachine();
+    machine.selectTool("connection");
+    machine.pointerDown({ x: 1, y: 1 }, "cell:square:0:0");
+    expect(() => machine.pointerDown({ x: -1, y: -1 }, null)).toThrow(
+      InvalidToolTransitionError,
+    );
+    expect(machine.state).toMatchObject({
+      phase: "choosing-start",
+      startCellId: null,
+      startPoint: null,
+    });
+    machine.pointerDown({ x: 2, y: 2 }, "cell:square:1:1");
+    expect(machine.state).toMatchObject({
+      phase: "previewing-end",
+      startCellId: "cell:square:1:1",
+    });
+  });
+
   it("切换工具取消未完成连线", () => {
     const machine = new ToolStateMachine();
     machine.selectTool("connection");

@@ -51,9 +51,49 @@ test("最大地图适应限制、内容适应、指针状态和快捷键保持�
   await expect(page.getByTestId("cell-count")).toContainText("1");
   await page.getByRole("button", { name: "适应已有内容" }).click();
   await expect(page.getByTestId("zoom-level")).toHaveText("缩放 400%");
+  const zoomInput = page.getByRole("spinbutton", { name: "缩放百分比" });
+  await zoomInput.fill("450");
+  await zoomInput.press("Enter");
+  await expect(page.getByTestId("zoom-level")).toHaveText("缩放 400%");
+  await zoomInput.fill("5");
+  await zoomInput.blur();
+  await expect(page.getByTestId("zoom-level")).toHaveText("缩放 25%");
+  await zoomInput.fill("250");
+  await zoomInput.press("Escape");
+  await expect(zoomInput).toHaveValue("25");
   await page.getByRole("button", { name: "100%" }).click();
   await expect(page.getByTestId("zoom-level")).toHaveText("缩放 100%");
+  await page.getByRole("button", { name: "地图设置" }).click();
   await page.getByRole("button", { name: "居中" }).click();
+  const centering = await page.evaluate(() => {
+    const root = document.querySelector("main");
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      '[data-testid="map-canvas"]',
+    );
+    if (root === null || canvas === null)
+      throw new Error("center-proof-missing");
+    const rootRect = root.getBoundingClientRect();
+    let left = 0;
+    let right = 0;
+    for (const element of root.querySelectorAll<HTMLElement>(
+      "[data-canvas-obstruction]",
+    )) {
+      const rect = element.getBoundingClientRect();
+      if (element.dataset.canvasObstruction === "left") {
+        left = Math.max(left, rect.right - rootRect.left);
+      } else if (element.dataset.canvasObstruction === "right") {
+        right = Math.max(right, rootRect.right - rect.left);
+      }
+    }
+    const zoom = Number(canvas.dataset.zoom);
+    const cameraX = Number(canvas.dataset.cameraX);
+    const cellSize = Number(canvas.dataset.gridCellSize);
+    return {
+      actual: cameraX + (40_000 * cellSize * zoom) / 2,
+      expected: left + (rootRect.width - left - right) / 2,
+    };
+  });
+  expect(Math.abs(centering.actual - centering.expected)).toBeLessThan(1);
   await canvas.hover({ position: { x: 400, y: 300 } });
   await expect(page.getByTestId("pointer-status")).not.toHaveText(
     "指针：地图外",

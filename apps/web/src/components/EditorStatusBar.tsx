@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProjectState } from "@tessera/core";
 import type { PointerLogicalStatus } from "@tessera/renderer";
@@ -8,6 +9,7 @@ export function EditorStatusBar({
   zoom,
   onZoomOut,
   onZoomIn,
+  onZoomChange,
   saveStatusKey,
   pointerStatus,
   onResetZoom,
@@ -19,6 +21,7 @@ export function EditorStatusBar({
   zoom: number;
   onZoomOut(): void;
   onZoomIn(): void;
+  onZoomChange(zoom: number): void;
   saveStatusKey: string;
   pointerStatus: PointerLogicalStatus | null;
   onResetZoom(): void;
@@ -27,6 +30,26 @@ export function EditorStatusBar({
   onFitContent(): void;
 }) {
   const { t } = useTranslation();
+  const percent = Math.round(zoom * 100);
+  const [zoomDraft, setZoomDraft] = useState(String(percent));
+  const editingZoom = useRef(false);
+
+  useEffect(() => {
+    if (!editingZoom.current) setZoomDraft(String(percent));
+  }, [percent]);
+
+  const commitZoom = () => {
+    if (!editingZoom.current) return;
+    editingZoom.current = false;
+    const parsed = Number(zoomDraft);
+    if (!Number.isFinite(parsed) || zoomDraft.trim() === "") {
+      setZoomDraft(String(percent));
+      return;
+    }
+    const clamped = Math.min(400, Math.max(25, parsed));
+    setZoomDraft(String(clamped));
+    onZoomChange(clamped / 100);
+  };
   return (
     <div className={styles.status} aria-live="polite">
       <span>
@@ -65,9 +88,43 @@ export function EditorStatusBar({
         >
           −
         </button>
-        <output data-testid="zoom-level" aria-live="polite">
+        <output
+          className={styles.zoomLevel}
+          data-testid="zoom-level"
+          aria-live="polite"
+        >
           {t("status.zoom", { percent: Math.round(zoom * 100) })}
         </output>
+        <label className={styles.zoomInput}>
+          <span>{t("zoom.input")}</span>
+          <input
+            type="number"
+            min={25}
+            max={400}
+            step={1}
+            inputMode="decimal"
+            value={zoomDraft}
+            aria-label={t("zoom.input")}
+            onFocus={() => {
+              editingZoom.current = true;
+            }}
+            onChange={(event) => setZoomDraft(event.target.value)}
+            onBlur={commitZoom}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitZoom();
+                event.currentTarget.blur();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                editingZoom.current = false;
+                setZoomDraft(String(percent));
+                event.currentTarget.blur();
+              }
+            }}
+          />
+          <span aria-hidden="true">%</span>
+        </label>
         <button
           type="button"
           title={t("zoom.in")}

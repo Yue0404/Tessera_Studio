@@ -454,7 +454,10 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
   await page.getByRole("button", { name: "重新绑定起点" }).click();
   await canvas.click({ position: { x: 460, y: 300 } });
   await expect(page.getByTestId("connection-notice")).toContainText(
-    "不能是同一目标",
+    /当前目标（第 \d+ 行、第 \d+ 列）与起点相同，请选取正确的终点。/,
+  );
+  await expect(page.getByText("连接操作未提交", { exact: false })).toHaveCount(
+    0,
   );
   await expect(page.getByText(/正在重新绑定起点/)).toBeVisible();
   await canvas.click({ position: { x: 420, y: 360 } });

@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -88,7 +91,31 @@ describe("CanvasToolRail", () => {
 
     await user.click(screen.getByRole("button", { name: "橡皮擦" }));
     expect(screen.getByRole("dialog", { name: "选择擦除方式" })).toBeDefined();
-    await user.click(screen.getByRole("radio", { name: "滑动擦除" }));
+    const click = screen.getByRole("radio", { name: "单击擦除" });
+    const drag = screen.getByRole("radio", { name: "滑动擦除" });
+    expect(click.getAttribute("data-quick-choice-layout")).toBe("single-line");
+    expect(drag.getAttribute("data-quick-choice-layout")).toBe("single-line");
+    expect(
+      click.querySelector("svg")?.getAttribute("data-quick-choice-icon"),
+    ).toBe("click");
+    expect(
+      drag.querySelector("svg")?.getAttribute("data-quick-choice-icon"),
+    ).toBe("drag");
+    await user.click(drag);
     expect(onEraserMode).toHaveBeenCalledWith("drag");
+  });
+
+  it("所有快捷子选项共用桌面单行排版契约", () => {
+    const css = readFileSync(
+      resolve(
+        process.cwd(),
+        "apps/web/src/components/CanvasToolRail.module.css",
+      ),
+      "utf8",
+    );
+    const buttonRule = css.match(/\.quickChoices button \{([\s\S]*?)\}/u)?.[1];
+    expect(buttonRule).toContain("font-size: 12px");
+    expect(buttonRule).toContain("white-space: nowrap");
+    expect(buttonRule).toContain("overflow: hidden");
   });
 });

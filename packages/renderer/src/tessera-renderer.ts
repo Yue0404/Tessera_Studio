@@ -19,6 +19,12 @@ import {
 } from "@tessera/core";
 import { ConnectionRenderer } from "./connection-renderer.js";
 import { ConnectionDraftState } from "./connection-draft-state.js";
+import {
+  connectionFeedbackTarget,
+  pointInsideMapBounds,
+  type ConnectionExpectedTarget,
+  type RendererInteractionRejection,
+} from "./connection-interaction-feedback.js";
 import { EraserGestureState } from "./eraser-gesture-state.js";
 import { connectionTargetToken } from "./connection-target-token.js";
 import { GridRenderer } from "./grid-renderer.js";
@@ -61,6 +67,7 @@ import {
   fitBoundsPlan,
   gridMapBounds,
   projectContentBounds,
+  type ScreenInsets,
   type ViewNavigationPlan,
 } from "./viewport-navigation.js";
 
@@ -83,10 +90,7 @@ export interface ConnectionRebindTarget {
   readonly endpoint: "start" | "end";
 }
 
-export type RendererInteractionRejection =
-  | "connection-self-not-allowed"
-  | "connection-rebind-target-invalid"
-  | "connection-commit-failed";
+export type { RendererInteractionRejection } from "./connection-interaction-feedback.js";
 
 export interface PointerLogicalStatus {
   readonly row: number;
@@ -132,7 +136,7 @@ export interface RendererInteraction {
     cellId: string,
   ): boolean;
   cancelConnectionRebind(): void;
-  operationRejected(code: RendererInteractionRejection): void;
+  operationRejected(rejection: RendererInteractionRejection): void;
   select(objects: readonly SelectedObject[], additive: boolean): void;
   eraseCandidates?(objects: readonly SelectedObject[]): SelectedObject | null;
   cancelTool(): void;
@@ -423,13 +427,14 @@ export class TesseraRenderer {
     return this.setZoom(next);
   }
 
-  centerMap(): ViewNavigationPlan {
+  centerMap(insets?: Readonly<ScreenInsets>): ViewNavigationPlan {
     return this.#applyViewPlan(
       centerBoundsPlan(
         gridMapBounds(this.#state.grid),
         this.#host.clientWidth,
         this.#host.clientHeight,
         this.#zoom,
+        insets,
       ),
     );
   }
@@ -514,6 +519,8 @@ export class TesseraRenderer {
   ): { endpoint: ConnectionEndpoint; edge: EdgePlacementTarget | null } | null {
     const kind = this.#interaction.getConnectionPlacement().endpoint;
     if (kind === "map-point") {
+      if (!pointInsideMapBounds(point, gridMapBounds(this.#state.grid)))
+        return null;
       return { endpoint: { kind, point: { ...point } }, edge: null };
     }
     if (cell === undefined) return null;
@@ -522,6 +529,25 @@ export class TesseraRenderer {
     }
     const edge = this.#edgeTarget(cell, point);
     return { endpoint: { kind, edgeId: edge.edgeId }, edge };
+  }
+
+  #connectionRejection(
+    code: RendererInteractionRejection["code"],
+    expected: ConnectionExpectedTarget,
+    point: Readonly<MapPoint>,
+    cell: Readonly<VisibleCell> | undefined,
+    endpoint: Readonly<ConnectionEndpoint> | null,
+  ): RendererInteractionRejection {
+    return {
+      code,
+      expected,
+      target: connectionFeedbackTarget(
+        point,
+        cell,
+        endpoint,
+        gridMapBounds(this.#state.grid),
+      ),
+    };
   }
 
   #boxSelection(rect: MapRect): SelectedObject[] {
@@ -730,19 +756,47 @@ export class TesseraRenderer {
     if (rebind !== null) {
       event.preventDefault();
       if (cell === undefined) {
-        this.#interaction.operationRejected("connection-rebind-target-invalid");
+        this.#interaction.operationRejected(
+          this.#connectionRejection(
+            "connection-rebind-target-invalid",
+            "cell-center",
+            point,
+            cell,
+            null,
+          ),
+        );
         return;
       }
+      const endpoint = {
+        kind: "cell-center" as const,
+        cellId: cell.cellId,
+      };
       try {
         if (this.#interaction.commitConnectionRebind(rebind, cell.cellId)) {
           this.#interaction.cancelConnectionRebind();
+        } else {
+          this.#interaction.operationRejected(
+            this.#connectionRejection(
+              "connection-commit-failed",
+              "cell-center",
+              point,
+              cell,
+              endpoint,
+            ),
+          );
         }
       } catch (error) {
         this.#interaction.operationRejected(
-          error instanceof Error &&
-            error.message === "connection-self-not-allowed"
-            ? "connection-self-not-allowed"
-            : "connection-commit-failed",
+          this.#connectionRejection(
+            error instanceof Error &&
+              error.message === "connection-self-not-allowed"
+              ? "connection-self-not-allowed"
+              : "connection-commit-failed",
+            "cell-center",
+            point,
+            cell,
+            endpoint,
+          ),
         );
       }
       this.render(this.#state);
@@ -771,10 +825,16 @@ export class TesseraRenderer {
       this.#eraserGesture.cancel(() => this.#interaction.cancelStroke());
       this.#connectionDraft.reset();
       this.#interaction.operationRejected(
-        error instanceof Error &&
-          error.message === "connection-self-not-allowed"
-          ? "connection-self-not-allowed"
-          : "connection-commit-failed",
+        this.#connectionRejection(
+          error instanceof Error &&
+            error.message === "connection-self-not-allowed"
+            ? "connection-self-not-allowed"
+            : "connection-target-invalid",
+          this.#interaction.getConnectionPlacement().endpoint,
+          point,
+          cell,
+          connectionTarget?.endpoint ?? null,
+        ),
       );
       this.render(this.#state);
       return;
@@ -823,10 +883,26 @@ export class TesseraRenderer {
             this.#interaction.commitConnection(start, end, edges),
         );
         if (!committed)
-          this.#interaction.operationRejected("connection-commit-failed");
+          this.#interaction.operationRejected(
+            this.#connectionRejection(
+              "connection-commit-failed",
+              this.#interaction.getConnectionPlacement().endpoint,
+              point,
+              cell,
+              connectionTarget.endpoint,
+            ),
+          );
       } catch {
         this.#connectionDraft.reset();
-        this.#interaction.operationRejected("connection-commit-failed");
+        this.#interaction.operationRejected(
+          this.#connectionRejection(
+            "connection-commit-failed",
+            this.#interaction.getConnectionPlacement().endpoint,
+            point,
+            cell,
+            connectionTarget.endpoint,
+          ),
+        );
       }
     }
     this.#application.canvas.setPointerCapture(event.pointerId);

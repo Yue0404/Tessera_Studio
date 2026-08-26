@@ -7,6 +7,7 @@ import {
 } from "@tessera/core";
 import { describe, expect, it } from "vitest";
 import {
+  centerBoundsPlan,
   fitBoundsPlan,
   gridMapBounds,
   projectContentBounds,
@@ -83,6 +84,26 @@ describe("视口导航", () => {
     expect(fitBoundsPlan(bounds, 800, 600)).toMatchObject({
       status: "applied",
       zoom: 4,
+    });
+  });
+
+  it.each([
+    ["两侧都关闭", { left: 0, right: 0 }, 500],
+    ["仅左侧打开", { left: 300, right: 0 }, 650],
+    ["仅右侧打开", { left: 0, right: 200 }, 400],
+    ["两侧都打开", { left: 300, right: 200 }, 550],
+  ] as const)("居中在%s时使用剩余可用区域中心", (_name, sides, centerX) => {
+    expect(
+      centerBoundsPlan(
+        { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        1_000,
+        800,
+        1,
+        { top: 0, bottom: 0, ...sides },
+      ),
+    ).toMatchObject({
+      status: "applied",
+      camera: { x: centerX - 50, y: 350 },
     });
   });
 });
