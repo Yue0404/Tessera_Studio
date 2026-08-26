@@ -326,6 +326,7 @@ export type EditorTool =
   | "brush"
   | "edge"
   | "marker"
+  | "object"
   | "connection"
   | "box-select"
   | "eraser";

@@ -201,6 +201,8 @@ export function EditorView({
   const [contextPanel, setContextPanel] = useState<
     "properties" | "layers" | "modules" | "map" | null
   >(null);
+  const contextPanelRef = useRef(contextPanel);
+  contextPanelRef.current = contextPanel;
   const [saveStatusKey, setSaveStatusKey] =
     useState<SaveStatusKey>("status.saved");
   const [saveFailureKey, setSaveFailureKey] = useState<SaveFailureKey | null>(
@@ -507,9 +509,45 @@ export function EditorView({
           });
         },
         eraseCandidates: (objects) => store.eraseFirstEditable(objects),
+        placeDomainGroup: (memberCellIds) => {
+          const elementId = activeModuleElementId.current;
+          if (elementId === null) return;
+          try {
+            const instanceId = moduleSession.placeDomainGroup(
+              elementId,
+              memberCellIds,
+            );
+            store.select([{ kind: "module-instance", id: instanceId }]);
+            setContextPanel("properties");
+            setErrorKey(null);
+          } catch (error) {
+            const code =
+              error instanceof ActiveProjectModuleError
+                ? error.code
+                : "domain-group-member-count-invalid";
+            setErrorKey(
+              code === "domain-group-members-disconnected"
+                ? "error.domainGroupDisconnected"
+                : code === "domain-group-member-out-of-bounds"
+                  ? "error.domainGroupOutOfBounds"
+                  : "error.domainGroupMemberCount",
+            );
+          }
+        },
+        footprintRejected: (code) => {
+          setErrorKey(
+            code === "footprint-too-large"
+              ? "error.objectFootprintTooLarge"
+              : code === "footprint-out-of-bounds"
+                ? "error.objectFootprintOutOfBounds"
+                : "error.objectFootprintEmpty",
+          );
+        },
         select: (objects, additive) => {
           store.select(objects, additive);
           if (store.selection.length > 0) setContextPanel("properties");
+          else if (!additive && contextPanelRef.current === "properties")
+            setContextPanel(null);
         },
         cancelTool: () => {
           store.cancelTool();
@@ -893,7 +931,10 @@ export function EditorView({
           onConnection={setConnection}
           onElementSelect={(elementId) => {
             setConnectionRebind(null);
-            if (elementId.startsWith("tessera.basic:")) {
+            if (
+              elementId.startsWith("tessera.basic:") &&
+              elementId !== "tessera.basic:object"
+            ) {
               activeModuleElementId.current = null;
               setActiveElementId(elementId);
             } else {
@@ -902,29 +943,9 @@ export function EditorView({
                 return;
               setActiveElementId(elementId);
               if (element.definition.primitive === "domain-object") {
-                activeModuleElementId.current = null;
-                try {
-                  const instanceId = moduleSession.placeDomainGroup(
-                    elementId,
-                    store.selection
-                      .filter((selected) => selected.kind === "cell")
-                      .map((selected) => selected.id),
-                  );
-                  store.select([{ kind: "module-instance", id: instanceId }]);
-                  setErrorKey(null);
-                } catch (error) {
-                  const code =
-                    error instanceof ActiveProjectModuleError
-                      ? error.code
-                      : "domain-group-member-count-invalid";
-                  setErrorKey(
-                    code === "domain-group-members-disconnected"
-                      ? "error.domainGroupDisconnected"
-                      : code === "domain-group-member-out-of-bounds"
-                        ? "error.domainGroupOutOfBounds"
-                        : "error.domainGroupMemberCount",
-                  );
-                }
+                activeModuleElementId.current = elementId;
+                setErrorKey(null);
+                store.setTool("object");
                 return;
               }
               activeModuleElementId.current = elementId;

@@ -391,11 +391,18 @@ function validateFragmentSemanticClosure(fragment: Record<string, any>): void {
       group.layerId,
       `/objects/domainGroups/${group.groupId}`,
     );
-    if (group.elementId.startsWith("tessera.basic:")) {
-      throw new FragmentFormatError("basic-domain-group-not-supported", {
-        groupId: group.groupId,
-      });
-    }
+    const pointer = `/objects/domainGroups/${group.groupId}`;
+    validateKnownBasicInstance(
+      group,
+      pointer,
+      (code, details) => new FragmentFormatError(code, details),
+    );
+    validateKnownBasicPlacement(
+      group.elementId,
+      "domain-group",
+      pointer,
+      (code, details) => new FragmentFormatError(code, details),
+    );
     if (
       [...group.memberCellIds].sort(compareCellIds).join("\u0000") !==
       group.memberCellIds.join("\u0000")

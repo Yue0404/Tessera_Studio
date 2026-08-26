@@ -398,6 +398,7 @@ describe("Module Format v1 结构与本地化", () => {
       ["tessera.basic.cell-style", 500],
       ["tessera.basic.edge-style", 1500],
       ["tessera.basic.placed-object", 3000],
+      ["tessera.basic.domain-object", 3200],
       ["tessera.basic.connection", 4300],
       ["tessera.basic.annotation", 4400],
     ]);

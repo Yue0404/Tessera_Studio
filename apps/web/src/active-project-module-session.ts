@@ -13,6 +13,7 @@ import {
   type ModuleRuntimeInstance,
 } from "@tessera/core";
 import {
+  BASIC_MODULE_PACKAGE,
   resolveLocalizedText,
   validateElementFile,
   type AttributePropertySchema,
@@ -40,7 +41,8 @@ import {
 } from "./module-rule-evaluator.js";
 import type { ProjectModuleResourceRuntime } from "./project-module-resource-runtime.js";
 
-export type ModuleElementCategory = "cell" | "edge" | "overlay" | "connection";
+export type ModuleElementCategory =
+  "cell" | "edge" | "object" | "overlay" | "connection";
 export type ModuleElementDisabledReason =
   | "grid-unsupported"
   | "layer-unavailable"
@@ -135,7 +137,17 @@ function categoryFor(element: ModuleElementDefinition): ModuleElementCategory {
   if (element.primitive === "cell-style") return "cell";
   if (element.primitive === "edge-style") return "edge";
   if (element.primitive === "connection") return "connection";
+  if (element.primitive === "domain-object") return "object";
   return "overlay";
+}
+
+function exposedElements(module: ParsedModulePackage) {
+  // 初始模块的专用对象由通用实例管线承载；其余基础元素仍只走既有专用管理器。
+  return module.artifactId === "tessera.basic"
+    ? module.elements.filter(
+        (item) => item.elementId === "tessera.basic:object",
+      )
+    : module.elements;
 }
 
 function runtimeKindFor(
@@ -495,7 +507,8 @@ export function validateActiveProjectModuleInstances(
       .filter(
         (item): item is ParsedModulePackage =>
           item.kind === "module" &&
-          enabled.get(item.artifactId) === item.version,
+          (item.artifactId === "tessera.basic" ||
+            enabled.get(item.artifactId) === item.version),
       )
       .map((module) => [`${module.artifactId}@${module.version}`, module]),
   );
@@ -613,18 +626,23 @@ export class ActiveProjectModuleSession {
     language: string,
   ) {
     this.#store = store;
-    validateActiveProjectModuleInstances(store, packages);
+    const availablePackages = packages.some(
+      (item) => item.kind === "module" && item.artifactId === "tessera.basic",
+    )
+      ? packages
+      : [BASIC_MODULE_PACKAGE, ...packages];
+    validateActiveProjectModuleInstances(store, availablePackages);
     const enabled = enabledModuleVersions(store);
-    const modules = packages.filter(
+    const modules = availablePackages.filter(
       (item): item is ParsedModulePackage =>
         item.kind === "module" &&
-        item.artifactId !== "tessera.basic" &&
-        enabled.get(item.artifactId) === item.version,
+        (item.artifactId === "tessera.basic" ||
+          enabled.get(item.artifactId) === item.version),
     );
     this.#elements = Object.freeze(
       modules
         .flatMap((module) =>
-          module.elements.map((definition) => ({
+          exposedElements(module).map((definition) => ({
             moduleId: module.artifactId,
             moduleVersion: module.version,
             moduleDisplayName: displayText(
@@ -664,7 +682,9 @@ export class ActiveProjectModuleSession {
     );
     this.#moduleByElementId = new Map(
       modules.flatMap((module) =>
-        module.elements.map((element) => [element.elementId, module] as const),
+        exposedElements(module).map(
+          (element) => [element.elementId, module] as const,
+        ),
       ),
     );
     this.#ruleEvaluator = new ProjectModuleRuleEvaluator(

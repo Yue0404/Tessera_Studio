@@ -145,7 +145,7 @@ function parseDomainGroupLayout(
     value.version !== "1" ||
     typeof value.anchorCellId !== "string" ||
     !Array.isArray(value.relativeOffsets) ||
-    value.relativeOffsets.length < 2 ||
+    value.relativeOffsets.length < 1 ||
     value.relativeOffsets.length > DOMAIN_GROUP_MAX_MEMBERS
   )
     throw new DomainGroupError("domain-group-layout-invalid");
@@ -282,12 +282,12 @@ export function domainGroupGeometry(
   inputCellIds: readonly string[],
   limits: Readonly<{ minMembers?: number; maxMembers?: number }> = {},
 ): DomainGroupGeometry {
-  const minMembers = limits.minMembers ?? 2;
+  const minMembers = limits.minMembers ?? 1;
   const maxMembers = limits.maxMembers ?? DOMAIN_GROUP_MAX_MEMBERS;
   if (
     inputCellIds.length < minMembers ||
     inputCellIds.length > maxMembers ||
-    minMembers < 2 ||
+    minMembers < 1 ||
     maxMembers > DOMAIN_GROUP_MAX_MEMBERS ||
     minMembers > maxMembers
   )

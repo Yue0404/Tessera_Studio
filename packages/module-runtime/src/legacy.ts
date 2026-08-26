@@ -40,6 +40,7 @@ export const BASIC_TOOL_IDS = Object.freeze([
   "brush",
   "edge",
   "marker",
+  "object",
   "connection",
   "box-select",
 ]);
@@ -54,6 +55,7 @@ export const BASIC_OPERATIONS = Object.freeze([
   "overlay.text.create",
   "overlay.update",
   "overlay.delete",
+  "domain-object.create",
   "connection.line.create",
   "connection.arrow.create",
   "connection.update",

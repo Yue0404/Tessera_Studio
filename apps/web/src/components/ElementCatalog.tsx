@@ -35,6 +35,7 @@ const TOOL_KEYS: Record<EditorTool, string> = {
   connection: "tool.connection",
   "box-select": "tool.boxSelect",
   eraser: "tool.eraser",
+  object: "tool.object",
 };
 
 export interface TextPlacementOptions {
@@ -52,7 +53,7 @@ export interface ElementCatalogEntry {
   readonly moduleDisplayName?: string;
   readonly categoryId?: string;
   readonly categoryDisplayName?: string;
-  readonly category: "cell" | "edge" | "overlay" | "connection";
+  readonly category: "cell" | "edge" | "object" | "overlay" | "connection";
   readonly primitive?:
     | "cell-style"
     | "edge-style"
@@ -126,6 +127,14 @@ export function ElementCatalog(props: Props) {
   const [category, setCategory] = useState("all");
   const basicElements = useMemo<readonly ElementCatalogEntry[]>(
     () => [
+      {
+        moduleId: "tessera.basic",
+        moduleVersion: "1.0.0",
+        category: "object",
+        primitive: "domain-object",
+        elementId: "tessera.basic:object",
+        displayName: t("element.object"),
+      },
       {
         moduleId: "tessera.basic",
         moduleVersion: "1.0.0",
@@ -236,22 +245,26 @@ export function ElementCatalog(props: Props) {
       ? "cell"
       : props.activeElementId === "tessera.basic:edge.style"
         ? "edge"
-        : props.activeElementId === "tessera.basic:marker"
-          ? "marker"
-          : props.activeElementId === "tessera.basic:text"
-            ? "text"
-            : props.activeElementId === "tessera.basic:connection.line" ||
-                props.activeElementId === "tessera.basic:connection.arrow"
-              ? "connection"
-              : activeEntry?.primitive === "cell-style"
-                ? "cell"
-                : activeEntry?.primitive === "edge-style"
-                  ? "edge"
-                  : activeEntry?.primitive === "marker" ||
-                      activeEntry?.primitive === "text" ||
-                      activeEntry?.primitive === "connection"
-                    ? activeEntry.primitive
-                    : null;
+        : props.activeElementId === "tessera.basic:object"
+          ? "object"
+          : props.activeElementId === "tessera.basic:marker"
+            ? "marker"
+            : props.activeElementId === "tessera.basic:text"
+              ? "text"
+              : props.activeElementId === "tessera.basic:connection.line" ||
+                  props.activeElementId === "tessera.basic:connection.arrow"
+                ? "connection"
+                : activeEntry?.primitive === "cell-style"
+                  ? "cell"
+                  : activeEntry?.primitive === "edge-style"
+                    ? "edge"
+                    : activeEntry?.primitive === "domain-object"
+                      ? "object"
+                      : activeEntry?.primitive === "marker" ||
+                          activeEntry?.primitive === "text" ||
+                          activeEntry?.primitive === "connection"
+                        ? activeEntry.primitive
+                        : null;
   if (props.collapsed)
     return (
       <button
@@ -306,13 +319,15 @@ export function ElementCatalog(props: Props) {
                 ? t("catalog.cellSettings")
                 : activeSettings === "edge"
                   ? t("catalog.edgeSettings")
-                  : activeSettings === "marker"
-                    ? t("catalog.markerSettings")
-                    : activeSettings === "text"
-                      ? t("catalog.textSettings")
-                      : activeSettings === "connection"
-                        ? t("catalog.connectionSettings")
-                        : t("catalog.activeSettings")}
+                  : activeSettings === "object"
+                    ? t("catalog.objectSettings")
+                    : activeSettings === "marker"
+                      ? t("catalog.markerSettings")
+                      : activeSettings === "text"
+                        ? t("catalog.textSettings")
+                        : activeSettings === "connection"
+                          ? t("catalog.connectionSettings")
+                          : t("catalog.activeSettings")}
             </h2>
             <small>
               {t("catalog.activeTool", {
@@ -363,6 +378,13 @@ export function ElementCatalog(props: Props) {
                 />
               </label>
             )
+          ) : activeSettings === "object" ? (
+            <div className={styles.stack}>
+              {usesModuleDefaultStyle ? (
+                <p>{t("catalog.moduleDefaultStyle")}</p>
+              ) : null}
+              <p>{t("catalog.objectPlacementHint")}</p>
+            </div>
           ) : activeSettings === "marker" ? (
             <div className={styles.stack}>
               {usesModuleDefaultStyle ? null : (

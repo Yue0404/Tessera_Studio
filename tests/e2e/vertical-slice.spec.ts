@@ -424,8 +424,17 @@ test("连通填充、擦除与 Shift 多选", async ({ page }) => {
   await canvas.click({ position: { x: 500, y: 300 } });
   await expect(page.getByTestId("cell-count")).toContainText("399");
   await page.getByRole("button", { name: "选择" }).click();
+
+  // 被擦除的基础地格不是持久对象，普通点击不得创建选择。
   await canvas.click({ position: { x: 500, y: 300 } });
-  await canvas.click({ position: { x: 532, y: 300 }, modifiers: ["Shift"] });
+  await expect(page.getByText(/已选择 \d+ 个对象/u)).toHaveCount(0);
+
+  // Shift 点击空白不改变已有选择；只有两个已编辑地格可组成多选。
+  await canvas.click({ position: { x: 532, y: 300 } });
+  await expect(page.getByText("已选择 1 个对象")).toBeVisible();
+  await canvas.click({ position: { x: 500, y: 300 }, modifiers: ["Shift"] });
+  await expect(page.getByText("已选择 1 个对象")).toBeVisible();
+  await canvas.click({ position: { x: 564, y: 300 }, modifiers: ["Shift"] });
   await expect(page.getByText("已选择 2 个对象")).toBeVisible();
 });
 

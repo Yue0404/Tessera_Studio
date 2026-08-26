@@ -194,7 +194,7 @@ describe("Registry 与 Project runtime layer", () => {
       "tessera.basic",
     ]);
     expect(document.layerStates.map((layer) => layer.zIndex)).toEqual([
-      500, 700, 1500, 3000, 4300, 4400,
+      500, 700, 1500, 3000, 3200, 4300, 4400,
     ]);
   });
 

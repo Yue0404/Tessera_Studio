@@ -35,7 +35,10 @@ describe("DomainGroup 几何契约", () => {
     },
   );
 
-  it("接受 2 与 4096 个成员，拒绝 4097 个成员和非连通集合", () => {
+  it("接受 1 与 4096 个成员，拒绝 4097 个成员和非连通集合", () => {
+    expect(
+      domainGroupGeometry(square, ["cell:square:0:0"]).memberCellIds,
+    ).toEqual(["cell:square:0:0"]);
     expect(() =>
       domainGroupGeometry(square, ["cell:square:0:0", "cell:square:0:1"]),
     ).not.toThrow();

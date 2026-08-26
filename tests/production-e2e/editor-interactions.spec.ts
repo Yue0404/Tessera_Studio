@@ -95,6 +95,61 @@ async function expectControlInsideUnscrolledPanel(
 }
 
 for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
+  test(`${gridLabel}：初始模块物体支持单格、多格、空白选择与整体删除`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const runtime = captureRuntimeErrors(page);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await createProject(page, gridLabel, `${gridLabel}物体放置`);
+    const canvas = page.getByLabel("地图编辑画布");
+    await page
+      .getByRole("button", {
+        name: "使用目录元素 tessera.basic:object",
+        exact: true,
+      })
+      .click();
+    const settings = page.getByRole("region", { name: "当前元素设置" });
+    await expect(settings).toContainText("单击放置单格物体");
+    await expect(settings).toHaveAttribute("data-active-tool", "object");
+
+    await canvas.click({ position: { x: 570, y: 300 } });
+    await drag(page, canvas, "left", { x: 620, y: 300 }, { x: 670, y: 300 });
+    let document = await exportProject(page);
+    expect(document.domainGroups).toHaveLength(2);
+    expect(
+      document.domainGroups.map((group: any) => group.memberCellIds.length),
+    ).toEqual(expect.arrayContaining([1, expect.any(Number)]));
+    expect(
+      document.domainGroups.some(
+        (group: any) => group.memberCellIds.length > 1,
+      ),
+    ).toBe(true);
+
+    await page.getByRole("button", { name: "选择" }).click();
+    await canvas.click({ position: { x: 570, y: 300 } });
+    const inspector = page.locator("aside").filter({
+      has: page.getByText("已选择 1 个对象", { exact: true }),
+    });
+    await expect(inspector).toBeVisible();
+    await page.keyboard.down("Shift");
+    await canvas.click({ position: { x: 480, y: 220 } });
+    await page.keyboard.up("Shift");
+    await expect(inspector).toBeVisible();
+    await canvas.click({ position: { x: 480, y: 220 } });
+    await expect(inspector).toHaveCount(0);
+
+    await canvas.click({ position: { x: 570, y: 300 } });
+    const selected = page.locator("aside").filter({
+      has: page.getByText("已选择 1 个对象", { exact: true }),
+    });
+    await selected.getByRole("button", { name: "删除所选对象" }).click();
+    document = await exportProject(page);
+    expect(document.domainGroups).toHaveLength(1);
+    expect(runtime.errors).toEqual([]);
+    runtime.dispose();
+  });
+
   test(`${gridLabel}：平移工具、空格临时平移与中键平移完整恢复`, async ({
     page,
   }) => {
@@ -326,11 +381,11 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
     throw new Error("catalog-bounds-missing");
   expect(settingsBox.y).toBeLessThan(searchBox.y);
   expect(settingsBox.y + settingsBox.height).toBeLessThanOrEqual(720);
-  await expect(resultList.getByRole("listitem")).toHaveCount(6);
+  await expect(resultList.getByRole("listitem")).toHaveCount(7);
   await search.fill("箭头");
   await expect(resultList.getByRole("listitem")).toHaveCount(1);
   await search.fill("");
-  await expect(resultList.getByRole("listitem")).toHaveCount(6);
+  await expect(resultList.getByRole("listitem")).toHaveCount(7);
 
   await page
     .getByRole("button", {

@@ -19,7 +19,10 @@ import {
 } from "./grid-settings.js";
 import { EdgeManager } from "./edge-manager.js";
 import { createFixedLayerMap } from "./layers.js";
-import { ModuleInstanceStore } from "./module-instance-store.js";
+import {
+  isBuiltInDomainObjectInstance,
+  ModuleInstanceStore,
+} from "./module-instance-store.js";
 import { OverlayManager } from "./overlay-manager.js";
 import { configureProjectSpatialIndexes } from "./project-spatial-index.js";
 import { normalizeRotationDegrees } from "./rotation.js";
@@ -385,7 +388,10 @@ export class EditorStore {
         ),
       };
     }
-    if (instance.elementId.startsWith("tessera.basic:"))
+    if (
+      instance.elementId.startsWith("tessera.basic:") &&
+      !isBuiltInDomainObjectInstance(instance)
+    )
       throw new Error(`module-instance-basic-owned:${instance.instanceId}`);
     if (this.#rejectBlockedLayer(instance.layerId)) return "";
     const layer = this.#state.layers.get(instance.layerId);

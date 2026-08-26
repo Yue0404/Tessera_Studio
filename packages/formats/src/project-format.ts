@@ -60,6 +60,7 @@ const layerStates = [
   ["tessera.basic.cell-style", 500],
   ["tessera.basic.edge-style", 1500],
   ["tessera.basic.placed-object", 3000],
+  ["tessera.basic.domain-object", 3200],
   ["tessera.basic.connection", 4300],
   ["tessera.basic.annotation", 4400],
 ] as const;
@@ -802,11 +803,18 @@ function validateSemanticClosure(project: Record<string, any>): void {
       group.layerId,
       `/domainGroups/${group.groupId}`,
     );
-    if (group.elementId.startsWith("tessera.basic:")) {
-      throw new ProjectFormatError("basic-domain-group-not-supported", {
-        groupId: group.groupId,
-      });
-    }
+    const pointer = `/domainGroups/${group.groupId}`;
+    validateKnownBasicInstance(
+      group,
+      pointer,
+      (code, details) => new ProjectFormatError(code, details),
+    );
+    validateKnownBasicPlacement(
+      group.elementId,
+      "domain-group",
+      pointer,
+      (code, details) => new ProjectFormatError(code, details),
+    );
     if (
       [...group.memberCellIds].sort(compareCellIds).join("\u0000") !==
       group.memberCellIds.join("\u0000")
