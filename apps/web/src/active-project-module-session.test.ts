@@ -495,6 +495,59 @@ describe("ActiveProjectModuleSession", () => {
     });
   });
 
+  it("模块 marker 仅在 attributeSchema 显式声明时接受并解析 label", () => {
+    const allowedPackage: ParsedModulePackage = {
+      ...modulePackage,
+      elements: modulePackage.elements.map((candidate) =>
+        candidate.elementId === "example.weather:marker.radar"
+          ? {
+              ...candidate,
+              attributeSchema: {
+                type: "object",
+                properties: {
+                  label: { type: "string", minLength: 0, maxLength: 256 },
+                },
+                required: [],
+                additionalProperties: false,
+              },
+            }
+          : candidate,
+      ),
+    };
+    const allowedStore = storeWithActiveModule();
+    const allowed = new ActiveProjectModuleSession(
+      allowedStore,
+      [allowedPackage],
+      "zh-CN",
+    );
+    const allowedId = allowed.placeOverlay("example.weather:marker.radar", {
+      kind: "map-point",
+      point: { x: 20, y: 30 },
+    });
+    allowed.updateInstance(allowedId, { attributes: { label: "雷达站" } });
+    const allowedInstance = allowedStore.state.moduleInstances.get(allowedId);
+    if (allowedInstance === undefined)
+      throw new Error("marker-instance-missing");
+    expect(allowed.resolveVisual(allowedInstance)).toMatchObject({
+      kind: "marker",
+      label: "雷达站",
+    });
+
+    const deniedStore = storeWithActiveModule();
+    const denied = new ActiveProjectModuleSession(
+      deniedStore,
+      [modulePackage],
+      "zh-CN",
+    );
+    const deniedId = denied.placeOverlay("example.weather:marker.radar", {
+      kind: "map-point",
+      point: { x: 20, y: 30 },
+    });
+    expect(() =>
+      denied.updateInstance(deniedId, { attributes: { label: "越权附文" } }),
+    ).toThrowError(expect.objectContaining({ code: "attribute-invalid" }));
+  });
+
   it("DomainGroup 创建保持实例 ID，支持撤销重做与保存重载", () => {
     const store = storeWithActiveModule();
     const session = new ActiveProjectModuleSession(
@@ -548,15 +601,31 @@ describe("ActiveProjectModuleSession", () => {
     );
 
     const overLimit = structuredClone(document);
-    (overLimit.domainGroups[0] as { memberCellIds: string[] }).memberCellIds =
-      Array.from({ length: 65 }, (_, index) => `cell:square:0:${index}`);
+    overLimit.grid.width = 65;
+    const overLimitGroup = overLimit.domainGroups[0];
+    if (overLimitGroup === undefined) throw new Error("domain-group-missing");
+    overLimitGroup.memberCellIds = Array.from(
+      { length: 65 },
+      (_, index) => `cell:square:0:${index}`,
+    );
+    // 本用例只验证模块声明的 64 成员上限，避免旧显式布局先触发事实不一致。
+    overLimitGroup.extensions = {};
+    overLimit.contentBounds = computeProjectContentBounds(overLimit);
+    const restoredOverLimit = restoreProjectV1(JSON.stringify(overLimit), {
+      moduleResolver: createInstalledModuleResolver([modulePackage]),
+      currentAppVersion: "0.1.0",
+      moduleResolutionMode: "strict",
+    });
     expect(() =>
-      restoreProjectV1(JSON.stringify(overLimit), {
-        moduleResolver: createInstalledModuleResolver([modulePackage]),
-        currentAppVersion: "0.1.0",
-        moduleResolutionMode: "strict",
+      validateActiveProjectModuleInstances(new EditorStore(restoredOverLimit), [
+        modulePackage,
+      ]),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "domain-group-member-count-invalid",
+        details: expect.objectContaining({ count: 65, maxMembers: 64 }),
       }),
-    ).toThrowError(expect.objectContaining({ code: "project-schema-invalid" }));
+    );
   });
 
   it("DomainGroup 成员更新跨分块同步索引，支持撤销重做且非法更新回滚", () => {

@@ -34,6 +34,7 @@ const TOOL_KEYS: Record<EditorTool, string> = {
   marker: "tool.marker",
   connection: "tool.connection",
   "box-select": "tool.boxSelect",
+  eraser: "tool.eraser",
 };
 
 export interface TextPlacementOptions {

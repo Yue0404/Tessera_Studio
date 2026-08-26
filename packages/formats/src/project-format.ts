@@ -8,6 +8,7 @@ import {
   configureProjectSpatialIndexes,
   createFixedLayerMap,
   domainGroupGeometry,
+  resolveDomainGroupLayout,
   DomainGroupError,
   type CellOverride,
   type ConnectionData,
@@ -145,7 +146,10 @@ function serializeOverlay(overlay: OverlayData): Record<string, unknown> {
     layerId: overlay.layerId,
     overlayType: overlay.overlayType,
     styleOverrides: { ...overlay.style },
-    attributes: overlay.overlayType === "text" ? { text: overlay.text } : {},
+    attributes:
+      overlay.overlayType === "text"
+        ? { text: overlay.text }
+        : { label: overlay.label },
     orderInLayer: overlay.orderInLayer,
     extensions: {},
   };
@@ -227,6 +231,10 @@ function parseOverlay(overlay: any): OverlayData {
     elementId: "tessera.basic:marker",
     overlayType: "marker",
     style: { ...overlay.styleOverrides },
+    label:
+      typeof overlay.attributes.label === "string"
+        ? overlay.attributes.label
+        : null,
     text: null,
   } as OverlayData;
 }
@@ -820,8 +828,14 @@ function validateSemanticClosure(project: Record<string, any>): void {
         });
       }
     }
+    let ownerCellId: string;
     try {
       domainGroupGeometry(project.grid, group.memberCellIds);
+      ownerCellId = resolveDomainGroupLayout(
+        project.grid,
+        group.memberCellIds,
+        group.extensions,
+      ).anchorCellId;
     } catch (error) {
       if (error instanceof DomainGroupError)
         throw new ProjectFormatError(error.code, {
@@ -829,12 +843,6 @@ function validateSemanticClosure(project: Record<string, any>): void {
           ...error.details,
         });
       throw error;
-    }
-    const ownerCellId = group.memberCellIds[0] as string | undefined;
-    if (ownerCellId === undefined) {
-      throw new ProjectFormatError("domain-group-members-empty", {
-        groupId: group.groupId,
-      });
     }
     const owner = parseCellId(ownerCellId);
     const expectedOwner = chunkKey(owner.row, owner.column);
@@ -1622,6 +1630,7 @@ function stateFromProjectDocument(
       memberCellIds: [...group.memberCellIds],
       styleOverrides: structuredClone(group.styleOverrides),
       attributes: structuredClone(group.attributes),
+      // 旧工程缺少布局扩展时运行期按 memberCellIds 推导，opaque 往返不主动迁移事实。
       extensions: structuredClone(group.extensions),
       runtimeStatus: runtimeStatus(group.elementId, group.layerId),
     });

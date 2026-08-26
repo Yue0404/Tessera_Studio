@@ -1,5 +1,11 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { createProject, EditorStore, type SelectedObject } from "@tessera/core";
+import {
+  createProject,
+  edgeIdentity,
+  EditorStore,
+  type GridType,
+  type SelectedObject,
+} from "@tessera/core";
 import type { RendererInteraction } from "@tessera/renderer";
 import { I18nextProvider } from "react-i18next";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +16,7 @@ const rendererMocks = vi.hoisted(() => ({
   destroy: vi.fn(),
   initialize: vi.fn<() => Promise<void>>(),
   render: vi.fn(),
+  transientHighlight: vi.fn(),
   interaction: undefined as RendererInteraction | undefined,
 }));
 
@@ -34,6 +41,10 @@ vi.mock("@tessera/renderer", async (importOriginal) => {
         rendererMocks.render();
       }
 
+      setTransientHighlight(selected: SelectedObject | null): void {
+        rendererMocks.transientHighlight(selected);
+      }
+
       destroy(): void {
         rendererMocks.destroy();
       }
@@ -41,10 +52,10 @@ vi.mock("@tessera/renderer", async (importOriginal) => {
   };
 });
 
-function project() {
+function project(type: GridType = "square") {
   return createProject({
     name: "渲染初始化测试",
-    grid: { type: "square", width: 4, height: 4, cellSize: 24 },
+    grid: { type, width: 4, height: 4, cellSize: 24 },
     style: {
       canvasBackground: "#09141DFF",
       defaultCellColor: "#14232DFF",
@@ -71,6 +82,7 @@ describe("EditorView renderer initialization", () => {
     rendererMocks.destroy.mockReset();
     rendererMocks.initialize.mockReset();
     rendererMocks.render.mockReset();
+    rendererMocks.transientHighlight.mockReset();
     rendererMocks.interaction = undefined;
   });
 
@@ -130,6 +142,158 @@ describe("EditorView renderer initialization", () => {
     if (inspector === null) throw new Error("属性面板缺失");
     expect(within(inspector).getByLabelText("标记形状")).toBeDefined();
   });
+
+  it("把橡皮擦候选栈交给 Store 删除最顶层可编辑对象", () => {
+    rendererMocks.initialize.mockResolvedValue();
+    const store = new EditorStore(project());
+    const overlayId = store.placeMarker({ x: 36, y: 36 });
+    const eraseFirstEditable = vi.spyOn(store, "eraseFirstEditable");
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EditorView
+          store={store}
+          repository={{ save: vi.fn(async () => undefined) }}
+          onNew={vi.fn()}
+          onOpenFile={vi.fn(async () => undefined)}
+          onOpenFragmentFile={vi.fn(async () => undefined)}
+        />
+      </I18nextProvider>,
+    );
+    const candidates: SelectedObject[] = [{ kind: "overlay", id: overlayId }];
+
+    let erased: SelectedObject | null | undefined;
+    act(() => {
+      erased = rendererMocks.interaction?.eraseCandidates?.(candidates);
+    });
+
+    expect(eraseFirstEditable).toHaveBeenCalledWith(candidates);
+    expect(erased).toEqual(candidates[0]);
+    expect(store.state.overlays.get(overlayId)).toBeUndefined();
+  });
+
+  it("多选下钻删除被引用的显式边后，降级 carrier 并返回剩余摘要", () => {
+    rendererMocks.initialize.mockResolvedValue();
+    const store = new EditorStore(project());
+    const identity = edgeIdentity(store.state.grid, { row: 1, column: 1 }, 1);
+    store.paintEdge(identity.edgeId, identity.adjacentCellIds, "#FFFFFFFF");
+    const explicitEdge = store.state.edges.get(identity.edgeId);
+    if (explicitEdge === undefined) throw new Error("edge-missing");
+    const markerId = store.placeEdgeMarker(explicitEdge);
+    store.paintCell(2, 2, "#FFFFFFFF");
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EditorView
+          store={store}
+          repository={{ save: vi.fn(async () => undefined) }}
+          onNew={vi.fn()}
+          onOpenFile={vi.fn(async () => undefined)}
+          onOpenFragmentFile={vi.fn(async () => undefined)}
+        />
+      </I18nextProvider>,
+    );
+    act(() =>
+      rendererMocks.interaction?.select(
+        [
+          { kind: "edge", id: identity.edgeId },
+          { kind: "overlay", id: markerId },
+          { kind: "cell", id: "cell:square:2:2" },
+        ],
+        false,
+      ),
+    );
+
+    const summary = screen.getByRole("list", { name: "所选对象摘要" });
+    fireEvent.click(within(summary).getByRole("button", { name: /^共享边/u }));
+    fireEvent.click(screen.getByRole("button", { name: "删除此对象" }));
+
+    expect(store.state.edges.get(identity.edgeId)?.persistence).toBe(
+      "reference-only",
+    );
+    expect(store.state.overlays.get(markerId)).toBeDefined();
+    expect(store.selection).toEqual([
+      { kind: "overlay", id: markerId },
+      { kind: "cell", id: "cell:square:2:2" },
+    ]);
+    const remaining = screen.getByRole("list", { name: "所选对象摘要" });
+    expect(
+      within(remaining).queryByRole("button", { name: /^共享边/u }),
+    ).toBeNull();
+    expect(within(remaining).getAllByRole("button")).toHaveLength(2);
+  });
+
+  it.each(["square", "hex-pointy"] as const)(
+    "%s 地图设置可扩大、合法缩小、更新格子尺寸并随撤销重做回填",
+    (gridType) => {
+      rendererMocks.initialize.mockResolvedValue();
+      const store = new EditorStore(project(gridType));
+      render(
+        <I18nextProvider i18n={i18n}>
+          <EditorView
+            store={store}
+            repository={{ save: vi.fn(async () => undefined) }}
+            onNew={vi.fn()}
+            onOpenFile={vi.fn(async () => undefined)}
+            onOpenFragmentFile={vi.fn(async () => undefined)}
+          />
+        </I18nextProvider>,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "地图设置" }));
+      const width = screen.getByLabelText("宽度");
+      const height = screen.getByLabelText("高度");
+      const cellSize = screen.getByLabelText("单元格尺寸");
+      const apply = screen.getByRole("button", { name: "应用地图设置" });
+      const initialRevision = store.state.revision;
+
+      fireEvent.change(width, { target: { value: "6" } });
+      fireEvent.change(height, { target: { value: "5" } });
+      fireEvent.change(cellSize, { target: { value: "40" } });
+      fireEvent.click(apply);
+      expect(store.state.grid).toEqual({
+        type: gridType,
+        width: 6,
+        height: 5,
+        cellSize: 40,
+      });
+      expect(store.state.revision).toBe(initialRevision + 1);
+
+      fireEvent.click(screen.getByRole("button", { name: "撤销" }));
+      expect((width as HTMLInputElement).value).toBe("4");
+      expect((height as HTMLInputElement).value).toBe("4");
+      expect((cellSize as HTMLInputElement).value).toBe("24");
+      fireEvent.click(screen.getByRole("button", { name: "重做" }));
+      expect((width as HTMLInputElement).value).toBe("6");
+      expect((height as HTMLInputElement).value).toBe("5");
+      expect((cellSize as HTMLInputElement).value).toBe("40");
+
+      fireEvent.change(width, { target: { value: "5" } });
+      fireEvent.change(height, { target: { value: "4" } });
+      fireEvent.click(apply);
+      expect(store.state.grid).toMatchObject({ width: 5, height: 4 });
+
+      store.placeMarker({
+        kind: "cell",
+        cellId: `cell:${gridType}:3:3`,
+      });
+      const revisionBeforeRejection = store.state.revision;
+      const overlayCountBeforeRejection = store.state.overlays.size;
+      fireEvent.change(width, { target: { value: "3" } });
+      fireEvent.change(height, { target: { value: "3" } });
+      fireEvent.click(apply);
+
+      expect(screen.getByRole("alert").textContent).toContain(
+        "地图中存在超出新边界的内容；尺寸未修改。",
+      );
+      expect(store.state.grid).toMatchObject({ width: 5, height: 4 });
+      expect(store.state.revision).toBe(revisionBeforeRejection);
+      expect(store.state.overlays.size).toBe(overlayCountBeforeRejection);
+
+      fireEvent.change(width, { target: { value: "5" } });
+      fireEvent.change(height, { target: { value: "4" } });
+      fireEvent.click(apply);
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
 
   it("目录中的标记和文字分别激活专属设置并共用标记工具", async () => {
     rendererMocks.initialize.mockResolvedValue();

@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { parseCellId } from "../../packages/core/src/coordinates.js";
 import { edgeSegment } from "../../packages/core/src/geometry.js";
 import type { MapPoint, ProjectGrid } from "../../packages/core/src/types.js";
 import { mapToScreen } from "../../packages/renderer/src/camera-transform.js";
@@ -88,6 +89,9 @@ test("M1 工具、Manager、固定图层与刷新恢复闭环", async ({ page })
   await expect(page.getByTestId("cell-count")).toContainText("1");
 
   await page.getByRole("button", { name: "标记" }).click();
+  const markerQuick = page.getByRole("dialog", { name: "选择放置类型" });
+  await markerQuick.getByRole("radio", { name: "标记" }).click();
+  await expect(markerQuick).toHaveCount(0);
   await canvas.click({ position: { x: 540, y: 300 } });
   await expect(page.getByTestId("overlay-count")).toContainText("1");
 
@@ -268,6 +272,15 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
   );
   if (line === undefined || arrow === undefined)
     throw new Error("e2e-connection-geometry-missing");
+  if (line.start.kind !== "map-point" || line.end.kind !== "map-point")
+    throw new Error("e2e-line-map-point-endpoints-missing");
+  const compactNumber = (value: number): string =>
+    Number.isInteger(value)
+      ? String(value)
+      : value.toFixed(2).replace(/0+$/u, "").replace(/\.$/u, "");
+  const pointSummary = (point: MapPoint): string =>
+    `X ${compactNumber(point.x)}，Y ${compactNumber(point.y)}`;
+  const lineEndpointSummary = `${pointSummary(line.start.point)} → ${pointSummary(line.end.point)}`;
   const targetEdge = edgeById.get(
     arrow.start.kind === "edge-midpoint" ? arrow.start.edgeId : "",
   );
@@ -279,6 +292,12 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
   );
   if (targetSegment === undefined)
     throw new Error("e2e-target-segment-missing");
+  const targetEdgeCoordinateSummary = targetEdge.adjacentCellIds
+    .map((cellId) => {
+      const coordinate = parseCellId(cellId);
+      return `行 ${coordinate.row}，列 ${coordinate.column}`;
+    })
+    .join(" ↔ ");
 
   // connection 只持有 reference-only 结构边；显式使用边工具后才应成为可编辑样式边。
   await page.getByRole("button", { name: "边" }).click();
@@ -298,9 +317,12 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
   });
   let inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
   await expect(
-    inspector.getByText(line.connectionId, { exact: true }),
+    inspector.getByText(lineEndpointSummary, { exact: true }),
   ).toBeVisible();
-  await inspector.getByLabel("线宽").fill("4");
+  await expect(inspector.getByText("线段", { exact: true })).toBeVisible();
+  const lineWidth = inspector.getByLabel("线宽");
+  await expect(lineWidth).toBeVisible();
+  await lineWidth.fill("4");
   await inspector.getByRole("button", { name: "关闭" }).click();
 
   await canvas.click({
@@ -309,10 +331,10 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
     ),
   });
   inspector = page.locator("aside").filter({ hasText: "已选择 1 个对象" });
-  await expect(
-    inspector.getByText(arrow.connectionId, { exact: true }),
-  ).toBeVisible();
-  await inspector.getByLabel("线宽").fill("5");
+  await expect(inspector.getByText("双向道路", { exact: true })).toBeVisible();
+  const arrowWidth = inspector.getByLabel("线宽");
+  await expect(arrowWidth).toBeVisible();
+  await arrowWidth.fill("5");
   await inspector.getByLabel("短标签").fill("双向道路已编辑");
   await inspector.getByRole("button", { name: "关闭" }).click();
 
@@ -331,10 +353,13 @@ test("M1 line/arrow 端点、双向标签与边完整样式", async ({ page }) =
     .locator("aside")
     .filter({ hasText: "已选择 1 个对象" });
   await expect(
-    edgeInspector.getByText(targetEdge.edgeId, { exact: true }),
+    edgeInspector.getByText(targetEdgeCoordinateSummary, { exact: true }),
   ).toBeVisible();
   await expect(
     edgeInspector.getByText("共享边", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    edgeInspector.getByText("共享边样式", { exact: true }),
   ).toBeVisible();
   const width = edgeInspector.getByLabel("线宽");
   await expect(width).toBeVisible({ timeout: 3_000 });

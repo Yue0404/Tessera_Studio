@@ -308,10 +308,26 @@ export function validateKnownBasicInstance(
       assertExactKeys(
         instance.attributes,
         [],
-        [],
+        ["label"],
         attributesPointer,
         makeError,
       );
+      if (
+        instance.attributes.label !== undefined &&
+        instance.attributes.label !== null &&
+        typeof instance.attributes.label !== "string"
+      ) {
+        throw makeError("basic-marker-label-invalid", {
+          pointer: `${attributesPointer}/label`,
+        });
+      }
+      if (typeof instance.attributes.label === "string") {
+        assertTextLimits(
+          instance.attributes.label,
+          `${attributesPointer}/label`,
+          makeError,
+        );
+      }
       return;
     }
     case "tessera.basic:text": {

@@ -3,6 +3,8 @@ import {
   domainGroupGeometry,
   DomainGroupError,
   edgeSegment,
+  markerLabelFontSize,
+  markerLabelPoint,
   parseCellId,
   projectTextContentValid,
   projectConnectionEndpointPoint,
@@ -313,10 +315,33 @@ function textContentValid(
   element: ModuleElementDefinition,
   attributes: Readonly<Record<string, JsonValue>>,
 ): boolean {
-  if (element.primitive !== "text" && domainRepresentation(element) !== "text")
+  const representation =
+    element.primitive === "domain-object"
+      ? domainRepresentation(element)
+      : element.primitive;
+  if (representation === "text") {
+    const value = attributes.text;
+    return typeof value === "string" && moduleTextContentValid(value);
+  }
+  if (representation !== "marker" || attributes.label === undefined)
     return true;
-  const value = attributes.text;
-  return typeof value === "string" && moduleTextContentValid(value);
+  return (
+    element.attributeSchema.properties.label?.type === "string" &&
+    typeof attributes.label === "string" &&
+    moduleTextContentValid(attributes.label)
+  );
+}
+
+/** 模块标记只有显式声明 label 字符串属性时，才获得附文语义。 */
+function markerLabelValue(
+  element: ModuleElementDefinition,
+  attributes: Readonly<Record<string, unknown>>,
+): string | null {
+  return element.attributeSchema.properties.label?.type === "string" &&
+    typeof attributes.label === "string" &&
+    moduleTextContentValid(attributes.label)
+    ? attributes.label
+    : null;
 }
 
 export function moduleTextContentValid(value: string): boolean {
@@ -741,6 +766,7 @@ export class ActiveProjectModuleSession {
                   this.#store.state.grid.cellSize * 0.45,
                 ),
                 rotation: 0,
+                label: null,
               }
             : instance.kind === "connection"
               ? {
@@ -858,6 +884,7 @@ export class ActiveProjectModuleSession {
             opacity,
             displaySize,
             rotation,
+            label: markerLabelValue(element.definition, instance.attributes),
             ...(image === undefined ? {} : { image }),
           }
         : null;
@@ -1360,7 +1387,7 @@ export class ActiveProjectModuleSession {
       } else if (instance.kind === "overlay") {
         const point = genericOverlayPoint(state, instance);
         if (point === undefined) continue;
-        if (descriptor.kind === "marker")
+        if (descriptor.kind === "marker") {
           result.push({
             ...base,
             kind: "marker",
@@ -1374,7 +1401,25 @@ export class ActiveProjectModuleSession {
               ? {}
               : { imageResource: descriptor.image }),
           });
-        else if (descriptor.kind === "text")
+          if (descriptor.label != null) {
+            const fontSize = markerLabelFontSize(descriptor.displaySize);
+            result.push({
+              ...base,
+              kind: "text",
+              point: markerLabelPoint(point, descriptor.displaySize, fontSize),
+              text: descriptor.label,
+              fontSize,
+              fontWeight: "normal",
+              align: "center",
+              rotation: 0,
+              color: descriptor.color,
+              opacity: descriptor.opacity * layerOpacity,
+              backgroundColor: null,
+              stableId: `${instance.instanceId}:label`,
+              partRank: 1,
+            });
+          }
+        } else if (descriptor.kind === "text")
           result.push({
             ...base,
             kind: "text",
@@ -1537,6 +1582,28 @@ export class ActiveProjectModuleSession {
               ? {}
               : { imageResource: descriptor.image }),
           });
+          if (descriptor.label != null) {
+            const fontSize = markerLabelFontSize(descriptor.displaySize);
+            result.push({
+              ...base,
+              kind: "text",
+              point: markerLabelPoint(
+                geometry.center,
+                descriptor.displaySize,
+                fontSize,
+              ),
+              text: descriptor.label,
+              fontSize,
+              fontWeight: "normal",
+              align: "center",
+              rotation: 0,
+              color: descriptor.color,
+              opacity: descriptor.opacity * layerOpacity,
+              backgroundColor: null,
+              stableId: `${instance.instanceId}:label`,
+              partRank: 1,
+            });
+          }
         } else if (descriptor.kind === "text") {
           result.push({
             ...base,

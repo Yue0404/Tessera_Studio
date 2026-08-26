@@ -671,7 +671,7 @@ export const projectV1Schema = {
           memberCellIds: {
             type: "array",
             minItems: 2,
-            maxItems: 64,
+            maxItems: 4096,
             uniqueItems: true,
             items: cellId,
           },

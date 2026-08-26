@@ -14,6 +14,8 @@ import {
   type BackgroundTask,
   type EditorStore,
   type MapRect,
+  type ProjectState,
+  type SelectedObject,
 } from "@tessera/core";
 import { FRAGMENT_EXTENSION, PROJECT_EXTENSION } from "@tessera/formats";
 import type { ParsedExtensionPackage } from "@tessera/module-runtime";
@@ -73,6 +75,21 @@ function alphaColor(value: string): string {
   return `${value.toUpperCase()}FF`;
 }
 
+function projectHasSelectedObject(
+  state: Readonly<ProjectState>,
+  selected: SelectedObject,
+): boolean {
+  if (selected.kind === "cell")
+    return state.cells.get(selected.id) !== undefined;
+  if (selected.kind === "edge")
+    return state.edges.get(selected.id)?.persistence === "explicit-style";
+  if (selected.kind === "overlay")
+    return state.overlays.get(selected.id) !== undefined;
+  if (selected.kind === "connection")
+    return state.connections.get(selected.id) !== undefined;
+  return state.moduleInstances.get(selected.id) !== undefined;
+}
+
 export function EditorView({
   store,
   repository,
@@ -102,6 +119,7 @@ export function EditorView({
   const [brushColor, setBrushColor] = useState("#E3614D");
   const [brushMode, setBrushMode] = useState<BrushMode>("paint");
   const [edgeColor, setEdgeColor] = useState("#D9B866");
+  const [markerLabel, setMarkerLabel] = useState("");
   const [overlay, setOverlay] = useState<OverlayPlacement>({
     type: "marker",
     anchor: "cell",
@@ -125,6 +143,7 @@ export function EditorView({
     brushColor,
     brushMode,
     edgeColor,
+    markerLabel,
     overlay,
     textOptions,
     connection,
@@ -140,6 +159,9 @@ export function EditorView({
     null,
   );
   const [errorKey, setErrorKey] = useState<string | null>(null);
+  const [mapSettingsErrorKey, setMapSettingsErrorKey] = useState<string | null>(
+    null,
+  );
   const [connectionNotice, setConnectionNotice] = useState<{
     readonly key: string;
     readonly sequence: number;
@@ -173,6 +195,7 @@ export function EditorView({
     brushColor,
     brushMode,
     edgeColor,
+    markerLabel,
     overlay,
     textOptions,
     connection,
@@ -358,6 +381,7 @@ export function EditorView({
                 edgeData,
                 alphaColor(current.brushColor),
                 current.overlay.markerShape,
+                current.markerLabel === "" ? null : current.markerLabel,
               );
             }
           } else if (anchor !== null) {
@@ -368,6 +392,7 @@ export function EditorView({
                 anchor,
                 alphaColor(current.brushColor),
                 current.overlay.markerShape,
+                current.markerLabel === "" ? null : current.markerLabel,
               );
             }
           }
@@ -436,6 +461,7 @@ export function EditorView({
             sequence: ++connectionNoticeSequence.current,
           });
         },
+        eraseCandidates: (objects) => store.eraseFirstEditable(objects),
         select: (objects, additive) => {
           store.select(objects, additive);
           if (store.selection.length > 0) setContextPanel("properties");
@@ -527,6 +553,10 @@ export function EditorView({
       initialization.dispose();
     };
   }, [moduleSession, resourceRuntime, store, t]);
+
+  useEffect(() => {
+    setMapSettingsErrorKey(null);
+  }, [store]);
 
   useEffect(() => {
     if (
@@ -628,6 +658,13 @@ export function EditorView({
     }
   }, [repository, store]);
 
+  const handleSelectionHover = useCallback(
+    (selected: SelectedObject | null) => {
+      renderer.current?.setTransientHighlight(selected);
+    },
+    [],
+  );
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       dispatchEditorShortcut(event, {
@@ -655,9 +692,8 @@ export function EditorView({
         },
         erase: () => {
           activeModuleElementId.current = null;
-          setActiveElementId("tessera.basic:cell.color");
-          setBrushMode("erase");
-          store.setTool("brush");
+          setActiveElementId(null);
+          store.setTool("eraser");
         },
         text: () => {
           activeModuleElementId.current = null;
@@ -723,7 +759,11 @@ export function EditorView({
 
   return (
     <Tooltip.Provider delayDuration={280}>
-      <main className={styles.editor}>
+      <main
+        className={styles.editor}
+        data-project-revision={revision}
+        data-grid-type={state.grid.type}
+      >
         <div ref={canvasHost} className={styles.canvasHost} />
         {rendererContextLost ? (
           <div
@@ -909,12 +949,25 @@ export function EditorView({
         <CanvasToolRail
           tool={store.toolState.tool}
           catalogCollapsed={catalogCollapsed}
+          overlayType={overlay.type}
+          markerLabel={markerLabel}
+          onMarkerLabel={setMarkerLabel}
+          onOverlayType={(type) => {
+            setConnectionRebind(null);
+            activeModuleElementId.current = null;
+            setOverlay((value) => ({ ...value, type }));
+            setActiveElementId(
+              type === "text" ? "tessera.basic:text" : "tessera.basic:marker",
+            );
+            store.setTool("marker");
+          }}
           onTool={(nextTool) => {
             setConnectionRebind(null);
             if (
               nextTool === "select" ||
               nextTool === "box-select" ||
-              nextTool === "pan"
+              nextTool === "pan" ||
+              nextTool === "eraser"
             ) {
               activeModuleElementId.current = null;
               setActiveElementId(null);
@@ -983,6 +1036,44 @@ export function EditorView({
             }}
             onCancelConnectionRebind={() => setConnectionRebind(null)}
             onDeleteSelection={() => store.deleteSelection()}
+            onDeleteObject={(selected) => {
+              const previousSelection = [...store.selection];
+              store.select([selected]);
+              store.deleteSelection();
+              const deletionRejected = projectHasSelectedObject(
+                store.state,
+                selected,
+              );
+              store.select(
+                deletionRejected
+                  ? previousSelection
+                  : previousSelection.filter(
+                      (candidate) =>
+                        candidate.kind !== selected.kind ||
+                        candidate.id !== selected.id,
+                    ),
+              );
+            }}
+            onSelectionHover={handleSelectionHover}
+            onMapSettingsSubmit={(grid) => {
+              const result = store.updateGridSettings(grid);
+              if (result.status !== "rejected") {
+                setMapSettingsErrorKey(null);
+                return;
+              }
+              setMapSettingsErrorKey(
+                result.code === "grid-width-invalid"
+                  ? "mapSettings.error.width"
+                  : result.code === "grid-height-invalid"
+                    ? "mapSettings.error.height"
+                    : result.code === "grid-cell-size-invalid"
+                      ? "mapSettings.error.cellSize"
+                      : "mapSettings.error.contentOutOfBounds",
+              );
+            }}
+            mapSettingsError={
+              mapSettingsErrorKey === null ? null : t(mapSettingsErrorKey)
+            }
             onLayerState={(layerId, patch) =>
               store.setLayerState(layerId, patch)
             }

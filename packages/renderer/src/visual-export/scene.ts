@@ -4,6 +4,8 @@ import {
   cellPolygon,
   clipSegmentToRect,
   edgeSegment,
+  markerLabelFontSize,
+  markerLabelPoint,
   parseCellId,
   pointInRect,
   type MapRect,
@@ -406,15 +408,15 @@ function connectionPrimitives(
   return result;
 }
 
-function overlayPrimitive(
+function overlayPrimitives(
   snapshot: VisualExportSnapshot,
   edges: ReadonlyMap<string, SnapshotEdge>,
   overlay: SnapshotOverlay,
-): VisualPrimitive | undefined {
+): readonly VisualPrimitive[] {
   const overlayLayer = layer(snapshot, overlay.layerId);
-  if (overlayLayer?.visible === false) return undefined;
+  if (overlayLayer?.visible === false) return [];
   const point = overlayPoint(snapshot, edges, overlay);
-  if (point === undefined) return undefined;
+  if (point === undefined) return [];
   const opacity = overlay.style.opacity * (overlayLayer?.opacity ?? 1);
   const base = {
     layerId: overlay.layerId,
@@ -425,7 +427,7 @@ function overlayPrimitive(
     point: { ...point },
   };
   if (overlay.overlayType === "marker") {
-    const primitive: VisualPrimitive = {
+    const marker: VisualPrimitive = {
       ...base,
       kind: "marker",
       shape: overlay.style.markerShape,
@@ -434,7 +436,27 @@ function overlayPrimitive(
       color: overlay.style.color,
       opacity,
     };
-    return primitiveVisible(primitive) ? primitive : undefined;
+    const result: VisualPrimitive[] = primitiveVisible(marker) ? [marker] : [];
+    if (overlay.label !== null) {
+      const fontSize = markerLabelFontSize(overlay.style.size);
+      const label: VisualPrimitive = {
+        ...base,
+        kind: "text",
+        point: markerLabelPoint(point, overlay.style.size, fontSize),
+        text: overlay.label,
+        fontSize,
+        fontWeight: "normal",
+        align: "center",
+        rotation: 0,
+        color: overlay.style.color,
+        opacity,
+        backgroundColor: null,
+        stableId: `${overlay.overlayId}:label`,
+        partRank: 1,
+      };
+      if (primitiveVisible(label)) result.push(label);
+    }
+    return result;
   }
   const primitive: VisualPrimitive = {
     ...base,
@@ -450,7 +472,7 @@ function overlayPrimitive(
       ? textBackgroundColor(snapshot.style.canvasBackground)
       : null,
   };
-  return primitiveVisible(primitive) ? primitive : undefined;
+  return primitiveVisible(primitive) ? [primitive] : [];
 }
 
 function* cellPrimitives(
@@ -580,13 +602,8 @@ export function* iterateVisualPrimitives(
       case "tessera.basic.annotation":
         for (const overlay of snapshot.overlays) {
           if (overlay.layerId !== currentLayer.layerId) continue;
-          const primitive = overlayPrimitive(snapshot, edges, overlay);
-          if (
-            primitive !== undefined &&
-            intersects(primitiveBounds(primitive), bounds)
-          ) {
-            yield primitive;
-          }
+          for (const primitive of overlayPrimitives(snapshot, edges, overlay))
+            if (intersects(primitiveBounds(primitive), bounds)) yield primitive;
         }
         break;
     }
@@ -673,8 +690,7 @@ export function visibleContentBounds(
     }
   }
   for (const overlay of snapshot.overlays) {
-    const primitive = overlayPrimitive(snapshot, edges, overlay);
-    if (primitive !== undefined) {
+    for (const primitive of overlayPrimitives(snapshot, edges, overlay)) {
       bounds = includeBounds(bounds, primitiveBounds(primitive));
     }
   }
@@ -759,13 +775,9 @@ export function estimateVisualScene(
     }
   }
   for (const overlay of snapshot.overlays) {
-    const primitive = overlayPrimitive(snapshot, edges, overlay);
-    if (
-      primitive !== undefined &&
-      intersects(primitiveBounds(primitive), bounds)
-    ) {
-      primitives += primitiveCost(primitive);
-    }
+    for (const primitive of overlayPrimitives(snapshot, edges, overlay))
+      if (intersects(primitiveBounds(primitive), bounds))
+        primitives += primitiveCost(primitive);
   }
   for (const extension of snapshot.extensions) {
     for (const primitive of extension.descriptors) {

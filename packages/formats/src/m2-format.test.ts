@@ -1,6 +1,7 @@
 import {
   createProject,
   cellCenter,
+  domainGroupExtensionsWithLayout,
   edgeIdentity,
   EditorStore,
   type GridType,
@@ -301,6 +302,84 @@ describe("M2 Project/Fragment v1 closure", () => {
     expectProjectError(
       () => validateProjectDocumentV1(document),
       "domain-group-owned-by-multiple-chunks",
+    );
+  });
+
+  it("Project v1 接受 4096 个领域成员并在 4097 个成员时拒绝", () => {
+    const largeGrid = {
+      type: "square" as const,
+      width: 4_098,
+      height: 2,
+      cellSize: 32,
+    };
+    const document = toProjectV1(
+      createProject({
+        name: "大领域",
+        grid: largeGrid,
+        style: {
+          canvasBackground: "#09141DFF",
+          defaultCellColor: "#14232DFF",
+          gridColor: "#59656AFF",
+          gridOpacity: 0.7,
+          gridWidth: 1,
+          defaultEdgeColor: "#59656AFF",
+        },
+      }),
+    ) as any;
+    const groupId = crypto.randomUUID();
+    const memberCellIds = Array.from(
+      { length: 4_096 },
+      (_, column) => `cell:square:0:${column}`,
+    );
+    document.modules.push({
+      moduleId: "zz.group",
+      version: "1.0.0",
+      packageSourceKind: "user-file",
+      extensions: {},
+    });
+    document.layerStates.push({
+      layerId: "zz.group.region",
+      moduleVersion: "1.0.0",
+      zIndex: 5_000,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      extensions: {},
+    });
+    document.domainGroups = [
+      {
+        kind: "domain-group",
+        groupId,
+        elementId: "zz.group:region",
+        layerId: "zz.group.region",
+        memberCellIds,
+        attributes: {},
+        styleOverrides: {},
+        extensions: domainGroupExtensionsWithLayout(
+          largeGrid,
+          memberCellIds,
+          {},
+        ),
+      },
+    ];
+    document.chunks = [
+      {
+        chunkRow: 0,
+        chunkColumn: 0,
+        cellOverrides: [],
+        ownedEdgeIds: [],
+        ownedOverlayIds: [],
+        ownedDomainGroupIds: [groupId],
+        extensions: {},
+      },
+    ];
+    document.contentBounds = computeProjectContentBounds(document);
+    expect(() => validateProjectDocumentV1(document)).not.toThrow();
+
+    document.domainGroups[0].memberCellIds.push("cell:square:0:4096");
+    expectProjectError(
+      () => validateProjectDocumentV1(document),
+      "project-schema-invalid",
     );
   });
 

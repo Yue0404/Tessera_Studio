@@ -1,4 +1,5 @@
 import {
+  DOMAIN_GROUP_LAYOUT_EXTENSION_KEY,
   axialToOddR,
   cellCenter,
   cellId,
@@ -8,6 +9,7 @@ import {
   EditorStore,
   oddRToAxial,
   parseCellId,
+  resolveDomainGroupLayout,
   type GridType,
 } from "@tessera/core";
 import { describe, expect, it } from "vitest";
@@ -252,7 +254,7 @@ function externalResolver(
         moduleId: request.moduleId,
         version: request.version,
         appVersionSupported: request.appVersion === APP_VERSION,
-        supportedGrids: ["square"],
+        supportedGrids: [request.gridType],
         layers: [
           {
             layerId: "zz.asset.items",
@@ -266,14 +268,14 @@ function externalResolver(
             elementId: "zz.asset:item",
             layerId: "zz.asset.items",
             primitive: "cell",
-            supportedGrids: ["square"],
+            supportedGrids: [request.gridType],
             anchors: ["cell"],
           },
           {
             elementId: "zz.asset:group",
             layerId: "zz.asset.items",
             primitive: "domain-group",
-            supportedGrids: ["square"],
+            supportedGrids: [request.gridType],
             anchors: ["cell"],
           },
         ],
@@ -326,11 +328,31 @@ describe("Fragment merge transaction", () => {
         uuidGenerator: uuidSequence(),
       });
       const importedGroupId = result.idRemap.instances[source.groupId ?? ""];
-      expect(
-        result.project.domainGroups.find(
-          (group) => group.groupId === importedGroupId,
-        )?.memberCellIds,
-      ).toEqual([cellId("square", 3, 4), cellId("square", 3, 5)]);
+      const importedGroup = result.project.domainGroups.find(
+        (group) => group.groupId === importedGroupId,
+      );
+      expect(importedGroup?.memberCellIds).toEqual([
+        cellId("square", 3, 4),
+        cellId("square", 3, 5),
+      ]);
+      if (importedGroup === undefined) throw new Error("group-missing");
+      const layout = resolveDomainGroupLayout(
+        result.project.grid,
+        importedGroup.memberCellIds,
+        importedGroup.extensions,
+      );
+      expect(layout).toMatchObject({
+        anchorCellId: cellId("square", 3, 4),
+        coordinateSystem: "row-column",
+        relativeOffsets: [
+          { rowDelta: 0, columnDelta: 0 },
+          { rowDelta: 0, columnDelta: 1 },
+        ],
+      });
+      expect(importedGroup.extensions).toMatchObject({
+        vendor: { nested: { z: 1, a: [true, null] } },
+        [DOMAIN_GROUP_LAYOUT_EXTENSION_KEY]: layout,
+      });
       validateProjectDocumentV1(result.project);
     },
   );
@@ -640,6 +662,69 @@ describe("Fragment merge transaction", () => {
     validateProjectDocumentV1(result.project);
   });
 
+  it("hex-pointy 领域组平移重写轴向锚点且 offsets 与未知扩展不变", () => {
+    const sourceStore = createStore("hex-pointy");
+    sourceStore.paintCell(2, 2, "#E3614DFF");
+    const source = addExternalModule(
+      toProjectV1(sourceStore.state) as ProjectV1Document,
+      true,
+    );
+    const fragment = createFragmentV1(source.document, {
+      fragmentId: crypto.randomUUID(),
+      bounds: { minX: 0, minY: 0, maxX: 500, maxY: 500 },
+      includedLayerIds: ["zz.asset.items"],
+    });
+    const target = addExternalModule(
+      createTarget("hex-pointy"),
+      false,
+    ).document;
+    const translation = {
+      kind: "hex-pointy" as const,
+      deltaQ: 2,
+      deltaR: 1,
+    };
+    const plan = planFragmentMerge(target, fragment, {
+      currentAppVersion: APP_VERSION,
+      resolver: externalResolver(),
+      translation,
+    });
+    readyPlan(plan);
+    const result = applyFragmentMerge(target, fragment, plan, {
+      currentAppVersion: APP_VERSION,
+      resolver: externalResolver(),
+      uuidGenerator: uuidSequence(),
+    });
+    const importedGroupId = result.idRemap.instances[source.groupId ?? ""];
+    const group = result.project.domainGroups.find(
+      (candidate) => candidate.groupId === importedGroupId,
+    );
+    if (group === undefined) throw new Error("group-missing");
+    const layout = resolveDomainGroupLayout(
+      result.project.grid,
+      group.memberCellIds,
+      group.extensions,
+    );
+    const sourceAnchor = oddRToAxial({ row: 2, column: 2 });
+    const expectedAnchor = axialToOddR({
+      q: sourceAnchor.q + translation.deltaQ,
+      r: sourceAnchor.r + translation.deltaR,
+    });
+
+    expect(parseCellId(layout.anchorCellId)).toMatchObject(expectedAnchor);
+    expect(layout).toMatchObject({
+      coordinateSystem: "axial-q-r",
+      relativeOffsets: [
+        { dq: 0, dr: 0 },
+        { dq: 1, dr: 0 },
+      ],
+    });
+    expect(group.extensions).toMatchObject({
+      vendor: { nested: { z: 1, a: [true, null] } },
+      [DOMAIN_GROUP_LAYOUT_EXTENSION_KEY]: layout,
+    });
+    validateProjectDocumentV1(result.project);
+  });
+
   it("预检区分缺模块、版本迁移、网格与 cellSize 不兼容", () => {
     const external = createExternalFragment();
     const missingTarget = createTarget("square");
@@ -814,7 +899,7 @@ describe("Fragment merge transaction", () => {
     expect(
       result.project.domainGroups.find((group) => group.groupId === newGroupId)
         ?.extensions,
-    ).toEqual({ vendor: { nested: { z: 1, a: [true, null] } } });
+    ).toMatchObject({ vendor: { nested: { z: 1, a: [true, null] } } });
     expect(JSON.stringify(target)).toBe(targetBefore);
     expect(JSON.stringify(source.fragment)).toBe(fragmentBefore);
     validateProjectDocumentV1(result.project);

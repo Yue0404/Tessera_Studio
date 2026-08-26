@@ -2,7 +2,10 @@ import {
   cellCenter,
   cellPolygon,
   edgeSegment,
+  markerLabelBounds,
+  markerLabelFontSize,
   parseCellId,
+  unionMapRects,
   type Point,
   type ProjectGrid,
 } from "@tessera/core";
@@ -91,12 +94,23 @@ export function documentOverlayBounds(
     typeof overlay.styleOverrides.size === "number"
   ) {
     const radius = overlay.styleOverrides.size / 2;
-    return {
+    const markerBounds = {
       minX: point.x - radius,
       minY: point.y - radius,
       maxX: point.x + radius,
       maxY: point.y + radius,
     };
+    return typeof overlay.attributes.label === "string"
+      ? unionMapRects(
+          markerBounds,
+          markerLabelBounds(
+            point,
+            overlay.attributes.label,
+            overlay.styleOverrides.size,
+            markerLabelFontSize(overlay.styleOverrides.size),
+          ),
+        )
+      : markerBounds;
   }
   if (
     overlay.elementId === "tessera.basic:text" &&

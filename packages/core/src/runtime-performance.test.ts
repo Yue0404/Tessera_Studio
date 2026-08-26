@@ -71,6 +71,7 @@ function marker(id: string, x: number): OverlayData {
       color: "#FFFFFFFF",
       markerShape: "circle",
     },
+    label: null,
     text: null,
   };
 }

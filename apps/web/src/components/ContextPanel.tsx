@@ -13,6 +13,7 @@ import styles from "./ContextPanel.module.css";
 import { SelectionInspector } from "./SelectionInspector.js";
 import type { ConnectionRebindTarget } from "@tessera/renderer";
 import type { ProjectRuleHint } from "../module-rule-evaluator.js";
+import { MapSettingsForm } from "./MapSettingsForm.js";
 
 interface Props {
   panel: "properties" | "layers" | "modules" | "map";
@@ -34,6 +35,10 @@ interface Props {
   onBeginConnectionRebind(target: ConnectionRebindTarget): void;
   onCancelConnectionRebind(): void;
   onDeleteSelection(): void;
+  onDeleteObject?(selected: SelectedObject): void;
+  onSelectionHover?(selected: SelectedObject | null): void;
+  onMapSettingsSubmit?(grid: ProjectState["grid"]): void;
+  mapSettingsError?: string | null;
   onLayerState(
     layerId: string,
     patch: Partial<Pick<FixedLayerState, "visible" | "locked" | "opacity">>,
@@ -57,6 +62,10 @@ export function ContextPanel({
   onBeginConnectionRebind,
   onCancelConnectionRebind,
   onDeleteSelection,
+  onDeleteObject,
+  onSelectionHover,
+  onMapSettingsSubmit,
+  mapSettingsError,
   onLayerState,
   onClose,
 }: Props) {
@@ -100,6 +109,8 @@ export function ContextPanel({
           onBeginConnectionRebind={onBeginConnectionRebind}
           onCancelConnectionRebind={onCancelConnectionRebind}
           onDelete={onDeleteSelection}
+          {...(onDeleteObject === undefined ? {} : { onDeleteObject })}
+          {...(onSelectionHover === undefined ? {} : { onSelectionHover })}
         />
       )}
       {panel === "layers" && (
@@ -174,14 +185,14 @@ export function ContextPanel({
         </div>
       )}
       {panel === "map" && (
-        <dl>
-          <dt>{t("field.width")}</dt>
-          <dd>{state.grid.width}</dd>
-          <dt>{t("field.height")}</dt>
-          <dd>{state.grid.height}</dd>
-          <dt>{t("field.cellSize")}</dt>
-          <dd>{state.grid.cellSize}</dd>
-        </dl>
+        <MapSettingsForm
+          value={state.grid}
+          disabled={onMapSettingsSubmit === undefined}
+          {...(mapSettingsError === undefined
+            ? {}
+            : { externalError: mapSettingsError })}
+          onSubmit={(grid) => onMapSettingsSubmit?.(grid)}
+        />
       )}
     </aside>
   );

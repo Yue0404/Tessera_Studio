@@ -40,6 +40,68 @@
   list-style: none;
   padding: 0;
 }
+.inspectorTopActions {
+  position: sticky;
+  z-index: 2;
+  top: -14px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding: 10px 0;
+  background: var(--color-surface-translucent);
+}
+.inspectorTopActions p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.inspectorTopActions .danger {
+  grid-column: 1 / -1;
+}
+.backButton {
+  width: auto !important;
+  min-width: 64px;
+  padding: 0 10px;
+}
+.selectionList {
+  max-height: min(440px, calc(100vh - 260px));
+  overflow: auto;
+  margin: 0;
+}
+.selectionList li {
+  padding: 0;
+}
+.selectionList button {
+  width: 100%;
+  height: auto;
+  min-height: 66px;
+  display: grid;
+  place-items: initial;
+  gap: 3px;
+  padding: 9px 10px;
+  text-align: left;
+}
+.selectionList button:hover,
+.selectionList button:focus-visible {
+  border-color: var(--color-accent);
+  background: rgb(217 184 102 / 12%);
+}
+.selectionList span {
+  color: var(--color-accent);
+  font-size: 12px;
+}
+.detailIdentity {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  margin: 4px 0 10px;
+  background: rgb(20 35 45 / 75%);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+}
+.detailIdentity span {
+  color: var(--color-accent);
+  font-size: 12px;
+}
 .panel li,
 .module {
   display: flex;
@@ -132,8 +194,42 @@
   color: #ffd8d0 !important;
   border-color: rgb(227 97 77 / 65%) !important;
 }
+.mapSettingsForm {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.mapSettingsForm label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.mapSettingsForm input {
+  width: 142px;
+  padding: 6px 8px;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+.mapSettingsForm button {
+  width: 100%;
+  margin-top: 2px;
+}
+.mapSettingsForm [role="alert"] {
+  margin: 0;
+  color: #ffd8d0;
+}
+.mapSettingsForm small {
+  color: var(--color-text-muted);
+  text-align: center;
+}
 @media (max-width: 1280px) {
   .panel {
     width: 288px;
+    max-height: calc(100vh - 134px);
   }
 }

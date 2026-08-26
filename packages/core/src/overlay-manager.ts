@@ -43,6 +43,13 @@ function validateOverlay(overlay: OverlayData): void {
   ) {
     throw new RangeError("overlay-text-too-long");
   }
+  if (
+    overlay.overlayType === "marker" &&
+    overlay.label !== null &&
+    !projectTextContentValid(overlay.label)
+  ) {
+    throw new RangeError("overlay-label-too-long");
+  }
 }
 
 /** 文字和标记的唯一所有者；锚定与自由位置使用互斥联合类型。 */

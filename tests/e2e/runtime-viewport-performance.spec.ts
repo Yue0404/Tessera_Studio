@@ -609,6 +609,9 @@ test("PERF-006 跨块线箭头与覆盖物在淘汰后重载保持稳定", async
   await drag(1_100, 250);
 
   await page.getByRole("button", { name: "标记" }).click();
+  const markerQuick = page.getByRole("dialog", { name: "选择放置类型" });
+  await markerQuick.getByRole("radio", { name: "标记" }).click();
+  await expect(markerQuick).toHaveCount(0);
   await canvas.click({ position: { x: 590, y: 360 } });
   await page.getByRole("button", { name: "连线与箭头" }).first().click();
   await page.getByLabel("端点类型").selectOption("map-point");

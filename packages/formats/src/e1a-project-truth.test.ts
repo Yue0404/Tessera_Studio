@@ -350,6 +350,7 @@ describe("E1a Project v1 格式真相", () => {
         color: "#FFFFFFFF",
         markerShape: "circle",
       },
+      label: null,
       text: null,
     });
     expectProjectCode(
@@ -435,7 +436,10 @@ describe("E1a Project v1 格式真相", () => {
       baseline.chunks.at(0)?.extensions,
     );
     expect(output.viewState).toEqual(baseline.viewState);
-    expect(output.domainGroups).toEqual(baseline.domainGroups);
+    expect(output.domainGroups).toMatchObject(baseline.domainGroups);
+    expect(output.domainGroups[0]?.extensions).toMatchObject({
+      group: "opaque",
+    });
     expect(output.embeddedAssets).toEqual(baseline.embeddedAssets);
     const outputCell = output.chunks[0].cellOverrides.find(
       (cell: any) => cell.cellId === cellId("square", 0, 0),

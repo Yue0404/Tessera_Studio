@@ -1,4 +1,4 @@
-import type { ProjectState } from "@tessera/core";
+import { resolveDomainGroupLayout, type ProjectState } from "@tessera/core";
 
 import { computeProjectContentBounds } from "./content-bounds.js";
 import { compareStableId } from "./deterministic-order.js";
@@ -442,6 +442,7 @@ function applyModuleRuntime(state: Readonly<ProjectState>, project: any): void {
         memberCellIds: [...instance.memberCellIds],
         attributes: clone(instance.attributes),
         styleOverrides: clone(instance.styleOverrides),
+        // 只保存实例已经显式携带的布局；旧 opaque 事实不得因普通保存被迁移。
         extensions: clone(instance.extensions),
       });
     }
@@ -521,7 +522,11 @@ function applyModuleRuntime(state: Readonly<ProjectState>, project: any): void {
       ensure(cellChunkKey(owner)).ownedOverlayIds.push(overlay.overlayId);
   }
   for (const group of project.domainGroups) {
-    const owner = group.memberCellIds[0];
+    const owner = resolveDomainGroupLayout(
+      state.grid,
+      group.memberCellIds,
+      group.extensions,
+    ).anchorCellId;
     if (owner !== undefined)
       ensure(cellChunkKey(owner)).ownedDomainGroupIds.push(group.groupId);
   }

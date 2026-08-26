@@ -143,6 +143,7 @@ export type OverlayData =
       overlayType: "marker";
       elementId: "tessera.basic:marker";
       style: MarkerStyle;
+      label: string | null;
       text: null;
     })
   | (OverlayBase & {
@@ -151,6 +152,7 @@ export type OverlayData =
       overlayType: "marker";
       elementId: "tessera.basic:marker";
       style: MarkerStyle;
+      label: string | null;
       text: null;
     })
   | (OverlayBase & {
@@ -319,7 +321,14 @@ export interface VisibleCell extends CellCoordinate {
 }
 
 export type EditorTool =
-  "select" | "pan" | "brush" | "edge" | "marker" | "connection" | "box-select";
+  | "select"
+  | "pan"
+  | "brush"
+  | "edge"
+  | "marker"
+  | "connection"
+  | "box-select"
+  | "eraser";
 
 export type ToolPhase =
   | "idle"

@@ -107,18 +107,18 @@ describe("Overlay 锚点剔除", () => {
     const renderer = new OverlayRenderer(parent);
     const rendered = () =>
       parent.children.flatMap((layer) =>
-        layer instanceof Container ? layer.children : [],
+        layer instanceof Container
+          ? layer.children.flatMap((child) =>
+              child instanceof Container ? [child, ...child.children] : [child],
+            )
+          : [],
       );
 
     renderer.render(store.state, viewport, 0.1);
     const smallMarker = rendered().find(
       (child): child is Graphics => child instanceof Graphics,
     );
-    const smallTextContainer = rendered().find(
-      (child): child is Container =>
-        child instanceof Container && !(child instanceof Graphics),
-    );
-    const smallText = smallTextContainer?.children.find(
+    const smallText = rendered().find(
       (child): child is Text => child instanceof Text,
     );
     expect((smallMarker?.getLocalBounds().width ?? 0) * 0.1).toBeCloseTo(8);
@@ -145,11 +145,7 @@ describe("Overlay 锚点剔除", () => {
     const maxMarker = rendered().find(
       (child): child is Graphics => child instanceof Graphics,
     );
-    const maxTextContainer = rendered().find(
-      (child): child is Container =>
-        child instanceof Container && !(child instanceof Graphics),
-    );
-    const maxText = maxTextContainer?.children.find(
+    const maxText = rendered().find(
       (child): child is Text => child instanceof Text,
     );
     expect((maxMarker?.getLocalBounds().width ?? 0) * 10).toBeCloseTo(256);

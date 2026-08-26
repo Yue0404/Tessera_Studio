@@ -7,6 +7,16 @@ import {
 } from "./fill-region.js";
 import { BackgroundTaskError, type BackgroundTask } from "./background-task.js";
 import { cellId } from "./geometry.js";
+import {
+  domainGroupExtensionsWithLayout,
+  domainGroupGeometry,
+  normalizedDomainGroupExtensions,
+} from "./domain-group.js";
+import {
+  validateGridSettingsUpdate,
+  type GridSettingsInput,
+  type GridSettingsUpdateResult,
+} from "./grid-settings.js";
 import { EdgeManager } from "./edge-manager.js";
 import { createFixedLayerMap } from "./layers.js";
 import { ModuleInstanceStore } from "./module-instance-store.js";
@@ -65,6 +75,7 @@ type ManagerName =
   | "overlays"
   | "module-instances"
   | "layers"
+  | "grid"
   | "chunks";
 
 interface Change {
@@ -309,6 +320,49 @@ export class EditorStore {
     this.#publish(false);
   }
 
+  updateGridSettings(input: GridSettingsInput): GridSettingsUpdateResult {
+    const validation = validateGridSettingsUpdate(this.#state, input);
+    if (validation.status === "rejected") return validation;
+    const before = { ...this.#state.grid };
+    const next = { ...validation.grid };
+    if (
+      before.width === next.width &&
+      before.height === next.height &&
+      before.cellSize === next.cellSize
+    )
+      return { status: "unchanged", grid: before };
+
+    // Manager 的空间索引闭包捕获 state.grid；切换尺寸时重建同一份稀疏事实，
+    // 同时让 renderer 通过 cells 身份变化丢弃旧 cellSize 几何缓存。
+    const content = projectContentSnapshot(this.#state);
+    const replaceGrid = (grid: typeof before): void => {
+      this.#state.grid = { ...grid };
+      restoreProjectContent(this.#state, content);
+    };
+    this.#execute({
+      managers: new Set([
+        "grid",
+        "cells",
+        "edges",
+        "overlays",
+        "connections",
+        "module-instances",
+        "chunks",
+      ]),
+      apply: () => replaceGrid(next),
+      revert: () => replaceGrid(before),
+    });
+    return { status: "updated", grid: { ...next } };
+  }
+
+  resizeMap(width: number, height: number): GridSettingsUpdateResult {
+    return this.updateGridSettings({
+      width,
+      height,
+      cellSize: this.#state.grid.cellSize,
+    });
+  }
+
   addModuleInstance(
     instance: ModuleRuntimeInstance,
     structuralEdges: readonly {
@@ -316,6 +370,21 @@ export class EditorStore {
       readonly adjacentCellIds: readonly string[];
     }[] = [],
   ): string {
+    if (instance.kind === "domain-group") {
+      const memberCellIds = domainGroupGeometry(
+        this.#state.grid,
+        instance.memberCellIds,
+      ).memberCellIds;
+      instance = {
+        ...instance,
+        memberCellIds,
+        extensions: normalizedDomainGroupExtensions(
+          this.#state.grid,
+          memberCellIds,
+          instance.extensions,
+        ),
+      };
+    }
     if (instance.elementId.startsWith("tessera.basic:"))
       throw new Error(`module-instance-basic-owned:${instance.instanceId}`);
     if (this.#rejectBlockedLayer(instance.layerId)) return "";
@@ -464,7 +533,13 @@ export class EditorStore {
     if (this.#rejectBlockedLayer(previous.layerId)) return;
     const next = {
       ...previous,
-      memberCellIds: [...memberCellIds],
+      memberCellIds: domainGroupGeometry(this.#state.grid, memberCellIds)
+        .memberCellIds,
+      extensions: domainGroupExtensionsWithLayout(
+        this.#state.grid,
+        memberCellIds,
+        previous.extensions,
+      ),
     };
     this.#execute({
       managers: new Set(["module-instances", "chunks"]),
@@ -789,6 +864,7 @@ export class EditorStore {
     anchor: OverlayAnchor | MapPoint,
     color = "#D9B866FF",
     markerShape: MarkerStyle["markerShape"] = "pin",
+    label: string | null = null,
   ): string {
     if (this.#rejectBlockedLayer("tessera.basic.placed-object")) return "";
     const overlayId = newUuid();
@@ -809,6 +885,7 @@ export class EditorStore {
               color,
               markerShape,
             },
+            label,
             text: null,
           }
         : {
@@ -826,6 +903,7 @@ export class EditorStore {
               color,
               markerShape,
             },
+            label,
             text: null,
           };
     const ownerCellId =
@@ -918,8 +996,9 @@ export class EditorStore {
     edge: EdgeOverride,
     color = "#D9B866FF",
     markerShape: MarkerStyle["markerShape"] = "diamond",
+    label: string | null = null,
   ): string {
-    return this.#placeEdgeOverlay(edge, "marker", null, {
+    return this.#placeEdgeOverlay(edge, "marker", label, {
       color,
       markerShape,
     });
@@ -963,6 +1042,7 @@ export class EditorStore {
               color: style.color ?? "#D9B866FF",
               markerShape: style.markerShape ?? "diamond",
             },
+            label: text,
             text: null,
           }
         : {
@@ -1133,22 +1213,70 @@ export class EditorStore {
   }
 
   deleteSelection(): void {
-    for (const selected of this.#selection.values()) {
-      const layerId =
-        selected.kind === "cell"
-          ? "tessera.basic.cell-style"
-          : selected.kind === "edge"
-            ? "tessera.basic.edge-style"
-            : selected.kind === "connection"
-              ? "tessera.basic.connection"
-              : selected.kind === "module-instance"
-                ? this.#state.moduleInstances.get(selected.id)?.layerId
-                : this.#state.overlays.get(selected.id)?.layerId;
+    this.#deleteObjects([...this.#selection.values()], true);
+  }
+
+  /** 按命中顺序跳过锁定对象，只删除首个可编辑的真实持久对象。 */
+  eraseFirstEditable(
+    candidates: readonly SelectedObject[],
+  ): SelectedObject | null {
+    let firstBlockedLayerId: string | undefined;
+    for (const candidate of candidates) {
+      if (!this.#selectedObjectExists(candidate)) continue;
+      const layerId = this.#selectedObjectLayerId(candidate);
+      if (layerId === undefined) continue;
+      const layer = this.#state.layers.get(layerId);
+      if (
+        layer === undefined ||
+        layer.runtimeStatus === "missing" ||
+        layer.locked ||
+        !layer.visible
+      ) {
+        firstBlockedLayerId ??= layerId;
+        continue;
+      }
+      this.#deleteObjects([candidate], false);
+      return candidate;
+    }
+    if (firstBlockedLayerId !== undefined)
+      this.#rejectBlockedLayer(firstBlockedLayerId);
+    return null;
+  }
+
+  #selectedObjectLayerId(selected: SelectedObject): string | undefined {
+    if (selected.kind === "cell") return "tessera.basic.cell-style";
+    if (selected.kind === "edge") return "tessera.basic.edge-style";
+    if (selected.kind === "connection") return "tessera.basic.connection";
+    if (selected.kind === "module-instance")
+      return this.#state.moduleInstances.get(selected.id)?.layerId;
+    return this.#state.overlays.get(selected.id)?.layerId;
+  }
+
+  #selectedObjectExists(selected: SelectedObject): boolean {
+    if (selected.kind === "cell")
+      return this.#state.cells.get(selected.id) !== undefined;
+    if (selected.kind === "edge")
+      return (
+        this.#state.edges.get(selected.id)?.persistence === "explicit-style"
+      );
+    if (selected.kind === "overlay")
+      return this.#state.overlays.get(selected.id) !== undefined;
+    if (selected.kind === "connection")
+      return this.#state.connections.get(selected.id) !== undefined;
+    return this.#state.moduleInstances.get(selected.id) !== undefined;
+  }
+
+  #deleteObjects(
+    objects: readonly SelectedObject[],
+    clearSelection: boolean,
+  ): void {
+    for (const selected of objects) {
+      const layerId = this.#selectedObjectLayerId(selected);
       if (layerId !== undefined && this.#rejectBlockedLayer(layerId)) return;
     }
     this.beginBatch();
     try {
-      for (const selected of [...this.#selection.values()]) {
+      for (const selected of objects) {
         if (selected.kind === "module-instance") {
           this.deleteModuleInstance(selected.id);
         } else if (selected.kind === "cell") {
@@ -1317,9 +1445,12 @@ export class EditorStore {
           ]);
         }
       }
+      if (clearSelection) this.#selection.clear();
+      else
+        for (const selected of objects)
+          this.#selection.delete(`${selected.kind}:${selected.id}`);
       this.commitBatch();
-      this.#selection.clear();
-      this.#publish(false);
+      if (clearSelection) this.#publish(false);
     } catch (error) {
       this.cancelBatch();
       throw error;

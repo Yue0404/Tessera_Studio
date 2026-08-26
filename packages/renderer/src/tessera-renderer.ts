@@ -1,9 +1,13 @@
 import "pixi.js/unsafe-eval";
 import { Application, Container, Graphics } from "pixi.js";
 import {
+  cellPolygon,
+  domainGroupGeometry,
+  edgeSegment,
   edgeIdentity,
   hitTestCell,
   nearestEdge,
+  parseCellId,
   visibleCellsInRect,
   type MapPoint,
   type MapRect,
@@ -17,14 +21,19 @@ import { ConnectionRenderer } from "./connection-renderer.js";
 import { connectionTargetToken } from "./connection-target-token.js";
 import { GridRenderer } from "./grid-renderer.js";
 import {
+  genericConnectionPoints,
+  genericOverlayPoint,
   GenericModuleRenderer,
   type GenericModuleVisualResolver,
 } from "./generic-module-renderer.js";
 import { OverlayRenderer } from "./overlay-renderer.js";
+import { endpointPoint, overlayAnchorPoint } from "./render-utils.js";
 import {
   boxSelectProjectObjects,
+  firstEditableProjectHit,
   hitTestProjectObject,
-  topmostProjectHit,
+  hitTestProjectObjects,
+  orderProjectHitCandidates,
 } from "./project-hit-test.js";
 import { enableRenderLayerSorting } from "./render-layer-order.js";
 import { InteractionRangeState } from "./interaction-range-state.js";
@@ -121,6 +130,7 @@ export interface RendererInteraction {
   cancelConnectionRebind(): void;
   operationRejected(code: RendererInteractionRejection): void;
   select(objects: readonly SelectedObject[], additive: boolean): void;
+  eraseCandidates?(objects: readonly SelectedObject[]): SelectedObject | null;
   cancelTool(): void;
   contextStatusChanged?(status: RendererContextStatus): void;
   zoomChanged?(zoom: number): void;
@@ -153,6 +163,7 @@ export class TesseraRenderer {
   #painting = false;
   #connectionStart: ConnectionEndpoint | null = null;
   #connectionEdges: EdgePlacementTarget[] = [];
+  #transientHighlight: SelectedObject | null = null;
   #camera = { x: 0, y: 0 };
   #zoom = 1;
   #spacePressed = false;
@@ -325,6 +336,8 @@ export class TesseraRenderer {
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    this.#transientHighlight = null;
+    this.#preview.clear();
     this.#resizeObserver?.disconnect();
     this.#contextLifecycle?.destroy();
     this.#contextLifecycle = undefined;
@@ -372,6 +385,18 @@ export class TesseraRenderer {
 
   getZoom(): number {
     return this.#zoom;
+  }
+
+  /** 设置纯渲染态高亮；不会发布 store，也不会生成历史事务。 */
+  setTransientHighlight(object: SelectedObject | null): void {
+    if (this.#destroyed) return;
+    if (
+      this.#transientHighlight?.kind === object?.kind &&
+      this.#transientHighlight?.id === object?.id
+    )
+      return;
+    this.#transientHighlight = object;
+    if (!this.#contextLost && !this.#destroyed) this.#renderPreview();
   }
 
   setZoom(value: number, screenAnchor?: Readonly<MapPoint>): number {
@@ -505,8 +530,141 @@ export class TesseraRenderer {
     return selected;
   }
 
+  #hitCandidates(
+    point: MapPoint,
+    cell: VisibleCell | undefined,
+  ): SelectedObject[] {
+    const candidates = hitTestProjectObjects(
+      this.#state,
+      point,
+      cell,
+      this.#zoom,
+    );
+    candidates.push(
+      ...(this.#genericModuleRenderer
+        ?.hitTests(this.#state, point, cell, this.#zoom)
+        .map((id) => ({ kind: "module-instance" as const, id })) ?? []),
+    );
+    return orderProjectHitCandidates(this.#state, candidates);
+  }
+
+  #drawHighlightPolygon(points: readonly MapPoint[]): void {
+    const screenPoints = points.map((point) =>
+      mapToScreen(point, this.#camera, this.#zoom),
+    );
+    this.#preview
+      .poly(screenPoints.flatMap((point) => [point.x, point.y]))
+      .fill({ color: 0xffc857, alpha: 0.16 })
+      .stroke({ color: 0xffd978, alpha: 0.95, width: 2 });
+  }
+
+  #drawHighlightSegment(start: MapPoint, end: MapPoint): void {
+    const screenStart = mapToScreen(start, this.#camera, this.#zoom);
+    const screenEnd = mapToScreen(end, this.#camera, this.#zoom);
+    this.#preview
+      .moveTo(screenStart.x, screenStart.y)
+      .lineTo(screenEnd.x, screenEnd.y)
+      .stroke({ color: 0xffd978, alpha: 0.95, width: 4 });
+  }
+
+  #drawHighlightPoint(point: MapPoint): void {
+    const screen = mapToScreen(point, this.#camera, this.#zoom);
+    this.#preview
+      .circle(screen.x, screen.y, 10)
+      .fill({ color: 0xffc857, alpha: 0.2 })
+      .stroke({ color: 0xffd978, alpha: 0.95, width: 2 });
+  }
+
+  #renderTransientHighlight(): void {
+    const selected =
+      this.#transientHighlight === null
+        ? null
+        : (orderProjectHitCandidates(this.#state, [
+            this.#transientHighlight,
+          ])[0] ?? null);
+    if (selected === null) return;
+    if (selected.kind === "cell") {
+      const coordinate = parseCellId(selected.id);
+      this.#drawHighlightPolygon(
+        cellPolygon(this.#state.grid, coordinate.row, coordinate.column),
+      );
+      return;
+    }
+    if (selected.kind === "edge") {
+      const edge = this.#state.edges.get(selected.id);
+      const segment =
+        edge === undefined
+          ? undefined
+          : edgeSegment(this.#state.grid, edge.edgeId, edge.adjacentCellIds);
+      if (segment !== undefined)
+        this.#drawHighlightSegment(segment[0], segment[1]);
+      return;
+    }
+    if (selected.kind === "overlay") {
+      const overlay = this.#state.overlays.get(selected.id);
+      const point =
+        overlay === undefined
+          ? undefined
+          : overlayAnchorPoint(this.#state, overlay);
+      if (point !== undefined) this.#drawHighlightPoint(point);
+      return;
+    }
+    if (selected.kind === "connection") {
+      const connection = this.#state.connections.get(selected.id);
+      const start =
+        connection === undefined
+          ? undefined
+          : endpointPoint(this.#state, connection.start);
+      const end =
+        connection === undefined
+          ? undefined
+          : endpointPoint(this.#state, connection.end);
+      if (start !== undefined && end !== undefined)
+        this.#drawHighlightSegment(start, end);
+      return;
+    }
+    const instance = this.#state.moduleInstances.get(selected.id);
+    if (instance === undefined) return;
+    if (instance.kind === "cell") {
+      const coordinate = parseCellId(instance.cellId);
+      this.#drawHighlightPolygon(
+        cellPolygon(this.#state.grid, coordinate.row, coordinate.column),
+      );
+    } else if (instance.kind === "edge") {
+      const segment = edgeSegment(
+        this.#state.grid,
+        instance.edgeId,
+        instance.adjacentCellIds,
+      );
+      if (segment !== undefined)
+        this.#drawHighlightSegment(segment[0], segment[1]);
+    } else if (instance.kind === "overlay") {
+      const point = genericOverlayPoint(this.#state, instance);
+      if (point !== undefined) this.#drawHighlightPoint(point);
+    } else if (instance.kind === "connection") {
+      const points = genericConnectionPoints(this.#state, instance);
+      if (points !== undefined)
+        this.#drawHighlightSegment(points[0], points[1]);
+    } else {
+      const geometry = domainGroupGeometry(
+        this.#state.grid,
+        instance.memberCellIds,
+      );
+      for (const edge of geometry.boundaryEdges) {
+        const segment = edgeSegment(
+          this.#state.grid,
+          edge.edgeId,
+          edge.adjacentCellIds,
+        );
+        if (segment !== undefined)
+          this.#drawHighlightSegment(segment[0], segment[1]);
+      }
+    }
+  }
+
   #renderPreview(): void {
     this.#preview.clear();
+    this.#renderTransientHighlight();
     const state = this.#interaction.getToolState();
     if (
       (state.phase !== "previewing-end" && state.phase !== "committing") ||
@@ -619,18 +777,18 @@ export class TesseraRenderer {
         this.#interaction.placeOverlay(point, cell?.cellId ?? null, edge);
       }
     } else if (toolBefore.tool === "select") {
-      const moduleHit = this.#genericModuleRenderer?.hitTest(
-        this.#state,
-        point,
-        cell,
-        this.#zoom,
-      );
-      const hit = topmostProjectHit(
-        this.#state,
-        hitTestProjectObject(this.#state, point, cell, this.#zoom),
-        moduleHit ?? null,
-      );
+      // 空白基础地格不是持久擦除候选，但仍可作为领域对象的成员预选。
+      const hit =
+        this.#hitCandidates(point, cell)[0] ??
+        hitTestProjectObject(this.#state, point, cell, this.#zoom);
       this.#interaction.select(hit === null ? [] : [hit], event.shiftKey);
+    } else if (toolBefore.tool === "eraser") {
+      const candidates = this.#hitCandidates(point, cell);
+      this.#interaction.eraseCandidates?.(candidates);
+      this.#transientHighlight = firstEditableProjectHit(
+        this.#state,
+        this.#hitCandidates(point, cell),
+      );
     } else if (
       toolBefore.tool === "connection" &&
       toolBefore.phase === "choosing-start" &&
@@ -681,11 +839,19 @@ export class TesseraRenderer {
     const point = this.#mapPoint(screen);
     this.#interaction.pointerMove(point);
     if (this.#painting) this.#paintAt(point);
+    if (this.#interaction.getToolState().tool === "eraser") {
+      const cell = this.#target(point);
+      this.#transientHighlight = firstEditableProjectHit(
+        this.#state,
+        this.#hitCandidates(point, cell),
+      );
+    }
     this.render(this.#state);
   };
 
   readonly #onPointerLeave = (): void => {
     this.#interaction.pointerStatusChanged?.(null);
+    this.setTransientHighlight(null);
   };
 
   #reportPointerStatus(screen: MapPoint): void {
@@ -827,6 +993,8 @@ export class TesseraRenderer {
 
   readonly #handleContextLost = (): void => {
     this.#contextLost = true;
+    this.#transientHighlight = null;
+    this.#preview.clear();
     this.#application.stop();
     if (this.#painting) this.#interaction.cancelStroke();
     this.#painting = false;

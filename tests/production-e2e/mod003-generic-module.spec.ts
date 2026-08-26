@@ -370,6 +370,12 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   for (const x of [780, 812, 844]) {
     await canvas.click({ position: { x, y: 292 }, modifiers: ["Shift"] });
   }
+  await page
+    .getByRole("list", { name: "所选对象摘要" })
+    .getByRole("button", {
+      name: new RegExp(`扩展模块实例.*${ids.domain}`, "u"),
+    })
+    .click();
   const replaceDomainMembers = page.getByRole("button", {
     name: "用当前所选地格替换领域成员",
   });

@@ -198,12 +198,13 @@ describe("ContextPanel", () => {
     expect((unlock as HTMLInputElement).disabled).toBe(true);
   });
 
-  it("标记属性面板暴露形状、尺寸、旋转、透明度和颜色", () => {
+  it("标记属性面板可编辑附文、形状、尺寸、旋转、透明度和颜色", () => {
     const store = new EditorStore(project());
     const markerId = store.placeMarker(
       { kind: "cell", cellId: "cell:square:1:1" },
       "#123456FF",
       "circle",
+      "前线",
     );
     const onOverlay = vi.fn();
     render(
@@ -223,10 +224,17 @@ describe("ContextPanel", () => {
         />
       </I18nextProvider>,
     );
+    expect((screen.getByLabelText("标记附文") as HTMLInputElement).value).toBe(
+      "前线",
+    );
+    fireEvent.change(screen.getByLabelText("标记附文"), {
+      target: { value: "集结点" },
+    });
+    expect(onOverlay.mock.calls[0]?.[1].label).toBe("集结点");
     fireEvent.change(screen.getByLabelText("标记形状"), {
       target: { value: "diamond" },
     });
-    expect(onOverlay.mock.calls[0]?.[1].style.markerShape).toBe("diamond");
+    expect(onOverlay.mock.calls[1]?.[1].style.markerShape).toBe("diamond");
     expect(screen.getByLabelText("标记尺寸")).toBeDefined();
     expect(screen.getByLabelText("旋转（度）")).toBeDefined();
     expect(screen.getByLabelText("透明度")).toBeDefined();
@@ -334,7 +342,7 @@ describe("ContextPanel", () => {
         />
       </I18nextProvider>,
     );
-    expect(screen.getByText("example.weather:cell.rain")).toBeDefined();
+    expect(screen.getAllByText("example.weather:cell.rain")).toHaveLength(2);
     const ruleHints = screen.getByRole("region", { name: "规则提示" });
     expect(ruleHints.textContent).toContain("错误");
     expect(ruleHints.textContent).toContain(
@@ -430,6 +438,11 @@ describe("ContextPanel", () => {
         />
       </I18nextProvider>,
     );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /扩展模块实例.*example\.weather:domain\.zone/u,
+      }),
+    );
     const replace = screen.getByRole("button", {
       name: "用当前所选地格替换领域成员",
     });
@@ -508,5 +521,109 @@ describe("ContextPanel", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+  });
+
+  it("多选先展示坐标摘要，hover 不改选择并可下钻、返回和单项删除", async () => {
+    const user = userEvent.setup();
+    const store = new EditorStore(project());
+    const markerId = store.placeMarker(
+      { kind: "cell", cellId: "cell:square:2:3" },
+      "#123456FF",
+      "diamond",
+    );
+    const selection = [
+      { kind: "cell", id: "cell:square:1:1" },
+      { kind: "cell", id: "cell:square:1:2" },
+      { kind: "overlay", id: markerId },
+    ] as const;
+    const onSelectionHover = vi.fn();
+    const onDeleteSelection = vi.fn();
+    const onDeleteObject = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          {...connectionActions}
+          panel="properties"
+          state={store.state}
+          selection={selection}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={vi.fn()}
+          onConnection={vi.fn()}
+          onDeleteSelection={onDeleteSelection}
+          onDeleteObject={onDeleteObject}
+          onSelectionHover={onSelectionHover}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+
+    const list = screen.getByRole("list", { name: "所选对象摘要" });
+    expect(within(list).getByText("行 2，列 3")).toBeDefined();
+    expect(within(list).getByText("菱形标记")).toBeDefined();
+    const marker = within(list).getByRole("button", {
+      name: /文字或标记.*行 2，列 3.*菱形标记/u,
+    });
+    fireEvent.mouseEnter(marker);
+    expect(onSelectionHover).toHaveBeenLastCalledWith(selection[2]);
+    fireEvent.mouseLeave(marker);
+    expect(onSelectionHover).toHaveBeenLastCalledWith(null);
+    expect(selection).toHaveLength(3);
+
+    Object.defineProperty(list, "scrollTop", { value: 84, writable: true });
+    await user.click(marker);
+    expect(screen.getByRole("button", { name: "返回" })).toBeDefined();
+    expect(screen.getByLabelText("标记形状")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "返回" }));
+    expect(screen.getByRole("list", { name: "所选对象摘要" }).scrollTop).toBe(
+      84,
+    );
+
+    await user.click(screen.getByRole("button", { name: "删除全部 3 个对象" }));
+    expect(onDeleteSelection).toHaveBeenCalledOnce();
+    await user.click(
+      within(screen.getByRole("list", { name: "所选对象摘要" })).getByRole(
+        "button",
+        { name: /文字或标记.*菱形标记/u },
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "删除此对象" }));
+    expect(onDeleteObject).toHaveBeenCalledWith(selection[2]);
+    expect(screen.getByRole("list", { name: "所选对象摘要" })).toBeDefined();
+  });
+
+  it("地图面板接入受控设置表单并呈现底层错误", () => {
+    const onMapSettingsSubmit = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          {...connectionActions}
+          panel="map"
+          state={project()}
+          selection={[]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={vi.fn()}
+          onConnection={vi.fn()}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onMapSettingsSubmit={onMapSettingsSubmit}
+          mapSettingsError="地图缩小后会产生越界对象"
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("越界对象");
+    fireEvent.change(screen.getByLabelText("宽度"), {
+      target: { value: "8" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "应用地图设置" }));
+    expect(onMapSettingsSubmit).toHaveBeenCalledWith({
+      type: "square",
+      width: 8,
+      height: 10,
+      cellSize: 32,
+    });
   });
 });
