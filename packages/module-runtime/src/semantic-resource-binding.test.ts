@@ -115,7 +115,7 @@ function expectCode(action: () => void, code: string): ModuleRuntimeError {
 }
 
 describe("模块样式资源语义绑定", () => {
-  it("domain-object 只接受 group 与四种组表示，明确拒绝 connection 表示", () => {
+  it("domain-object 只接受 group 与五种组表示，明确拒绝 connection 表示", () => {
     const domain = {
       ...element(
         "domain-object",
@@ -195,6 +195,95 @@ describe("模块样式资源语义绑定", () => {
     ).toThrowError(expect.objectContaining({ code: "package-schema-invalid" }));
     expectCode(
       () => validateModuleSemantics(manifest([]), [domainWithoutGroup], []),
+      "package-style-invalid",
+    );
+  });
+
+  it("fixed placementPreset 与 supportedGrids、原点和成员数严格一致", () => {
+    const domain = {
+      ...element(
+        "domain-object",
+        {
+          representation: "map-shape",
+          style: {
+            shape: "square",
+            fillColor: "#FFFFFFFF",
+            fillOpacity: 0.8,
+            strokeColor: "#000000FF",
+            strokeOpacity: 1,
+            strokeWidth: 1,
+            sizeScale: 0.6,
+            rotation: 0,
+          },
+        },
+        [],
+      ),
+      anchors: ["cell"] as const,
+      group: {
+        minMembers: 1,
+        maxMembers: 1,
+        connectivity: "edge" as const,
+        memberRules: [],
+        placementPreset: { square: [{ row: 0, column: 0 }] },
+      },
+    } satisfies ModuleElementDefinition;
+    expect(() =>
+      validateElementFile([domain], "fixed-domain.json"),
+    ).not.toThrow();
+    expect(() =>
+      validateModuleSemantics(manifest([]), [domain], []),
+    ).not.toThrow();
+    expectCode(
+      () =>
+        validateModuleSemantics(
+          manifest([]),
+          [
+            {
+              ...domain,
+              group: {
+                ...domain.group,
+                placementPreset: {
+                  "hex-pointy": [{ q: 0, r: 0 }],
+                },
+              },
+            },
+          ],
+          [],
+        ),
+      "package-style-invalid",
+    );
+    expectCode(
+      () =>
+        validateModuleSemantics(
+          manifest([]),
+          [
+            {
+              ...domain,
+              group: {
+                ...domain.group,
+                placementPreset: { square: [{ row: 1, column: 0 }] },
+              },
+            },
+          ],
+          [],
+        ),
+      "package-style-invalid",
+    );
+    expectCode(
+      () =>
+        validateModuleSemantics(
+          manifest([]),
+          [
+            {
+              ...domain,
+              group: {
+                ...domain.group,
+                minMembers: 2,
+              },
+            },
+          ],
+          [],
+        ),
       "package-style-invalid",
     );
   });

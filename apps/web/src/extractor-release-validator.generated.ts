@@ -79,8 +79,8 @@ const pattern6 = new RegExp(
   "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
   "u",
 );
-const pattern165 = new RegExp("^[0-9a-f]{64}$", "u");
-const pattern168 = new RegExp(
+const pattern167 = new RegExp("^[0-9a-f]{64}$", "u");
+const pattern170 = new RegExp(
   "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[^/?#]+/[^/?#]+\\.zip$",
   "u",
 );
@@ -645,7 +645,7 @@ function validate39(
             if (data2.sha256 !== undefined) {
               let data11 = data2.sha256;
               if (typeof data11 === "string") {
-                if (!pattern165.test(data11)) {
+                if (!pattern167.test(data11)) {
                   const err31 = {
                     instancePath: instancePath + "/releases/" + i0 + "/sha256",
                     schemaPath:
@@ -805,7 +805,7 @@ function validate39(
                   }
                   errors++;
                 }
-                if (!pattern168.test(data15)) {
+                if (!pattern170.test(data15)) {
                   const err39 = {
                     instancePath:
                       instancePath + "/releases/" + i0 + "/assetUrl",

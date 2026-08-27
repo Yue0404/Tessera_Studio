@@ -241,6 +241,17 @@ export interface ModuleElementDefinition {
     readonly maxMembers: number;
     readonly connectivity: "edge";
     readonly memberRules: readonly string[];
+    /** 新建时相对中心格展开的固定 footprint；缺失表示仅兼容既有实例。 */
+    readonly placementPreset?: Readonly<{
+      readonly square?: readonly {
+        readonly row: number;
+        readonly column: number;
+      }[];
+      readonly "hex-pointy"?: readonly {
+        readonly q: number;
+        readonly r: number;
+      }[];
+    }>;
     readonly extensions?: Extensions;
   };
   readonly extensions?: Extensions;

@@ -27,6 +27,7 @@ import {
   GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER,
   arrowPolygon,
   arrowShaftSegment,
+  domainMapShapeGeometry,
   genericOverlayPoint,
   type GenericModuleVisualDescriptor,
 } from "@tessera/renderer";
@@ -141,13 +142,22 @@ function categoryFor(element: ModuleElementDefinition): ModuleElementCategory {
   return "overlay";
 }
 
+/** 使用 Unicode 码点顺序，避免系统区域设置改变目录元素排序。 */
+function compareCodePoint(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function exposedElements(module: ParsedModulePackage) {
-  // 初始模块的专用对象由通用实例管线承载；其余基础元素仍只走既有专用管理器。
+  // 无固定预设的旧 domain-object 只用于恢复既有实例，不再进入可放置目录。
+  const placeable = module.elements.filter(
+    (item) =>
+      item.primitive !== "domain-object" ||
+      item.group?.placementPreset !== undefined,
+  );
+  // 初始模块其余基础元素仍只走既有专用管理器。
   return module.artifactId === "tessera.basic"
-    ? module.elements.filter(
-        (item) => item.elementId === "tessera.basic:object",
-      )
-    : module.elements;
+    ? placeable.filter((item) => item.primitive === "domain-object")
+    : placeable;
 }
 
 function runtimeKindFor(
@@ -161,7 +171,9 @@ function runtimeKindFor(
 }
 
 function styleKeysForPrimitive(
-  primitive: Exclude<ModuleElementDefinition["primitive"], "domain-object">,
+  primitive:
+    | Exclude<ModuleElementDefinition["primitive"], "domain-object">
+    | "map-shape",
 ): readonly string[] {
   return primitive === "cell-style"
     ? ["fillColor", "fillOpacity", "patternResourceId", "patternScale"]
@@ -198,18 +210,30 @@ function styleKeysForPrimitive(
                 "arrowEnd",
                 "arrowSize",
               ]
-            : [];
+            : primitive === "map-shape"
+              ? [
+                  "shape",
+                  "fillColor",
+                  "fillOpacity",
+                  "strokeColor",
+                  "strokeOpacity",
+                  "strokeWidth",
+                  "sizeScale",
+                  "rotation",
+                ]
+              : [];
 }
 
 function domainRepresentation(
   element: ModuleElementDefinition,
-): "cell-style" | "edge-style" | "marker" | "text" | null {
+): "cell-style" | "edge-style" | "marker" | "text" | "map-shape" | null {
   if (element.primitive !== "domain-object") return null;
   const representation = element.defaultStyle.representation;
   return representation === "cell-style" ||
     representation === "edge-style" ||
     representation === "marker" ||
-    representation === "text"
+    representation === "text" ||
+    representation === "map-shape"
     ? representation
     : null;
 }
@@ -671,20 +695,52 @@ export class ActiveProjectModuleSession {
         )
         .sort(
           (left, right) =>
-            left.moduleId.localeCompare(right.moduleId) ||
-            left.categoryId.localeCompare(right.categoryId) ||
-            left.displayName.localeCompare(right.displayName) ||
-            left.elementId.localeCompare(right.elementId),
+            compareCodePoint(left.moduleId, right.moduleId) ||
+            compareCodePoint(left.categoryId, right.categoryId) ||
+            compareCodePoint(left.displayName, right.displayName) ||
+            compareCodePoint(left.elementId, right.elementId),
         ),
     );
+    // 目录只暴露可新建元素；解析表保留无 preset 的旧元素以继续渲染既有实例。
     this.#byId = new Map(
-      this.#elements.map((element) => [element.elementId, element]),
+      modules.flatMap((module) =>
+        module.elements.map(
+          (definition) =>
+            [
+              definition.elementId,
+              {
+                moduleId: module.artifactId,
+                moduleVersion: module.version,
+                moduleDisplayName: displayText(
+                  module.manifest.nameKey,
+                  language,
+                  module,
+                ),
+                categoryId: definition.categoryId,
+                categoryDisplayName: categoryDisplayName(
+                  module,
+                  definition,
+                  language,
+                ),
+                category: categoryFor(definition),
+                primitive: definition.primitive,
+                elementId: definition.elementId,
+                displayName: displayText(definition.nameKey, language, module),
+                description: displayText(
+                  definition.descriptionKey,
+                  language,
+                  module,
+                ),
+                disabledReason: disabledReason(store, module, definition),
+                definition,
+              } satisfies ActiveProjectModuleElement,
+            ] as const,
+        ),
+      ),
     );
     this.#moduleByElementId = new Map(
       modules.flatMap((module) =>
-        exposedElements(module).map(
-          (element) => [element.elementId, module] as const,
-        ),
+        module.elements.map((element) => [element.elementId, module] as const),
       ),
     );
     this.#ruleEvaluator = new ProjectModuleRuleEvaluator(
@@ -826,6 +882,40 @@ export class ActiveProjectModuleSession {
       element.definition.primitive === "domain-object"
         ? domainRepresentation(element.definition)
         : element.definition.primitive;
+    if (instance.kind === "domain-group" && visualPrimitive === "map-shape") {
+      const {
+        shape,
+        fillColor,
+        fillOpacity,
+        strokeColor,
+        strokeOpacity,
+        strokeWidth,
+        sizeScale,
+        rotation,
+      } = style;
+      return (shape === "circle" ||
+        shape === "square" ||
+        shape === "hexagon") &&
+        typeof fillColor === "string" &&
+        typeof fillOpacity === "number" &&
+        typeof strokeColor === "string" &&
+        typeof strokeOpacity === "number" &&
+        typeof strokeWidth === "number" &&
+        typeof sizeScale === "number" &&
+        typeof rotation === "number"
+        ? {
+            kind: "map-shape",
+            shape,
+            fillColor,
+            fillOpacity,
+            strokeColor,
+            strokeOpacity,
+            strokeWidth,
+            sizeScale,
+            rotation,
+          }
+        : null;
+    }
     if (
       (instance.kind === "cell" || instance.kind === "domain-group") &&
       visualPrimitive === "cell-style"
@@ -1160,7 +1250,10 @@ export class ActiveProjectModuleSession {
   ): string {
     const element = this.#requirePrimitive(elementId, "domain-object");
     const group = element.definition.group;
-    if (group === undefined)
+    if (
+      group === undefined ||
+      group.placementPreset?.[this.#store.state.grid.type] === undefined
+    )
       throw new ActiveProjectModuleError("primitive-unsupported", {
         elementId,
       });
@@ -1537,7 +1630,34 @@ export class ActiveProjectModuleSession {
           state.grid,
           instance.memberCellIds,
         );
-        if (descriptor.kind === "cell-style") {
+        if (descriptor.kind === "map-shape") {
+          const points = domainMapShapeGeometry(
+            state,
+            instance,
+            descriptor.shape,
+            descriptor.sizeScale,
+            descriptor.rotation,
+          ).points;
+          result.push({
+            ...base,
+            kind: "polygon",
+            points,
+            fillColor: descriptor.fillColor,
+            opacity: descriptor.fillOpacity * layerOpacity,
+          });
+          result.push({
+            ...base,
+            kind: "outline",
+            points,
+            closed: true,
+            strokeColor: descriptor.strokeColor,
+            strokeWidth: descriptor.strokeWidth,
+            opacity: descriptor.strokeOpacity * layerOpacity,
+            lineStyle: "solid",
+            stableId: `${instance.instanceId}:outline`,
+            partRank: 1,
+          });
+        } else if (descriptor.kind === "cell-style") {
           geometry.memberCellIds.forEach((cellId, index) => {
             const coordinate = parseCellId(cellId);
             result.push({

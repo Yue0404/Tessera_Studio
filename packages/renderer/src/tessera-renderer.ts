@@ -47,6 +47,7 @@ import { enableRenderLayerSorting } from "./render-layer-order.js";
 import { InteractionRangeState } from "./interaction-range-state.js";
 import {
   FootprintPlacementState,
+  type FixedFootprintPlacementPreset,
   type FootprintPlacementRejection,
 } from "./footprint-placement.js";
 import {
@@ -143,6 +144,7 @@ export interface RendererInteraction {
   operationRejected(rejection: RendererInteractionRejection): void;
   select(objects: readonly SelectedObject[], additive: boolean): void;
   eraseCandidates?(objects: readonly SelectedObject[]): SelectedObject | null;
+  getDomainGroupPlacementPreset?(): FixedFootprintPlacementPreset | null;
   placeDomainGroup?(memberCellIds: readonly string[]): void;
   footprintRejected?(code: FootprintPlacementRejection): void;
   cancelTool(): void;
@@ -684,6 +686,14 @@ export class TesseraRenderer {
       if (points !== undefined)
         this.#drawHighlightSegment(points[0], points[1]);
     } else {
+      const visual = this.#genericModuleRenderer?.highlightPolygon(
+        this.#state,
+        instance,
+      );
+      if (visual !== null && visual !== undefined) {
+        this.#drawHighlightPolygon(visual);
+        return;
+      }
       const geometry = domainGroupGeometry(
         this.#state.grid,
         instance.memberCellIds,
@@ -814,11 +824,17 @@ export class TesseraRenderer {
     }
     if (toolBefore.tool === "object") {
       event.preventDefault();
-      if (cell === undefined) {
+      const preset = this.#interaction.getDomainGroupPlacementPreset?.();
+      if (cell === undefined || preset === null || preset === undefined) {
         this.#interaction.footprintRejected?.("footprint-out-of-bounds");
         return;
       }
-      this.#footprintPlacement.begin(event.pointerId, cell.center, cell.cellId);
+      this.#footprintPlacement.begin(
+        event.pointerId,
+        this.#state.grid,
+        cell,
+        preset,
+      );
       this.#application.canvas.setPointerCapture(event.pointerId);
       this.render(this.#state);
       return;
@@ -939,7 +955,7 @@ export class TesseraRenderer {
       return;
     }
     const point = this.#mapPoint(screen);
-    if (this.#footprintPlacement.move(event.pointerId, point)) {
+    if (this.#footprintPlacement.move(event.pointerId)) {
       this.render(this.#state);
       return;
     }
@@ -988,12 +1004,7 @@ export class TesseraRenderer {
     }
     const screen = this.#screenPoint(event);
     const point = this.#mapPoint(screen);
-    const footprint = this.#footprintPlacement.finish(
-      event.pointerId,
-      point,
-      this.#target(point),
-      this.#visible,
-    );
+    const footprint = this.#footprintPlacement.finish(event.pointerId);
     if (footprint.status !== "ignored") {
       if (footprint.status === "committed")
         this.#interaction.placeDomainGroup?.(footprint.memberCellIds);

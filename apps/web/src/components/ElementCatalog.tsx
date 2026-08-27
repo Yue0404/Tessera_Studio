@@ -133,7 +133,23 @@ export function ElementCatalog(props: Props) {
         category: "object",
         primitive: "domain-object",
         elementId: "tessera.basic:object",
-        displayName: t("element.object"),
+        displayName: t("element.objectCircle"),
+      },
+      {
+        moduleId: "tessera.basic",
+        moduleVersion: "1.0.0",
+        category: "object",
+        primitive: "domain-object",
+        elementId: "tessera.basic:object.square",
+        displayName: t("element.objectSquare"),
+      },
+      {
+        moduleId: "tessera.basic",
+        moduleVersion: "1.0.0",
+        category: "object",
+        primitive: "domain-object",
+        elementId: "tessera.basic:object.hex-cluster",
+        displayName: t("element.objectHexCluster"),
       },
       {
         moduleId: "tessera.basic",
@@ -180,14 +196,26 @@ export function ElementCatalog(props: Props) {
     ],
     [t],
   );
-  const elements = [
-    ...new Map(
-      [...(props.elements ?? []), ...basicElements].map((entry) => [
-        entry.elementId,
-        entry,
-      ]),
-    ).values(),
-  ];
+  const elements = useMemo(() => {
+    const byId = new Map(
+      basicElements.map((entry) => [entry.elementId, entry] as const),
+    );
+    const basicObjectIds = new Set([
+      "tessera.basic:object",
+      "tessera.basic:object.square",
+      "tessera.basic:object.hex-cluster",
+    ]);
+    for (const entry of props.elements ?? []) {
+      // 初始模块的专用工具由内置目录掌管；物体则采用会话结果以保留网格禁用原因。
+      if (
+        !entry.elementId.startsWith("tessera.basic:") ||
+        basicObjectIds.has(entry.elementId)
+      ) {
+        byId.set(entry.elementId, entry);
+      }
+    }
+    return [...byId.values()];
+  }, [basicElements, props.elements]);
   const modules = [
     ...new Map(
       elements.map((entry) => [

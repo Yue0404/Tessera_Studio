@@ -109,12 +109,17 @@ export function CanvasToolRail(props: Props) {
             }
           >
             <span className={styles.eraserCurrentMode}>
-              <Eraser size={17} />
-              <small>
-                {props.eraserMode === "click"
-                  ? t("eraserMode.clickShort")
-                  : t("eraserMode.dragShort")}
-              </small>
+              <Eraser size={19} data-testid="eraser-base-icon" />
+              {props.eraserMode === "drag" ? (
+                <svg
+                  className={styles.eraserTrail}
+                  viewBox="0 0 20 10"
+                  aria-hidden="true"
+                  data-testid="eraser-drag-trail"
+                >
+                  <path d="M1 7 C4 1 7 9 10 4 S16 2 19 6" />
+                </svg>
+              ) : null}
             </span>
           </ToolButton>
           {openMenu === "eraser" ? (

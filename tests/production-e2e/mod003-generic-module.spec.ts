@@ -351,7 +351,9 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   await expect(activeSettings).toContainText(
     "使用模块默认样式，放置后选择对象编辑。",
   );
-  await expect(activeSettings).toContainText("单击放置单格物体");
+  await expect(activeSettings).toContainText(
+    "单击地图中的中心格，按当前预设一次性放置完整物体。",
+  );
   await drag(page, canvas, { x: 780, y: 260 }, { x: 812, y: 260 });
 
   let document = await exportData(page);

@@ -113,6 +113,12 @@ export function mod003PackageFiles(
         maxMembers: 64,
         connectivity: "edge",
         memberRules: [],
+        placementPreset: {
+          square: [
+            { row: 0, column: 0 },
+            { row: 0, column: 1 },
+          ],
+        },
         extensions: {},
       },
     },

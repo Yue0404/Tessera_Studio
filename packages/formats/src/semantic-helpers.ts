@@ -457,7 +457,9 @@ export function validateKnownBasicInstance(
       );
       return;
     }
-    case "tessera.basic:object": {
+    case "tessera.basic:object":
+    case "tessera.basic:object.square":
+    case "tessera.basic:object.hex-cluster": {
       if (instance.layerId !== "tessera.basic.domain-object") {
         throw makeError("basic-layer-mismatch", { pointer });
       }
@@ -504,6 +506,8 @@ export function validateKnownBasicPlacement(
     "tessera.basic:connection.line": "line",
     "tessera.basic:connection.arrow": "arrow",
     "tessera.basic:object": "domain-group",
+    "tessera.basic:object.square": "domain-group",
+    "tessera.basic:object.hex-cluster": "domain-group",
   };
   const expectedPlacement = expected[elementId];
   if (

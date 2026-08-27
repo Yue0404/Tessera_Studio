@@ -675,6 +675,30 @@ const markerStyleSchema = {
     rotation: { type: "number", minimum: 0, exclusiveMaximum: 360 },
   },
 } as const;
+const mapShapeStyleSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "shape",
+    "fillColor",
+    "fillOpacity",
+    "strokeColor",
+    "strokeOpacity",
+    "strokeWidth",
+    "sizeScale",
+    "rotation",
+  ],
+  properties: {
+    shape: { enum: ["circle", "square", "hexagon"] },
+    fillColor: { type: "string", pattern: color },
+    fillOpacity: { type: "number", minimum: 0, maximum: 1 },
+    strokeColor: { type: "string", pattern: color },
+    strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
+    strokeWidth: { type: "number", exclusiveMinimum: 0, maximum: 4096 },
+    sizeScale: { type: "number", minimum: 0.1, maximum: 0.9 },
+    rotation: { type: "number", minimum: 0, exclusiveMaximum: 360 },
+  },
+} as const;
 const textStyleSchema = {
   type: "object",
   additionalProperties: false,
@@ -720,7 +744,7 @@ const domainStyleSchema = {
   required: ["representation", "style"],
   properties: {
     representation: {
-      enum: ["cell-style", "edge-style", "marker", "text"],
+      enum: ["cell-style", "edge-style", "marker", "text", "map-shape"],
     },
     style: {
       oneOf: [
@@ -728,6 +752,7 @@ const domainStyleSchema = {
         edgeStyleSchema,
         markerStyleSchema,
         textStyleSchema,
+        mapShapeStyleSchema,
       ],
     },
   },
@@ -918,6 +943,47 @@ export const elementFileSchema = {
             type: "array",
             uniqueItems: true,
             items: { type: "string", minLength: 1, maxLength: 256 },
+          },
+          placementPreset: {
+            type: "object",
+            additionalProperties: false,
+            minProperties: 1,
+            properties: {
+              square: {
+                type: "array",
+                minItems: 1,
+                maxItems: 4096,
+                uniqueItems: true,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["row", "column"],
+                  properties: {
+                    row: { type: "integer", minimum: -40000, maximum: 40000 },
+                    column: {
+                      type: "integer",
+                      minimum: -40000,
+                      maximum: 40000,
+                    },
+                  },
+                },
+              },
+              "hex-pointy": {
+                type: "array",
+                minItems: 1,
+                maxItems: 4096,
+                uniqueItems: true,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["q", "r"],
+                  properties: {
+                    q: { type: "integer", minimum: -40000, maximum: 40000 },
+                    r: { type: "integer", minimum: -40000, maximum: 40000 },
+                  },
+                },
+              },
+            },
           },
           extensions: extensionsSchema,
         },

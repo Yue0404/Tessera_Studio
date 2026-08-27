@@ -21,6 +21,7 @@ import {
   captureVisualExportSnapshot,
   executeVisualExportPng,
   planVisualExport,
+  serializeVisualExportSvg,
 } from "@tessera/renderer/visual-export";
 import {
   ActiveProjectModuleSession,
@@ -191,6 +192,12 @@ const elements = [
       maxMembers: 64,
       connectivity: "edge",
       memberRules: [],
+      placementPreset: {
+        square: [
+          { row: 0, column: 0 },
+          { row: 0, column: 1 },
+        ],
+      },
     },
   }),
   element({
@@ -329,7 +336,7 @@ const modulePackage = {
 } as ParsedModulePackage;
 
 function moduleWithDomain(
-  representation: "cell-style" | "edge-style" | "marker" | "text",
+  representation: "cell-style" | "edge-style" | "marker" | "text" | "map-shape",
   style: Readonly<Record<string, unknown>>,
   attributeSchema: ModuleElementDefinition["attributeSchema"] = emptyAttributes,
 ): ParsedModulePackage {
@@ -872,9 +879,25 @@ describe("ActiveProjectModuleSession", () => {
       1,
       "text",
     ],
+    [
+      "map-shape",
+      {
+        shape: "square",
+        fillColor: "#55AA66CC",
+        fillOpacity: 0.8,
+        strokeColor: "#FFFFFFFF",
+        strokeOpacity: 1,
+        strokeWidth: 2,
+        sizeScale: 0.65,
+        rotation: 0,
+      },
+      emptyAttributes,
+      2,
+      "mixed",
+    ],
   ] as const)(
     "DomainGroup %s 表示按成员/外边界/中心生成确定导出 primitive",
-    (representation, style, attributeSchema, count, kind) => {
+    async (representation, style, attributeSchema, count, kind) => {
       const packageWithRepresentation = moduleWithDomain(
         representation,
         style,
@@ -900,9 +923,49 @@ describe("ActiveProjectModuleSession", () => {
         .flatMap((extension) => extension.descriptors)
         .filter((primitive) => primitive.stableId.startsWith(instanceId));
       expect(primitives).toHaveLength(count);
-      expect(primitives.every((primitive) => primitive.kind === kind)).toBe(
-        true,
-      );
+      if (kind === "mixed") {
+        expect(primitives.map((primitive) => primitive.kind)).toEqual([
+          "polygon",
+          "outline",
+        ]);
+        const svgPlan = planVisualExport(snapshot, {
+          format: "svg",
+          range: { kind: "full-map" },
+          background: { kind: "transparent" },
+          showGrid: false,
+        });
+        const svg = serializeVisualExportSvg(svgPlan);
+        expect(svg).toContain("<polygon");
+        expect(svg).toContain('fill="none"');
+        const pngPlan = planVisualExport(snapshot, {
+          format: "png",
+          range: { kind: "full-map" },
+          background: { kind: "transparent" },
+          showGrid: false,
+          scale: 1,
+        });
+        await expect(
+          executeVisualExportPng(
+            pngPlan,
+            {
+              context: pngCanvasContext(),
+              encodePng: async () => new Blob(["png"], { type: "image/png" }),
+            },
+            {
+              isCancelled: () => false,
+              onProgress: () => undefined,
+              now: () => 0,
+              yieldControl: async () => undefined,
+              batchSize: 128,
+              executionMode: "fallback",
+            },
+          ),
+        ).resolves.toMatchObject({ format: "png", mimeType: "image/png" });
+      } else {
+        expect(primitives.every((primitive) => primitive.kind === kind)).toBe(
+          true,
+        );
+      }
       if (representation === "marker" || representation === "text") {
         expect(primitives[0]).toMatchObject({
           point: { x: 96, y: 80 },
@@ -979,7 +1042,7 @@ describe("ActiveProjectModuleSession", () => {
     );
   });
 
-  it("仅把 tessera.basic 的领域物体暴露给 generic 会话", () => {
+  it("仅暴露 tessera.basic 领域物体并按跨平台 Unicode 码点稳定排序", () => {
     const session = new ActiveProjectModuleSession(
       storeWithActiveModule(),
       [BASIC_MODULE_PACKAGE, modulePackage],
@@ -989,7 +1052,11 @@ describe("ActiveProjectModuleSession", () => {
       session.elements
         .filter((element) => element.moduleId === "tessera.basic")
         .map((element) => element.elementId),
-    ).toEqual(["tessera.basic:object"]);
+    ).toEqual([
+      "tessera.basic:object.hex-cluster",
+      "tessera.basic:object",
+      "tessera.basic:object.square",
+    ]);
     expect(
       session.elements.some(
         (element) => element.moduleId === "example.weather",

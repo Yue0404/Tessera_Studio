@@ -147,7 +147,7 @@ export const zhCN = {
     "catalog.edgeSettings": "边样式设置",
     "catalog.objectSettings": "物体放置设置",
     "catalog.objectPlacementHint":
-      "单击放置单格物体；按住并拖动可预览并放置一个连续多格物体。",
+      "单击地图中的中心格，按当前预设一次性放置完整物体。",
     "catalog.markerSettings": "标记设置",
     "catalog.textSettings": "文字设置",
     "catalog.connectionSettings": "连线设置",
@@ -252,6 +252,9 @@ export const zhCN = {
     "element.cellColor": "地格颜色",
     "element.edgeStyle": "共享边样式",
     "element.object": "物体",
+    "element.objectCircle": "圆形物体",
+    "element.objectSquare": "方形物体",
+    "element.objectHexCluster": "七格六边形",
     "element.marker": "标记",
     "element.text": "文字",
     "element.connectionLine": "线段",
@@ -285,10 +288,9 @@ export const zhCN = {
     "error.domainGroupDisconnected":
       "所选地格没有通过共享边形成单一连通域，工程未更改。",
     "error.domainGroupOutOfBounds": "所选领域成员不属于当前网格，工程未更改。",
-    "error.objectFootprintTooLarge":
-      "物体范围超过 4096 个地格，请缩小拖动范围后重试。",
+    "error.objectFootprintTooLarge": "物体预设超过 4096 个地格，无法放置。",
     "error.objectFootprintOutOfBounds":
-      "物体终点不在有效地图范围内，请在地图内完成拖动。",
+      "当前中心格会使物体超出地图边界，请选取更靠内的中心格。",
     "error.objectFootprintEmpty": "当前范围没有可放置的地格，请重新选择范围。",
     "ruleHints.title": "规则提示",
     "ruleHints.severity.error": "错误",

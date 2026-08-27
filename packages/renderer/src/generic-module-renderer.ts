@@ -51,6 +51,12 @@ import type {
 } from "./generic-module-assets.js";
 import { genericModuleResourceKey } from "./generic-module-assets.js";
 import { GENERIC_MODULE_RESOURCE_FAILURE_PLACEHOLDER } from "./generic-module-assets.js";
+import {
+  domainMapShapeContainsPoint,
+  domainMapShapeGeometry,
+  domainMapShapeIntersectsRect,
+  type DomainMapShape,
+} from "./domain-map-shape.js";
 
 export type GenericModuleVisualDescriptor =
   | {
@@ -105,6 +111,17 @@ export type GenericModuleVisualDescriptor =
       readonly lineStyle: "solid" | "dashed";
       readonly dashPattern?: readonly number[];
       readonly lineCap?: "butt" | "round" | "square";
+    }
+  | {
+      readonly kind: "map-shape";
+      readonly shape: DomainMapShape;
+      readonly fillColor: string;
+      readonly fillOpacity: number;
+      readonly strokeColor: string;
+      readonly strokeOpacity: number;
+      readonly strokeWidth: number;
+      readonly sizeScale: number;
+      readonly rotation: number;
     };
 
 export interface GenericModuleVisualResolver {
@@ -497,7 +514,18 @@ export function hitTestGenericModules(
       (descriptor.kind === "marker" &&
         genericMarkerContainsPoint(descriptor, geometry.center, point, zoom)) ||
       (descriptor.kind === "text" &&
-        genericTextContainsPoint(descriptor, geometry.center, point, zoom))
+        genericTextContainsPoint(descriptor, geometry.center, point, zoom)) ||
+      (descriptor.kind === "map-shape" &&
+        domainMapShapeContainsPoint(
+          domainMapShapeGeometry(
+            state,
+            instance,
+            descriptor.shape,
+            descriptor.sizeScale,
+            descriptor.rotation,
+          ),
+          point,
+        ))
     )
       candidates.set(instance.instanceId, instance);
   }
@@ -622,7 +650,18 @@ export function boxSelectGenericModules(
           );
         })) ||
       ((descriptor.kind === "marker" || descriptor.kind === "text") &&
-        pointInRect(geometry.center, rect))
+        pointInRect(geometry.center, rect)) ||
+      (descriptor.kind === "map-shape" &&
+        domainMapShapeIntersectsRect(
+          domainMapShapeGeometry(
+            state,
+            instance,
+            descriptor.shape,
+            descriptor.sizeScale,
+            descriptor.rotation,
+          ),
+          rect,
+        ))
     )
       ids.add(instance.instanceId);
   }
@@ -1048,6 +1087,30 @@ export class GenericModuleRenderer {
           );
           container.addChild(graphics);
         }
+      } else if (descriptor.kind === "map-shape") {
+        const shape = domainMapShapeGeometry(
+          state,
+          instance,
+          descriptor.shape,
+          descriptor.sizeScale,
+          descriptor.rotation,
+        );
+        if (!domainMapShapeIntersectsRect(shape, overlayViewport)) continue;
+        const fill = colorValue(descriptor.fillColor);
+        const stroke = colorValue(descriptor.strokeColor);
+        container.addChild(
+          new Graphics()
+            .poly(shape.points.flatMap((point) => [point.x, point.y]))
+            .fill({
+              color: fill.color,
+              alpha: fill.alpha * descriptor.fillOpacity * opacity,
+            })
+            .stroke({
+              color: stroke.color,
+              alpha: stroke.alpha * descriptor.strokeOpacity * opacity,
+              width: descriptor.strokeWidth,
+            }),
+        );
       } else if (
         descriptor.kind === "marker" &&
         pointInRect(geometry.center, overlayViewport)
@@ -1306,5 +1369,23 @@ export class GenericModuleRenderer {
     visibleCells: readonly VisibleCell[],
   ): readonly string[] {
     return boxSelectGenericModules(state, this.#resolver, rect, visibleCells);
+  }
+
+  /** 返回与实际对象视觉一致的高亮轮廓；其他表示继续使用既有载体高亮。 */
+  highlightPolygon(
+    state: Readonly<ProjectState>,
+    instance: Readonly<ModuleRuntimeInstance>,
+  ): readonly { readonly x: number; readonly y: number }[] | null {
+    if (instance.kind !== "domain-group") return null;
+    const descriptor = this.#resolver.resolve(instance);
+    return descriptor?.kind === "map-shape"
+      ? domainMapShapeGeometry(
+          state,
+          instance,
+          descriptor.shape,
+          descriptor.sizeScale,
+          descriptor.rotation,
+        ).points
+      : null;
   }
 }
