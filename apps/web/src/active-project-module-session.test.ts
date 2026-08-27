@@ -1042,7 +1042,7 @@ describe("ActiveProjectModuleSession", () => {
     );
   });
 
-  it("仅把 tessera.basic 的领域物体暴露给 generic 会话", () => {
+  it("仅暴露 tessera.basic 领域物体并按跨平台 Unicode 码点稳定排序", () => {
     const session = new ActiveProjectModuleSession(
       storeWithActiveModule(),
       [BASIC_MODULE_PACKAGE, modulePackage],
@@ -1053,9 +1053,9 @@ describe("ActiveProjectModuleSession", () => {
         .filter((element) => element.moduleId === "tessera.basic")
         .map((element) => element.elementId),
     ).toEqual([
-      "tessera.basic:object.square",
       "tessera.basic:object.hex-cluster",
       "tessera.basic:object",
+      "tessera.basic:object.square",
     ]);
     expect(
       session.elements.some(

@@ -142,6 +142,11 @@ function categoryFor(element: ModuleElementDefinition): ModuleElementCategory {
   return "overlay";
 }
 
+/** 使用 Unicode 码点顺序，避免系统区域设置改变目录元素排序。 */
+function compareCodePoint(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function exposedElements(module: ParsedModulePackage) {
   // 无固定预设的旧 domain-object 只用于恢复既有实例，不再进入可放置目录。
   const placeable = module.elements.filter(
@@ -690,10 +695,10 @@ export class ActiveProjectModuleSession {
         )
         .sort(
           (left, right) =>
-            left.moduleId.localeCompare(right.moduleId) ||
-            left.categoryId.localeCompare(right.categoryId) ||
-            left.displayName.localeCompare(right.displayName) ||
-            left.elementId.localeCompare(right.elementId),
+            compareCodePoint(left.moduleId, right.moduleId) ||
+            compareCodePoint(left.categoryId, right.categoryId) ||
+            compareCodePoint(left.displayName, right.displayName) ||
+            compareCodePoint(left.elementId, right.elementId),
         ),
     );
     // 目录只暴露可新建元素；解析表保留无 preset 的旧元素以继续渲染既有实例。
