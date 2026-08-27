@@ -509,6 +509,30 @@ export function EditorView({
           });
         },
         eraseCandidates: (objects) => store.eraseFirstEditable(objects),
+        getDomainGroupPlacementPreset: () => {
+          const elementId = activeModuleElementId.current;
+          if (elementId === null) return null;
+          const preset =
+            moduleSession.get(elementId)?.definition.group?.placementPreset?.[
+              store.state.grid.type
+            ];
+          if (preset === undefined) return null;
+          return store.state.grid.type === "square"
+            ? {
+                gridType: "square" as const,
+                offsets: preset.map((offset) => ({
+                  row: "row" in offset ? offset.row : 0,
+                  column: "column" in offset ? offset.column : 0,
+                })),
+              }
+            : {
+                gridType: "hex-pointy" as const,
+                offsets: preset.map((offset) => ({
+                  q: "q" in offset ? offset.q : 0,
+                  r: "r" in offset ? offset.r : 0,
+                })),
+              };
+        },
         placeDomainGroup: (memberCellIds) => {
           const elementId = activeModuleElementId.current;
           if (elementId === null) return;
@@ -931,14 +955,15 @@ export function EditorView({
           onConnection={setConnection}
           onElementSelect={(elementId) => {
             setConnectionRebind(null);
+            const moduleElement = moduleSession.get(elementId);
             if (
               elementId.startsWith("tessera.basic:") &&
-              elementId !== "tessera.basic:object"
+              moduleElement?.definition.primitive !== "domain-object"
             ) {
               activeModuleElementId.current = null;
               setActiveElementId(elementId);
             } else {
-              const element = moduleSession.get(elementId);
+              const element = moduleElement;
               if (element === undefined || element.disabledReason !== null)
                 return;
               setActiveElementId(elementId);

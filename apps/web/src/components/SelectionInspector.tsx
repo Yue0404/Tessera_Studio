@@ -295,9 +295,6 @@ export function SelectionInspector(props: Props) {
       ? props.state.moduleInstances.get(selected.id)
       : undefined;
   const moduleReadonly = moduleInstance?.runtimeStatus === "missing";
-  const selectedMemberCellIds = props.selection
-    .filter((candidate) => candidate.kind === "cell")
-    .map((candidate) => candidate.id);
   const commitModulePatch = (
     patch: Parameters<NonNullable<Props["onModuleInstance"]>>[1],
   ): boolean => {
@@ -429,28 +426,6 @@ export function SelectionInspector(props: Props) {
                   count: moduleInstance.memberCellIds.length,
                 })}
               </p>
-              <button
-                type="button"
-                disabled={
-                  moduleReadonly ||
-                  selectedMemberCellIds.length < 2 ||
-                  props.onDomainGroupMembers === undefined
-                }
-                onClick={() => {
-                  try {
-                    props.onDomainGroupMembers?.(
-                      moduleInstance.instanceId,
-                      selectedMemberCellIds,
-                    );
-                    setModuleError(false);
-                  } catch {
-                    // 领域成员约束失败时保留原实例，并沿用模块面板的非破坏性错误提示。
-                    setModuleError(true);
-                  }
-                }}
-              >
-                {t("inspector.replaceDomainGroupMembers")}
-              </button>
             </section>
           )}
           {(props.moduleRuleHints?.length ?? 0) > 0 && (

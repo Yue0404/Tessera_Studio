@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -92,7 +92,9 @@ describe("CanvasToolRail", () => {
     const eraser = screen.getByRole("button", {
       name: "橡皮擦 · 单击擦除",
     });
-    expect(eraser.textContent).toContain("单击");
+    expect(eraser.textContent).not.toMatch(/单击|滑动/u);
+    expect(within(eraser).getByTestId("eraser-base-icon")).toBeDefined();
+    expect(within(eraser).queryByTestId("eraser-drag-trail")).toBeNull();
     await user.hover(eraser);
     expect((await screen.findByRole("tooltip")).textContent).toContain(
       "单击擦除",
@@ -131,7 +133,9 @@ describe("CanvasToolRail", () => {
     const dragEraser = screen.getByRole("button", {
       name: "橡皮擦 · 滑动擦除",
     });
-    expect(dragEraser.textContent).toContain("滑动");
+    expect(dragEraser.textContent).not.toMatch(/单击|滑动/u);
+    expect(within(dragEraser).getByTestId("eraser-base-icon")).toBeDefined();
+    expect(within(dragEraser).getByTestId("eraser-drag-trail")).toBeDefined();
     await user.hover(dragEraser);
     expect((await screen.findByRole("tooltip")).textContent).toContain(
       "滑动擦除",

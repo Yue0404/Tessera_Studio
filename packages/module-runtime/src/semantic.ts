@@ -349,6 +349,16 @@ const STYLE_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
     "displaySize",
     "rotation",
   ]),
+  "map-shape": new Set([
+    "shape",
+    "fillColor",
+    "fillOpacity",
+    "strokeColor",
+    "strokeOpacity",
+    "strokeWidth",
+    "sizeScale",
+    "rotation",
+  ]),
   text: new Set([
     "color",
     "opacity",
@@ -383,7 +393,8 @@ function validateStyle(element: ModuleElementDefinition, path: string): void {
       representation === "cell-style" ||
       representation === "edge-style" ||
       representation === "marker" ||
-      representation === "text"
+      representation === "text" ||
+      representation === "map-shape"
         ? STYLE_KEYS[representation]
         : undefined;
     if (allowed === undefined || style.style === undefined) {
@@ -737,6 +748,38 @@ export function validateModuleSemantics(
       element.group.minMembers > element.group.maxMembers
     ) {
       runtimeError("package-style-invalid", `${path}/group`);
+    }
+    if (element.group?.placementPreset !== undefined) {
+      const preset = element.group.placementPreset;
+      const presetGrids = Object.keys(preset).sort();
+      const supportedGrids = [...element.supportedGrids].sort();
+      if (
+        presetGrids.length !== supportedGrids.length ||
+        presetGrids.some((grid, index) => grid !== supportedGrids[index])
+      )
+        runtimeError("package-style-invalid", `${path}/group/placementPreset`);
+      for (const grid of element.supportedGrids) {
+        const offsets = preset[grid];
+        if (
+          offsets === undefined ||
+          offsets.length < element.group.minMembers ||
+          offsets.length > element.group.maxMembers
+        )
+          runtimeError(
+            "package-style-invalid",
+            `${path}/group/placementPreset/${grid}`,
+          );
+        const includesOrigin = offsets.some((offset) =>
+          grid === "square"
+            ? "row" in offset && offset.row === 0 && offset.column === 0
+            : "q" in offset && offset.q === 0 && offset.r === 0,
+        );
+        if (!includesOrigin)
+          runtimeError(
+            "package-style-invalid",
+            `${path}/group/placementPreset/${grid}`,
+          );
+      }
     }
     validateStyle(element, `${path}/defaultStyle`);
     validateAttributeSchema(element.attributeSchema, `${path}/attributeSchema`);

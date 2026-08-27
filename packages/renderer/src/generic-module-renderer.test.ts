@@ -28,6 +28,7 @@ import {
   textMapSize,
   textWrapMapSize,
 } from "./overlay-visibility.js";
+import { domainMapShapeGeometry } from "./domain-map-shape.js";
 
 const grid = {
   type: "square" as const,
@@ -92,6 +93,69 @@ function stateWith(
 }
 
 describe("GenericModuleRenderer 查询", () => {
+  it("map-shape 使用 footprint 内缩几何进行命中与框选", () => {
+    const memberCellIds = ["cell:square:2:2", "cell:square:2:3"];
+    const domain: ModuleRuntimeInstance = {
+      kind: "domain-group",
+      instanceId: "domain-map-shape",
+      elementId: "example.weather:domain.shape",
+      layerId: "example.weather.surface",
+      memberCellIds,
+      attributes: {},
+      styleOverrides: {},
+      extensions: {},
+      runtimeStatus: "available",
+    };
+    const state = stateWith([domain]);
+    if (domain.kind !== "domain-group") throw new Error("测试夹具类型错误");
+    const geometry = domainMapShapeGeometry(state, domain, "square", 0.6, 0);
+    expect(geometry.size).toBeCloseTo(19.2);
+    expect(geometry.points).toHaveLength(4);
+    expect(
+      domainMapShapeGeometry(state, domain, "circle", 0.6, 0).points,
+    ).toHaveLength(32);
+    expect(
+      domainMapShapeGeometry(state, domain, "hexagon", 0.6, 0).points,
+    ).toHaveLength(6);
+    const resolver = {
+      resolve: () => ({
+        kind: "map-shape" as const,
+        shape: "square" as const,
+        fillColor: "#FFFFFFFF",
+        fillOpacity: 1,
+        strokeColor: "#000000FF",
+        strokeOpacity: 1,
+        strokeWidth: 1,
+        sizeScale: 0.6,
+        rotation: 0,
+      }),
+    };
+    expect(
+      hitTestGenericModule(state, resolver, geometry.center, undefined),
+    ).toBe(domain.instanceId);
+    expect(
+      hitTestGenericModule(
+        state,
+        resolver,
+        cellCenter(state.grid, 2, 2),
+        undefined,
+      ),
+    ).toBeNull();
+    expect(
+      boxSelectGenericModules(
+        state,
+        resolver,
+        {
+          minX: geometry.center.x - 2,
+          minY: geometry.center.y - 2,
+          maxX: geometry.center.x + 2,
+          maxY: geometry.center.y + 2,
+        },
+        [],
+      ),
+    ).toEqual([domain.instanceId]);
+  });
+
   it.each(["square", "hex-pointy"] as const)(
     "%s 领域组任一可见 cell-style 成员都命中同一实例，范围外不命中",
     (type) => {

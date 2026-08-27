@@ -95,7 +95,7 @@ async function expectControlInsideUnscrolledPanel(
 }
 
 for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
-  test(`${gridLabel}：初始模块物体支持单格、多格、空白选择与整体删除`, async ({
+  test(`${gridLabel}：固定物体预设支持拖动不扩张、空白选择与整体删除`, async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -110,24 +110,50 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
       })
       .click();
     const settings = page.getByRole("region", { name: "当前元素设置" });
-    await expect(settings).toContainText("单击放置单格物体");
+    await expect(settings).toContainText(
+      "单击地图中的中心格，按当前预设一次性放置完整物体。",
+    );
     await expect(settings).toHaveAttribute("data-active-tool", "object");
 
     await canvas.click({ position: { x: 570, y: 300 } });
     await drag(page, canvas, "left", { x: 620, y: 300 }, { x: 670, y: 300 });
+    await page
+      .getByRole("button", {
+        name: "使用目录元素 tessera.basic:object.square",
+        exact: true,
+      })
+      .click();
+    await expect(settings).toHaveAttribute(
+      "data-active-element",
+      "tessera.basic:object.square",
+    );
+    await canvas.click({ position: { x: 520, y: 400 } });
+    const clusterButton = page.getByRole("button", {
+      name: "使用目录元素 tessera.basic:object.hex-cluster",
+      exact: true,
+    });
+    if (gridLabel === "正方形") {
+      await expect(clusterButton).toBeDisabled();
+    } else {
+      await clusterButton.click();
+      await expect(settings).toHaveAttribute(
+        "data-active-element",
+        "tessera.basic:object.hex-cluster",
+      );
+      await canvas.click({ position: { x: 450, y: 400 } });
+    }
     let document = await exportProject(page);
-    expect(document.domainGroups).toHaveLength(2);
+    expect(document.domainGroups).toHaveLength(gridLabel === "正方形" ? 3 : 4);
     expect(
-      document.domainGroups.map((group: any) => group.memberCellIds.length),
-    ).toEqual(expect.arrayContaining([1, expect.any(Number)]));
-    expect(
-      document.domainGroups.some(
-        (group: any) => group.memberCellIds.length > 1,
-      ),
-    ).toBe(true);
+      document.domainGroups
+        .map((group: any) => group.memberCellIds.length)
+        .sort((left: number, right: number) => left - right),
+    ).toEqual(gridLabel === "正方形" ? [1, 1, 1] : [1, 1, 1, 7]);
 
     await page.getByRole("button", { name: "选择" }).click();
-    await canvas.click({ position: { x: 570, y: 300 } });
+    const firstObjectPosition =
+      gridLabel === "正方形" ? { x: 558, y: 306 } : { x: 570, y: 300 };
+    await canvas.click({ position: firstObjectPosition });
     const inspector = page.locator("aside").filter({
       has: page.getByText("已选择 1 个对象", { exact: true }),
     });
@@ -139,13 +165,13 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     await canvas.click({ position: { x: 480, y: 220 } });
     await expect(inspector).toHaveCount(0);
 
-    await canvas.click({ position: { x: 570, y: 300 } });
+    await canvas.click({ position: firstObjectPosition });
     const selected = page.locator("aside").filter({
       has: page.getByText("已选择 1 个对象", { exact: true }),
     });
     await selected.getByRole("button", { name: "删除所选对象" }).click();
     document = await exportProject(page);
-    expect(document.domainGroups).toHaveLength(1);
+    expect(document.domainGroups).toHaveLength(gridLabel === "正方形" ? 2 : 3);
     expect(runtime.errors).toEqual([]);
     runtime.dispose();
   });
@@ -381,11 +407,11 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
     throw new Error("catalog-bounds-missing");
   expect(settingsBox.y).toBeLessThan(searchBox.y);
   expect(settingsBox.y + settingsBox.height).toBeLessThanOrEqual(720);
-  await expect(resultList.getByRole("listitem")).toHaveCount(7);
+  await expect(resultList.getByRole("listitem")).toHaveCount(9);
   await search.fill("箭头");
   await expect(resultList.getByRole("listitem")).toHaveCount(1);
   await search.fill("");
-  await expect(resultList.getByRole("listitem")).toHaveCount(7);
+  await expect(resultList.getByRole("listitem")).toHaveCount(9);
 
   await page
     .getByRole("button", {

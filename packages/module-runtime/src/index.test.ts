@@ -27,6 +27,8 @@ describe("内置基础模块", () => {
       "tessera.basic:cell.color",
       "tessera.basic:edge.style",
       "tessera.basic:object",
+      "tessera.basic:object.square",
+      "tessera.basic:object.hex-cluster",
       "tessera.basic:marker",
       "tessera.basic:text",
       "tessera.basic:connection.line",
@@ -52,5 +54,40 @@ describe("内置基础模块", () => {
         "connection.arrow.create",
       ]),
     );
+  });
+
+  it("三个内置物体声明固定 footprint 与精确网格支持", () => {
+    const byId = new Map(
+      BASIC_ELEMENTS.map((element) => [element.elementId, element]),
+    );
+    for (const elementId of [
+      "tessera.basic:object",
+      "tessera.basic:object.square",
+    ]) {
+      expect(byId.get(elementId)?.supportedGrids).toEqual([
+        "square",
+        "hex-pointy",
+      ]);
+      expect(byId.get(elementId)?.group?.placementPreset).toEqual({
+        square: [{ row: 0, column: 0 }],
+        "hex-pointy": [{ q: 0, r: 0 }],
+      });
+    }
+    expect(
+      byId.get("tessera.basic:object.hex-cluster")?.supportedGrids,
+    ).toEqual(["hex-pointy"]);
+    expect(
+      byId.get("tessera.basic:object.hex-cluster")?.group?.placementPreset?.[
+        "hex-pointy"
+      ],
+    ).toEqual([
+      { q: 0, r: 0 },
+      { q: 1, r: 0 },
+      { q: -1, r: 0 },
+      { q: 0, r: 1 },
+      { q: 0, r: -1 },
+      { q: 1, r: -1 },
+      { q: -1, r: 1 },
+    ]);
   });
 });

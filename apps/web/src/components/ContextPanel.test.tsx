@@ -389,7 +389,7 @@ describe("ContextPanel", () => {
     ).toBe(false);
   });
 
-  it("DomainGroup 可用当前所选地格原子替换成员并显示非破坏性错误", () => {
+  it("固定预设 DomainGroup 不再提供任意成员替换入口", () => {
     const state = project();
     (state.layers as Map<string, FixedLayerState>).set(
       "example.weather.surface",
@@ -415,7 +415,6 @@ describe("ContextPanel", () => {
       extensions: {},
       runtimeStatus: "available",
     });
-    const onDomainGroupMembers = vi.fn();
     render(
       <I18nextProvider i18n={i18n}>
         <ContextPanel
@@ -431,7 +430,7 @@ describe("ContextPanel", () => {
           onEdgeStyle={vi.fn()}
           onOverlay={vi.fn()}
           onConnection={vi.fn()}
-          onDomainGroupMembers={onDomainGroupMembers}
+          onDomainGroupMembers={vi.fn()}
           onDeleteSelection={vi.fn()}
           onLayerState={vi.fn()}
           onClose={vi.fn()}
@@ -443,23 +442,11 @@ describe("ContextPanel", () => {
         name: /扩展模块实例.*example\.weather:domain\.zone/u,
       }),
     );
-    const replace = screen.getByRole("button", {
-      name: "用当前所选地格替换领域成员",
-    });
-    expect((replace as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(replace);
-    expect(onDomainGroupMembers).toHaveBeenCalledWith("generic-domain", [
-      "cell:square:4:4",
-      "cell:square:4:5",
-    ]);
-
-    onDomainGroupMembers.mockImplementationOnce(() => {
-      throw new Error("domain-group-members-disconnected");
-    });
-    fireEvent.click(replace);
-    expect(screen.getByRole("alert").textContent).toContain(
-      "输入不符合模块声明，未保存更改",
-    );
+    expect(
+      screen.queryByRole("button", {
+        name: "用当前所选地格替换领域成员",
+      }),
+    ).toBeNull();
   });
 
   it("missing generic 占位可选择但属性与删除均只读", () => {

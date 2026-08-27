@@ -10,6 +10,11 @@ export type ModuleInstanceRuntimeStatus = "available" | "missing";
 export type ModuleJsonObject = Readonly<Record<string, unknown>>;
 
 export const BASIC_DOMAIN_OBJECT_ELEMENT_ID = "tessera.basic:object";
+export const BASIC_DOMAIN_OBJECT_ELEMENT_IDS = new Set([
+  BASIC_DOMAIN_OBJECT_ELEMENT_ID,
+  "tessera.basic:object.square",
+  "tessera.basic:object.hex-cluster",
+]);
 export const BASIC_DOMAIN_OBJECT_LAYER_ID = "tessera.basic.domain-object";
 
 interface ModuleInstanceBase {
@@ -93,13 +98,13 @@ export type ModuleRuntimeInstance =
   | ModuleConnectionInstance
   | ModuleDomainGroupInstance;
 
-/** 初始模块仅允许这个领域对象进入通用实例仓库，其他基础元素仍由专用管理器持有。 */
+/** 初始模块仅允许三个明确领域对象进入通用实例仓库，其他基础元素仍由专用管理器持有。 */
 export function isBuiltInDomainObjectInstance(
   instance: Pick<ModuleRuntimeInstance, "elementId" | "layerId" | "kind">,
 ): boolean {
   return (
     instance.kind === "domain-group" &&
-    instance.elementId === BASIC_DOMAIN_OBJECT_ELEMENT_ID &&
+    BASIC_DOMAIN_OBJECT_ELEMENT_IDS.has(instance.elementId) &&
     instance.layerId === BASIC_DOMAIN_OBJECT_LAYER_ID
   );
 }
