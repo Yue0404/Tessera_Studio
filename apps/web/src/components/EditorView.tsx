@@ -36,6 +36,7 @@ import {
   ActiveProjectModuleError,
   ActiveProjectModuleSession,
   moduleTextContentValid,
+  type ActiveProjectModuleElement,
 } from "../active-project-module-session.js";
 import { createFillRegionWorker } from "../fill-region-worker-adapter.js";
 import { dispatchEditorShortcut } from "../editor-shortcuts.js";
@@ -46,7 +47,7 @@ import {
   type SaveFailureKey,
 } from "../save-recovery.js";
 import { AppCommandBar } from "./AppCommandBar.js";
-import { CanvasToolRail } from "./CanvasToolRail.js";
+import { CanvasToolRail, type ObjectToolPreset } from "./CanvasToolRail.js";
 import { ContextPanel } from "./ContextPanel.js";
 import { EditorStatusBar } from "./EditorStatusBar.js";
 import { ElementCatalog, type TextPlacementOptions } from "./ElementCatalog.js";
@@ -74,6 +75,18 @@ export interface EditorViewProps {
 
 function alphaColor(value: string): string {
   return `${value.toUpperCase()}FF`;
+}
+
+function objectPresetShape(
+  element: ActiveProjectModuleElement,
+): ObjectToolPreset["shape"] {
+  const style = element.definition.defaultStyle.style;
+  if (style === null || typeof style !== "object" || Array.isArray(style))
+    return "generic";
+  const shape = (style as Readonly<Record<string, unknown>>).shape;
+  return shape === "circle" || shape === "square" || shape === "hexagon"
+    ? shape
+    : "generic";
 }
 
 function projectHasSelectedObject(
@@ -239,6 +252,22 @@ export function EditorView({
   const moduleSession = useMemo(
     () => new ActiveProjectModuleSession(store, packages, i18n.language),
     [i18n.language, packages, store],
+  );
+  const objectPresets = useMemo<readonly ObjectToolPreset[]>(
+    () =>
+      moduleSession.elements
+        .filter(
+          (element) =>
+            element.category === "object" &&
+            element.definition.primitive === "domain-object",
+        )
+        .map((element) => ({
+          elementId: element.elementId,
+          displayName: element.displayName,
+          disabledReason: element.disabledReason,
+          shape: objectPresetShape(element),
+        })),
+    [moduleSession],
   );
   connectionRebindRef.current = connectionRebind;
 
@@ -864,6 +893,91 @@ export function EditorView({
     queueMicrotask(() => dialogPreviousFocus.current?.focus());
   };
 
+  const handleElementSelect = useCallback(
+    (elementId: string) => {
+      setConnectionRebind(null);
+      const moduleElement = moduleSession.get(elementId);
+      if (
+        elementId.startsWith("tessera.basic:") &&
+        moduleElement?.definition.primitive !== "domain-object"
+      ) {
+        activeModuleElementId.current = null;
+        setActiveElementId(elementId);
+      } else {
+        const element = moduleElement;
+        if (element === undefined || element.disabledReason !== null) return;
+        setActiveElementId(elementId);
+        if (element.definition.primitive === "domain-object") {
+          activeModuleElementId.current = elementId;
+          setErrorKey(null);
+          store.setTool("object");
+          return;
+        }
+        activeModuleElementId.current = elementId;
+        if (element.definition.primitive === "cell-style") {
+          setBrushMode("paint");
+          store.setTool("brush");
+        } else if (
+          element.definition.primitive === "marker" ||
+          element.definition.primitive === "text"
+        ) {
+          const overlayType = element.definition.primitive;
+          const anchor =
+            element.definition.anchors.includes("cell") ||
+            element.definition.anchors.includes("cell-center")
+              ? "cell"
+              : element.definition.anchors.includes("map-point")
+                ? "map-point"
+                : "edge";
+          setOverlay((value) => ({
+            ...value,
+            type: overlayType,
+            anchor,
+          }));
+          store.setTool("marker");
+        } else if (element.definition.primitive === "edge-style") {
+          store.setTool("edge");
+        } else if (element.definition.primitive === "connection") {
+          const endpoint = element.definition.anchors.includes("cell-center")
+            ? "cell-center"
+            : element.definition.anchors.includes("map-point")
+              ? "map-point"
+              : "edge-midpoint";
+          setConnection((value) => ({
+            ...value,
+            kind:
+              element.definition.defaultStyle.arrowStart === true ||
+              element.definition.defaultStyle.arrowEnd === true
+                ? "arrow"
+                : "line",
+            endpoint,
+          }));
+          store.setTool("connection");
+        }
+        return;
+      }
+      if (elementId === "tessera.basic:cell.color") store.setTool("brush");
+      else if (elementId === "tessera.basic:edge.style") store.setTool("edge");
+      else if (elementId === "tessera.basic:marker") {
+        setOverlay((value) => ({ ...value, type: "marker" }));
+        store.setTool("marker");
+      } else if (elementId === "tessera.basic:text") {
+        setOverlay((value) => ({ ...value, type: "text" }));
+        store.setTool("marker");
+      } else if (
+        elementId === "tessera.basic:connection.line" ||
+        elementId === "tessera.basic:connection.arrow"
+      ) {
+        setConnection((value) => ({
+          ...value,
+          kind: elementId.endsWith(".line") ? "line" : "arrow",
+        }));
+        store.setTool("connection");
+      }
+    },
+    [moduleSession, store],
+  );
+
   return (
     <Tooltip.Provider delayDuration={280}>
       <main
@@ -953,98 +1067,16 @@ export function EditorView({
           }}
           onTextInvalid={() => setErrorKey("error.moduleTextInvalid")}
           onConnection={setConnection}
-          onElementSelect={(elementId) => {
-            setConnectionRebind(null);
-            const moduleElement = moduleSession.get(elementId);
-            if (
-              elementId.startsWith("tessera.basic:") &&
-              moduleElement?.definition.primitive !== "domain-object"
-            ) {
-              activeModuleElementId.current = null;
-              setActiveElementId(elementId);
-            } else {
-              const element = moduleElement;
-              if (element === undefined || element.disabledReason !== null)
-                return;
-              setActiveElementId(elementId);
-              if (element.definition.primitive === "domain-object") {
-                activeModuleElementId.current = elementId;
-                setErrorKey(null);
-                store.setTool("object");
-                return;
-              }
-              activeModuleElementId.current = elementId;
-              if (element.definition.primitive === "cell-style") {
-                setBrushMode("paint");
-                store.setTool("brush");
-              } else if (
-                element.definition.primitive === "marker" ||
-                element.definition.primitive === "text"
-              ) {
-                const overlayType = element.definition.primitive;
-                const anchor =
-                  element.definition.anchors.includes("cell") ||
-                  element.definition.anchors.includes("cell-center")
-                    ? "cell"
-                    : element.definition.anchors.includes("map-point")
-                      ? "map-point"
-                      : "edge";
-                setOverlay((value) => ({
-                  ...value,
-                  type: overlayType,
-                  anchor,
-                }));
-                store.setTool("marker");
-              } else if (element.definition.primitive === "edge-style") {
-                store.setTool("edge");
-              } else if (element.definition.primitive === "connection") {
-                const endpoint = element.definition.anchors.includes(
-                  "cell-center",
-                )
-                  ? "cell-center"
-                  : element.definition.anchors.includes("map-point")
-                    ? "map-point"
-                    : "edge-midpoint";
-                setConnection((value) => ({
-                  ...value,
-                  kind:
-                    element.definition.defaultStyle.arrowStart === true ||
-                    element.definition.defaultStyle.arrowEnd === true
-                      ? "arrow"
-                      : "line",
-                  endpoint,
-                }));
-                store.setTool("connection");
-              }
-              return;
-            }
-            if (elementId === "tessera.basic:cell.color")
-              store.setTool("brush");
-            else if (elementId === "tessera.basic:edge.style")
-              store.setTool("edge");
-            else if (elementId === "tessera.basic:marker") {
-              setOverlay((value) => ({ ...value, type: "marker" }));
-              store.setTool("marker");
-            } else if (elementId === "tessera.basic:text") {
-              setOverlay((value) => ({ ...value, type: "text" }));
-              store.setTool("marker");
-            } else if (
-              elementId === "tessera.basic:connection.line" ||
-              elementId === "tessera.basic:connection.arrow"
-            ) {
-              setConnection((value) => ({
-                ...value,
-                kind: elementId.endsWith(".line") ? "line" : "arrow",
-              }));
-              store.setTool("connection");
-            }
-          }}
+          onElementSelect={handleElementSelect}
         />
         <CanvasToolRail
           tool={store.toolState.tool}
           catalogCollapsed={catalogCollapsed}
           overlayType={overlay.type}
           eraserMode={eraserMode}
+          activeElementId={activeElementId}
+          objectPresets={objectPresets}
+          onObjectSelect={handleElementSelect}
           onEraserMode={(mode) => {
             setEraserMode(mode);
             setConnectionRebind(null);

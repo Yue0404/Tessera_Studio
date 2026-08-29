@@ -9,6 +9,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n.js";
 import { CanvasToolRail } from "./CanvasToolRail.js";
 
+const OBJECT_PRESETS = [
+  {
+    elementId: "example.weather:object.circle",
+    displayName: "气象圆阵",
+    disabledReason: null,
+    shape: "circle" as const,
+  },
+  {
+    elementId: "example.weather:object.cluster",
+    displayName: "七格气象站",
+    disabledReason: "grid-unsupported",
+    shape: "hexagon" as const,
+  },
+] as const;
+
 describe("CanvasToolRail", () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -31,9 +46,12 @@ describe("CanvasToolRail", () => {
             catalogCollapsed={false}
             overlayType="marker"
             eraserMode="click"
+            activeElementId={null}
+            objectPresets={OBJECT_PRESETS}
             onTool={vi.fn()}
             onOverlayType={onOverlayType}
             onEraserMode={vi.fn()}
+            onObjectSelect={vi.fn()}
             onContext={vi.fn()}
           />
         </Tooltip.Provider>
@@ -80,9 +98,12 @@ describe("CanvasToolRail", () => {
             catalogCollapsed={false}
             overlayType="marker"
             eraserMode="click"
+            activeElementId={null}
+            objectPresets={OBJECT_PRESETS}
             onTool={onTool}
             onOverlayType={vi.fn()}
             onEraserMode={onEraserMode}
+            onObjectSelect={vi.fn()}
             onContext={vi.fn()}
           />
         </Tooltip.Provider>
@@ -122,9 +143,12 @@ describe("CanvasToolRail", () => {
             catalogCollapsed={false}
             overlayType="marker"
             eraserMode="drag"
+            activeElementId={null}
+            objectPresets={OBJECT_PRESETS}
             onTool={onTool}
             onOverlayType={vi.fn()}
             onEraserMode={onEraserMode}
+            onObjectSelect={vi.fn()}
             onContext={vi.fn()}
           />
         </Tooltip.Provider>
@@ -154,5 +178,98 @@ describe("CanvasToolRail", () => {
     expect(buttonRule).toContain("font-size: 12px");
     expect(buttonRule).toContain("white-space: nowrap");
     expect(buttonRule).toContain("overflow: hidden");
+  });
+
+  it("按操作与放置分组，并用分隔线隔开", () => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <Tooltip.Provider delayDuration={0}>
+          <CanvasToolRail
+            tool="select"
+            catalogCollapsed={false}
+            overlayType="marker"
+            eraserMode="click"
+            activeElementId={null}
+            objectPresets={OBJECT_PRESETS}
+            onTool={vi.fn()}
+            onOverlayType={vi.fn()}
+            onEraserMode={vi.fn()}
+            onObjectSelect={vi.fn()}
+            onContext={vi.fn()}
+          />
+        </Tooltip.Provider>
+      </I18nextProvider>,
+    );
+
+    const toolbar = screen.getByTestId("canvas-tool-rail");
+    const operation = toolbar.querySelector('[data-tool-group="operation"]');
+    const placement = toolbar.querySelector('[data-tool-group="placement"]');
+    expect(operation).not.toBeNull();
+    expect(placement).not.toBeNull();
+    expect(
+      within(operation as HTMLElement)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["选择", "平移", "橡皮擦 · 单击擦除", "框选"]);
+    expect(
+      within(placement as HTMLElement)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["画刷", "边", "物体", "标记", "连线与箭头"]);
+    expect(toolbar.querySelector('[role="separator"]')).not.toBeNull();
+  });
+
+  it("物体入口动态显示预设、禁用原因和当前形状", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const user = userEvent.setup();
+    const onObjectSelect = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <Tooltip.Provider delayDuration={0}>
+          <CanvasToolRail
+            tool="object"
+            catalogCollapsed={false}
+            overlayType="marker"
+            eraserMode="click"
+            activeElementId="example.weather:object.circle"
+            objectPresets={OBJECT_PRESETS}
+            onTool={vi.fn()}
+            onOverlayType={vi.fn()}
+            onEraserMode={vi.fn()}
+            onObjectSelect={onObjectSelect}
+            onContext={vi.fn()}
+          />
+        </Tooltip.Provider>
+      </I18nextProvider>,
+    );
+
+    const objectButton = screen.getByRole("button", {
+      name: "物体 · 气象圆阵",
+    });
+    expect(objectButton.querySelector("circle")).not.toBeNull();
+    await user.click(objectButton);
+    const dialog = screen.getByRole("dialog", { name: "选择物体" });
+    const enabled = within(dialog).getByRole("radio", { name: "气象圆阵" });
+    const disabled = within(dialog).getByRole("radio", {
+      name: /七格气象站：当前网格不支持此元素/u,
+    });
+    expect(enabled.getAttribute("aria-checked")).toBe("true");
+    expect((disabled as HTMLButtonElement).disabled).toBe(true);
+    expect(disabled.getAttribute("data-disabled-reason")).toBe(
+      "grid-unsupported",
+    );
+    await user.click(enabled);
+    expect(onObjectSelect).toHaveBeenCalledWith(
+      "example.weather:object.circle",
+    );
+    expect(screen.queryByRole("dialog", { name: "选择物体" })).toBeNull();
+    expect(document.activeElement).toBe(objectButton);
   });
 });

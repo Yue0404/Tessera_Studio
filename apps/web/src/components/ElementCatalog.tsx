@@ -66,6 +66,13 @@ export interface ElementCatalogEntry {
   readonly disabledReason?: string | null;
 }
 
+function catalogCategoryId(entry: ElementCatalogEntry): string {
+  // 领域物体统一进入“物体”，不让模块内部 categoryId 把同类物体拆散。
+  return entry.category === "object" || entry.primitive === "domain-object"
+    ? "object"
+    : (entry.categoryId ?? entry.category);
+}
+
 interface Props {
   collapsed: boolean;
   onToggle(): void;
@@ -236,14 +243,16 @@ export function ElementCatalog(props: Props) {
       elements
         .filter((entry) => entry.moduleId === selectedModuleId)
         .map((entry) => {
-          const categoryId = entry.categoryId ?? entry.category;
+          const categoryId = catalogCategoryId(entry);
           return [
             categoryId,
             {
               categoryId,
               label:
-                entry.categoryDisplayName ??
-                t(`catalog.category.${entry.category}`),
+                categoryId === "object"
+                  ? t("catalog.category.object")
+                  : (entry.categoryDisplayName ??
+                    t(`catalog.category.${entry.category}`)),
             },
           ];
         }),
@@ -259,7 +268,7 @@ export function ElementCatalog(props: Props) {
     (entry) =>
       entry.moduleId === selectedModuleId &&
       (selectedCategory === "all" ||
-        (entry.categoryId ?? entry.category) === selectedCategory) &&
+        catalogCategoryId(entry) === selectedCategory) &&
       (normalizedQuery === "" ||
         entry.displayName.toLocaleLowerCase().includes(normalizedQuery)),
   );

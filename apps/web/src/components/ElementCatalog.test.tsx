@@ -173,6 +173,11 @@ describe("ElementCatalog", () => {
   it("按显示名称和分类筛选已载入基础元素，清空搜索恢复全部", () => {
     renderCatalog();
     expect(screen.getAllByRole("listitem")).toHaveLength(9);
+    const categoryOptions = within(screen.getByLabelText("分类"))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(categoryOptions).toContain("物体");
+    expect(categoryOptions).not.toContain("tessera.basic:category.object");
     const search = screen.getByRole("searchbox", { name: "搜索元素" });
     fireEvent.change(search, { target: { value: "箭头" } });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
@@ -291,6 +296,48 @@ describe("ElementCatalog", () => {
     );
     expect(screen.getByText("此元素依赖尚未支持的资源样式。")).toBeDefined();
     expect(onElementSelect).not.toHaveBeenCalled();
+  });
+
+  it("不同模块内部分类的领域物体统一归入物体类别", () => {
+    renderCatalog({
+      elements: [
+        {
+          moduleId: "example.weather",
+          moduleVersion: "1.0.0",
+          moduleDisplayName: "天气",
+          category: "object",
+          primitive: "domain-object",
+          categoryId: "example.weather:storm-building",
+          categoryDisplayName: "风暴建筑",
+          elementId: "example.weather:object.radar",
+          displayName: "雷达站",
+        },
+        {
+          moduleId: "example.weather",
+          moduleVersion: "1.0.0",
+          moduleDisplayName: "天气",
+          category: "object",
+          primitive: "domain-object",
+          categoryId: "example.weather:storm-area",
+          categoryDisplayName: "风暴区域",
+          elementId: "example.weather:object.cyclone",
+          displayName: "气旋区",
+        },
+      ],
+    });
+    fireEvent.change(screen.getByLabelText("当前模块"), {
+      target: { value: "example.weather" },
+    });
+    const category = screen.getByLabelText("分类");
+    expect(
+      within(category)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["全部分类", "物体"]);
+    expect(screen.queryByText("example.weather:storm-building")).toBeNull();
+    expect(screen.queryByText("example.weather:storm-area")).toBeNull();
+    fireEvent.change(category, { target: { value: "object" } });
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });
 
   it("受控标记设置位于目录搜索前且不混入文字选项", () => {

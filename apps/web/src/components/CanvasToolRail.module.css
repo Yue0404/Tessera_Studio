@@ -23,6 +23,17 @@
   top: 76px;
   right: 12px;
 }
+.toolGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.toolDivider {
+  width: 24px;
+  height: 1px;
+  margin: 3px auto;
+  background: var(--color-border);
+}
 .quickEntry {
   position: relative;
 }
@@ -93,6 +104,33 @@
   color: var(--color-bg-app);
   background: var(--color-accent);
   border-color: var(--color-accent-strong);
+}
+.objectPopover {
+  width: 218px;
+}
+.objectChoices {
+  grid-template-columns: minmax(0, 1fr);
+}
+.objectChoices button {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  justify-content: start;
+  min-height: 38px;
+  padding: 5px 7px;
+  text-align: left;
+}
+.objectChoices button span,
+.objectChoices button small {
+  text-align: left;
+}
+.objectChoices button small {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 @media (max-width: 1280px) {
   .toolRail {
