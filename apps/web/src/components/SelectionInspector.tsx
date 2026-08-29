@@ -38,6 +38,11 @@ interface Props {
     memberCellIds: readonly string[],
   ): void;
   moduleRuleHints?: readonly ProjectRuleHint[];
+  moduleInstanceColor?: {
+    readonly instanceId: string;
+    readonly key: "fillColor" | "strokeColor" | "color";
+    readonly value: string;
+  };
   connectionRebind: ConnectionRebindTarget | null;
   onReverseConnection(connectionId: string): void;
   onBeginConnectionRebind(target: ConnectionRebindTarget): void;
@@ -428,6 +433,31 @@ export function SelectionInspector(props: Props) {
               </p>
             </section>
           )}
+          {moduleInstance.kind === "domain-group" &&
+          props.moduleInstanceColor?.instanceId ===
+            moduleInstance.instanceId ? (
+            <label>
+              <span>{t("inspector.objectColor")}</span>
+              <input
+                type="color"
+                value={colorWithoutAlpha(props.moduleInstanceColor.value)}
+                disabled={moduleReadonly}
+                onChange={(event) => {
+                  const alpha =
+                    props.moduleInstanceColor?.value.length === 9
+                      ? props.moduleInstanceColor.value.slice(7, 9)
+                      : "FF";
+                  commitModulePatch({
+                    styleOverrides: {
+                      ...moduleInstance.styleOverrides,
+                      [props.moduleInstanceColor?.key ?? "fillColor"]:
+                        `${event.target.value}${alpha}`,
+                    },
+                  });
+                }}
+              />
+            </label>
+          ) : null}
           {(props.moduleRuleHints?.length ?? 0) > 0 && (
             <section aria-label={t("ruleHints.title")}>
               <strong>{t("ruleHints.title")}</strong>

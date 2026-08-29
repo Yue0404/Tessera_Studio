@@ -449,6 +449,67 @@ describe("ContextPanel", () => {
     ).toBeNull();
   });
 
+  it("领域物体显示有效颜色并提交实例样式覆盖", () => {
+    const state = project();
+    (state.layers as Map<string, FixedLayerState>).set(
+      "example.weather.surface",
+      {
+        layerId: "example.weather.surface",
+        moduleVersion: "1.0.0",
+        zIndex: 2500,
+        visible: true,
+        locked: false,
+        opacity: 1,
+        allowedKinds: ["domain-group"],
+        runtimeStatus: "available",
+      },
+    );
+    state.moduleInstances.add({
+      kind: "domain-group",
+      instanceId: "colored-domain",
+      elementId: "example.weather:domain.zone",
+      layerId: "example.weather.surface",
+      memberCellIds: ["cell:square:1:1", "cell:square:1:2"],
+      attributes: {},
+      styleOverrides: { fillOpacity: 0.7 },
+      extensions: {},
+      runtimeStatus: "available",
+    });
+    const onModuleInstance = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <ContextPanel
+          {...connectionActions}
+          panel="properties"
+          state={state}
+          selection={[{ kind: "module-instance", id: "colored-domain" }]}
+          onSelectionColor={vi.fn()}
+          onEdgeStyle={vi.fn()}
+          onOverlay={vi.fn()}
+          onConnection={vi.fn()}
+          onModuleInstance={onModuleInstance}
+          moduleInstanceColor={{
+            instanceId: "colored-domain",
+            key: "fillColor",
+            value: "#123456CC",
+          }}
+          onDeleteSelection={vi.fn()}
+          onLayerState={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </I18nextProvider>,
+    );
+    const color = screen.getByLabelText("物体颜色") as HTMLInputElement;
+    expect(color.value).toBe("#123456");
+    fireEvent.change(color, { target: { value: "#abcdef" } });
+    expect(onModuleInstance).toHaveBeenCalledWith("colored-domain", {
+      styleOverrides: {
+        fillOpacity: 0.7,
+        fillColor: "#abcdefCC",
+      },
+    });
+  });
+
   it("missing generic 占位可选择但属性与删除均只读", () => {
     const state = project();
     (state.layers as Map<string, FixedLayerState>).set(

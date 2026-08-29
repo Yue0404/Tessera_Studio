@@ -84,8 +84,11 @@ function objectPresetShape(
   if (style === null || typeof style !== "object" || Array.isArray(style))
     return "generic";
   const shape = (style as Readonly<Record<string, unknown>>).shape;
-  return shape === "circle" || shape === "square" || shape === "hexagon"
-    ? shape
+  if (shape === "circle" || shape === "square" || shape === "hexagon")
+    return shape;
+  const hexPreset = element.definition.group?.placementPreset?.["hex-pointy"];
+  return hexPreset !== undefined && hexPreset.length > 1
+    ? "hexagon"
     : "generic";
 }
 
@@ -178,6 +181,7 @@ export function EditorView({
   const [brushColor, setBrushColor] = useState("#E3614D");
   const [brushMode, setBrushMode] = useState<BrushMode>("paint");
   const [edgeColor, setEdgeColor] = useState("#D9B866");
+  const [objectColor, setObjectColor] = useState("#D9B866");
   const [markerLabel, setMarkerLabel] = useState("");
   const [eraserMode, setEraserMode] = useState<"click" | "drag">("click");
   const [overlay, setOverlay] = useState<OverlayPlacement>({
@@ -203,6 +207,7 @@ export function EditorView({
     brushColor,
     brushMode,
     edgeColor,
+    objectColor,
     markerLabel,
     eraserMode,
     overlay,
@@ -269,12 +274,30 @@ export function EditorView({
         })),
     [moduleSession],
   );
+  const selectedModuleInstanceColor = useMemo(() => {
+    void version;
+    const selected =
+      store.selection.length === 1 ? store.selection[0] : undefined;
+    if (selected?.kind !== "module-instance") return undefined;
+    const instance = store.state.moduleInstances.get(selected.id);
+    if (instance?.kind !== "domain-group") return undefined;
+    const key = moduleSession.get(instance.elementId)?.objectColorStyleKey;
+    if (key === null || key === undefined) return undefined;
+    const value = moduleSession.effectiveStyle(
+      instance.elementId,
+      instance.styleOverrides,
+    )[key];
+    return typeof value === "string"
+      ? { instanceId: instance.instanceId, key, value }
+      : undefined;
+  }, [moduleSession, store, version]);
   connectionRebindRef.current = connectionRebind;
 
   placementRef.current = {
     brushColor,
     brushMode,
     edgeColor,
+    objectColor,
     markerLabel,
     eraserMode,
     overlay,
@@ -569,6 +592,12 @@ export function EditorView({
             const instanceId = moduleSession.placeDomainGroup(
               elementId,
               memberCellIds,
+              (() => {
+                const key = moduleSession.get(elementId)?.objectColorStyleKey;
+                return key === null || key === undefined
+                  ? {}
+                  : { [key]: alphaColor(placementRef.current.objectColor) };
+              })(),
             );
             store.select([{ kind: "module-instance", id: instanceId }]);
             setContextPanel("properties");
@@ -1045,6 +1074,7 @@ export function EditorView({
           brushColor={brushColor}
           brushMode={brushMode}
           edgeColor={edgeColor}
+          objectColor={objectColor}
           markerLabel={markerLabel}
           overlay={overlay}
           textOptions={textOptions}
@@ -1053,6 +1083,7 @@ export function EditorView({
           onBrushColor={setBrushColor}
           onBrushMode={setBrushMode}
           onEdgeColor={setEdgeColor}
+          onObjectColor={setObjectColor}
           onMarkerLabel={setMarkerLabel}
           onOverlay={setOverlay}
           onTextOptions={setTextOptions}
@@ -1158,6 +1189,7 @@ export function EditorView({
                 ? moduleSession.ruleHintsForInstance(selected.id)
                 : [],
             )}
+            moduleInstanceColor={selectedModuleInstanceColor}
             connectionRebind={connectionRebind}
             onReverseConnection={(connectionId) =>
               store.reverseConnection(connectionId)

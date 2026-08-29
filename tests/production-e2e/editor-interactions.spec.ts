@@ -116,6 +116,7 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
       "单击地图中的中心格，按当前预设一次性放置完整物体。",
     );
     await expect(settings).toHaveAttribute("data-active-tool", "object");
+    await settings.getByLabel("物体颜色").fill("#123456");
 
     await canvas.click({ position: { x: 570, y: 300 } });
     await drag(page, canvas, "left", { x: 620, y: 300 }, { x: 670, y: 300 });
@@ -149,6 +150,11 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
         .map((group: any) => group.memberCellIds.length)
         .sort((left: number, right: number) => left - right),
     ).toEqual(gridLabel === "正方形" ? [1, 1, 1] : [1, 1, 1, 7]);
+    expect(
+      document.domainGroups.every(
+        (group: any) => group.styleOverrides.fillColor === "#123456FF",
+      ),
+    ).toBe(true);
 
     await page.getByRole("button", { name: "选择" }).click();
     const firstObjectPosition =
@@ -169,6 +175,15 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     const selected = page.locator("aside").filter({
       has: page.getByText("已选择 1 个对象", { exact: true }),
     });
+    await expect(selected.getByLabel("物体颜色")).toHaveValue("#123456");
+    await selected.getByLabel("物体颜色").fill("#abcdef");
+    document = await exportProject(page);
+    expect(
+      document.domainGroups.filter(
+        (group: any) =>
+          String(group.styleOverrides.fillColor).toLowerCase() === "#abcdefff",
+      ),
+    ).toHaveLength(1);
     await selected.getByRole("button", { name: "删除所选对象" }).click();
     document = await exportProject(page);
     expect(document.domainGroups).toHaveLength(gridLabel === "正方形" ? 2 : 3);
@@ -407,11 +422,16 @@ test("元素设置、标记文字编辑、箭头重绑定和锁层拒绝在生�
     throw new Error("catalog-bounds-missing");
   expect(settingsBox.y).toBeLessThan(searchBox.y);
   expect(settingsBox.y + settingsBox.height).toBeLessThanOrEqual(720);
-  await expect(resultList.getByRole("listitem")).toHaveCount(9);
+  await expect(resultList.getByRole("listitem")).toHaveCount(7);
+  await page.getByRole("button", { name: "打开物体预设" }).click();
+  await expect(page.getByRole("heading", { name: "物体预设" })).toBeVisible();
+  await expect(resultList.getByRole("listitem")).toHaveCount(3);
+  await page.getByRole("button", { name: "返回元素目录" }).click();
+  await expect(resultList.getByRole("listitem")).toHaveCount(7);
   await search.fill("箭头");
   await expect(resultList.getByRole("listitem")).toHaveCount(1);
   await search.fill("");
-  await expect(resultList.getByRole("listitem")).toHaveCount(9);
+  await expect(resultList.getByRole("listitem")).toHaveCount(7);
 
   await page
     .getByRole("button", {

@@ -108,6 +108,24 @@
   margin: 10px 0 0;
   list-style: none;
 }
+.directoryHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.directoryHeading h2 {
+  margin: 0;
+}
+.directory .directoryBack {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
+  width: auto;
+  min-height: 28px;
+  padding: 4px 7px;
+  font-size: 11px;
+}
 .directory button {
   width: 100%;
   min-height: 42px;

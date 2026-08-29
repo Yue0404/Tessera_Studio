@@ -170,16 +170,10 @@ export const BASIC_ELEMENTS: readonly ModuleElementDefinition[] = Object.freeze(
       anchors: ["cell"],
       supportedGrids: ["hex-pointy"],
       defaultStyle: {
-        representation: "map-shape",
+        representation: "cell-style",
         style: {
-          shape: "hexagon",
           fillColor: "#B66A4CCC",
           fillOpacity: 0.82,
-          strokeColor: "#FFD0A3FF",
-          strokeOpacity: 0.96,
-          strokeWidth: 2,
-          sizeScale: 0.72,
-          rotation: 0,
         },
       },
       attributeSchema: emptyAttributes,
