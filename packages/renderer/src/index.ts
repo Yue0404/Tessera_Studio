@@ -2,6 +2,7 @@ export * from "./connection-renderer.js";
 export * from "./connection-draft-state.js";
 export * from "./eraser-gesture-state.js";
 export * from "./footprint-placement.js";
+export * from "./fill-hover-preview-state.js";
 export * from "./domain-map-shape.js";
 export * from "./grid-renderer.js";
 export * from "./generic-module-renderer.js";

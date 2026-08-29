@@ -10,6 +10,10 @@ export class ConnectionDraftState {
     return this.#start !== null;
   }
 
+  get start(): ConnectionEndpoint | null {
+    return this.#start === null ? null : structuredClone(this.#start);
+  }
+
   begin(start: ConnectionEndpoint, edge: EdgePlacementTarget | null): void {
     this.#start = start;
     this.#edges = edge === null ? [] : [edge];

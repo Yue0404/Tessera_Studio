@@ -36,6 +36,47 @@ async function drag(
   await page.mouse.up({ button });
 }
 
+async function moveToCell(
+  page: Page,
+  canvas: Locator,
+  gridType: "square" | "hex-pointy",
+  row: number,
+  column: number,
+  dispatchDirectly = false,
+): Promise<{ readonly x: number; readonly y: number }> {
+  const box = await canvas.boundingBox();
+  if (box === null) throw new Error("canvas-bounds-missing");
+  const view = await canvas.evaluate((element) => ({
+    cameraX: Number(element.dataset.cameraX),
+    cameraY: Number(element.dataset.cameraY),
+    zoom: Number(element.dataset.zoom),
+    cellSize: Number(element.dataset.gridCellSize),
+  }));
+  const mapX =
+    gridType === "square"
+      ? (column + 0.5) * view.cellSize
+      : Math.sqrt(3) * view.cellSize * (column + 0.5 + 0.5 * (row & 1));
+  const mapY =
+    gridType === "square"
+      ? (row + 0.5) * view.cellSize
+      : view.cellSize * (1 + 1.5 * row);
+  const position = {
+    x: view.cameraX + mapX * view.zoom,
+    y: view.cameraY + mapY * view.zoom,
+  };
+  if (dispatchDirectly) {
+    await canvas.dispatchEvent("pointermove", {
+      pointerId: 1,
+      buttons: 0,
+      clientX: box.x + position.x,
+      clientY: box.y + position.y,
+    });
+  } else {
+    await page.mouse.move(box.x + position.x, box.y + position.y);
+  }
+  return position;
+}
+
 function captureRuntimeErrors(page: Page): {
   readonly errors: string[];
   dispose(): void;
@@ -118,6 +159,17 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     await expect(settings).toHaveAttribute("data-active-tool", "object");
     await settings.getByLabel("物体颜色").fill("#123456");
 
+    await moveToCell(
+      page,
+      canvas,
+      gridLabel === "正方形" ? "square" : "hex-pointy",
+      5,
+      gridLabel === "正方形" ? 12 : 8,
+    );
+    await expect(canvas).toHaveAttribute("data-preview-kind", "object");
+    await expect(canvas).toHaveAttribute("data-preview-count", "1");
+    await expect(canvas).toHaveAttribute("data-preview-valid", "true");
+
     await canvas.click({ position: { x: 570, y: 300 } });
     await drag(page, canvas, "left", { x: 620, y: 300 }, { x: 670, y: 300 });
     await objectTool.click();
@@ -141,7 +193,14 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
         "data-active-element",
         "tessera.basic:object.hex-cluster",
       );
-      await canvas.click({ position: { x: 450, y: 400 } });
+      await moveToCell(page, canvas, "hex-pointy", 0, 8, true);
+      await expect(canvas).toHaveAttribute("data-preview-kind", "object");
+      await expect(canvas).toHaveAttribute("data-preview-count", "7");
+      await expect(canvas).toHaveAttribute("data-preview-status", "invalid");
+      const validCluster = await moveToCell(page, canvas, "hex-pointy", 8, 8);
+      await expect(canvas).toHaveAttribute("data-preview-count", "7");
+      await expect(canvas).toHaveAttribute("data-preview-valid", "true");
+      await canvas.click({ position: validCluster });
     }
     let document = await exportProject(page);
     expect(document.domainGroups).toHaveLength(gridLabel === "正方形" ? 3 : 4);
@@ -327,6 +386,109 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     await expect(activeSettings).toHaveCount(0);
   });
 }
+
+test("所有写入工具提供纯渲染 hover 预览并在离开或切换时清理", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const runtime = captureRuntimeErrors(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await createProject(page, "正方形", "工具 hover 预览");
+  const canvas = page.getByLabel("地图编辑画布");
+  const editor = page.getByRole("main");
+  const revision = await editor.getAttribute("data-project-revision");
+
+  await page.getByRole("button", { name: "画刷" }).click();
+  await moveToCell(page, canvas, "square", 5, 12);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "brush-paint");
+  await expect(canvas).toHaveAttribute("data-preview-count", "1");
+  await expect(canvas).toHaveAttribute("data-preview-valid", "true");
+  await expect(editor).toHaveAttribute(
+    "data-project-revision",
+    revision ?? "0",
+  );
+
+  await page.getByLabel("操作模式").selectOption("fill");
+  await moveToCell(page, canvas, "square", 6, 13);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "fill");
+  await expect(canvas).toHaveAttribute("data-preview-count", "400");
+  await expect(canvas).toHaveAttribute("data-preview-status", "valid");
+  await expect(editor).toHaveAttribute(
+    "data-project-revision",
+    revision ?? "0",
+  );
+
+  await page.getByLabel("操作模式").selectOption("erase");
+  await moveToCell(page, canvas, "square", 6, 14);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "brush-erase");
+
+  await page.getByRole("button", { name: "边", exact: true }).click();
+  await moveToCell(page, canvas, "square", 6, 14);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "edge");
+  await expect(canvas).toHaveAttribute("data-preview-valid", "true");
+
+  const objectTool = page.getByRole("button", { name: /^物体/u });
+  await objectTool.click();
+  await page
+    .getByRole("dialog", { name: "选择物体" })
+    .getByRole("radio", { name: "方形物体" })
+    .click();
+  await moveToCell(page, canvas, "square", 7, 14);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "object");
+  await expect(canvas).toHaveAttribute("data-preview-count", "1");
+
+  const markerTool = page.getByRole("button", { name: "标记", exact: true });
+  await markerTool.click();
+  await page
+    .getByRole("dialog", { name: "选择放置类型" })
+    .getByRole("radio", { name: "标记" })
+    .click();
+  await moveToCell(page, canvas, "square", 8, 14);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "marker");
+  await markerTool.click();
+  await page
+    .getByRole("dialog", { name: "选择放置类型" })
+    .getByRole("radio", { name: "文字" })
+    .click();
+  await moveToCell(page, canvas, "square", 8, 15);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "text");
+
+  await page.getByRole("button", { name: "连线与箭头" }).click();
+  const connectionStart = await moveToCell(page, canvas, "square", 9, 13);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "connection-start");
+  await canvas.click({ position: connectionStart });
+  await moveToCell(page, canvas, "square", 9, 14);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "connection-end");
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "画刷" }).click();
+  await page.getByLabel("操作模式").selectOption("paint");
+  const painted = await moveToCell(page, canvas, "square", 10, 12);
+  await canvas.click({ position: painted });
+  const revisionAfterPaint = await editor.getAttribute("data-project-revision");
+  await page.getByRole("button", { name: /^橡皮擦/u }).click();
+  await page
+    .getByRole("dialog", { name: "选择擦除方式" })
+    .getByRole("radio", { name: "单击擦除" })
+    .click();
+  await moveToCell(page, canvas, "square", 10, 12);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "eraser");
+  await expect(canvas).toHaveAttribute("data-preview-count", "1");
+  await expect(editor).toHaveAttribute(
+    "data-project-revision",
+    revisionAfterPaint ?? "1",
+  );
+
+  await page.mouse.move(10, 10);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "none");
+  await page.getByRole("button", { name: "画刷" }).click();
+  await moveToCell(page, canvas, "square", 11, 13);
+  await expect(canvas).toHaveAttribute("data-preview-kind", "brush-paint");
+  await page.getByRole("button", { name: "选择" }).click();
+  await expect(canvas).toHaveAttribute("data-preview-kind", "none");
+  expect(runtime.errors).toEqual([]);
+  runtime.dispose();
+});
 
 for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
   test(`${gridLabel}：地图设置扩大、合法缩小、格子尺寸与越界原子拒绝`, async ({
