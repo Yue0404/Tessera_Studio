@@ -284,7 +284,7 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
     MOD003_CATEGORY_NAME,
   );
   const results = page.getByRole("list", { name: "元素搜索结果" });
-  await expect(results.getByRole("listitem")).toHaveCount(6);
+  await expect(results.getByRole("listitem")).toHaveCount(5);
   const search = page.getByRole("searchbox", { name: "搜索元素" });
   await search.fill("流向");
   await expect(results.getByRole("listitem")).toHaveCount(1);
@@ -347,6 +347,9 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   await expect(page.getByTestId("connection-notice")).toHaveCount(0);
   await page.keyboard.press("Control+z");
 
+  await categorySelect.selectOption("object");
+  await expect(categorySelect.locator("option:checked")).toHaveText("物体");
+  await expect(results.getByRole("listitem")).toHaveCount(1);
   await selectModuleElement(page, ids.domain);
   await expect(activeSettings).toContainText(
     "使用模块默认样式，放置后选择对象编辑。",

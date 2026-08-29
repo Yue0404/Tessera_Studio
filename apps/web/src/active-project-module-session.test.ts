@@ -1048,15 +1048,21 @@ describe("ActiveProjectModuleSession", () => {
       [BASIC_MODULE_PACKAGE, modulePackage],
       "zh-CN",
     );
-    expect(
-      session.elements
-        .filter((element) => element.moduleId === "tessera.basic")
-        .map((element) => element.elementId),
-    ).toEqual([
+    const basicObjects = session.elements.filter(
+      (element) => element.moduleId === "tessera.basic",
+    );
+    expect(basicObjects.map((element) => element.elementId)).toEqual([
       "tessera.basic:object.hex-cluster",
       "tessera.basic:object",
       "tessera.basic:object.square",
     ]);
+    expect(
+      basicObjects.every(
+        (element) =>
+          element.category === "object" &&
+          element.definition.primitive === "domain-object",
+      ),
+    ).toBe(true);
     expect(
       session.elements.some(
         (element) => element.moduleId === "example.weather",

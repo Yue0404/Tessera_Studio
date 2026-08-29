@@ -103,12 +103,14 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
     await page.setViewportSize({ width: 1280, height: 720 });
     await createProject(page, gridLabel, `${gridLabel}物体放置`);
     const canvas = page.getByLabel("地图编辑画布");
-    await page
-      .getByRole("button", {
-        name: "使用目录元素 tessera.basic:object",
-        exact: true,
-      })
-      .click();
+    const placementTools = page.locator('[data-tool-group="placement"]');
+    const objectTool = placementTools.getByRole("button", {
+      name: /^物体/u,
+    });
+    await objectTool.click();
+    let objectQuick = page.getByRole("dialog", { name: "选择物体" });
+    await objectQuick.getByRole("radio", { name: "圆形物体" }).click();
+    await expect(objectTool).toHaveAttribute("aria-label", "物体 · 圆形物体");
     const settings = page.getByRole("region", { name: "当前元素设置" });
     await expect(settings).toContainText(
       "单击地图中的中心格，按当前预设一次性放置完整物体。",
@@ -117,20 +119,18 @@ for (const gridLabel of ["正方形", "尖顶六边形"] as const) {
 
     await canvas.click({ position: { x: 570, y: 300 } });
     await drag(page, canvas, "left", { x: 620, y: 300 }, { x: 670, y: 300 });
-    await page
-      .getByRole("button", {
-        name: "使用目录元素 tessera.basic:object.square",
-        exact: true,
-      })
-      .click();
+    await objectTool.click();
+    objectQuick = page.getByRole("dialog", { name: "选择物体" });
+    await objectQuick.getByRole("radio", { name: "方形物体" }).click();
     await expect(settings).toHaveAttribute(
       "data-active-element",
       "tessera.basic:object.square",
     );
     await canvas.click({ position: { x: 520, y: 400 } });
-    const clusterButton = page.getByRole("button", {
-      name: "使用目录元素 tessera.basic:object.hex-cluster",
-      exact: true,
+    await objectTool.click();
+    objectQuick = page.getByRole("dialog", { name: "选择物体" });
+    const clusterButton = objectQuick.getByRole("radio", {
+      name: /^七格六边形/u,
     });
     if (gridLabel === "正方形") {
       await expect(clusterButton).toBeDisabled();
