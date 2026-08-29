@@ -1028,12 +1028,21 @@ export class GenericModuleRenderer {
           const visible = visibleCellById.get(cellId);
           if (visible === undefined) continue;
           const fill = colorValue(descriptor.fillColor);
+          const border = colorValue(state.style.gridColor);
           container.addChild(
             new Graphics()
               .poly(visible.polygon.flatMap((point) => [point.x, point.y]))
               .fill({
                 color: fill.color,
                 alpha: fill.alpha * descriptor.fillOpacity * opacity,
+              })
+              .stroke({
+                color: border.color,
+                alpha:
+                  border.alpha *
+                  Math.max(0.55, state.style.gridOpacity) *
+                  opacity,
+                width: Math.max(1, state.style.gridWidth),
               }),
           );
           if (descriptor.pattern !== undefined) {

@@ -53,6 +53,7 @@ export type ModuleElementDisabledReason =
   | "resource-style-unsupported"
   | "text-attribute-unsupported"
   | "required-attribute-missing";
+export type DomainObjectColorStyleKey = "fillColor" | "strokeColor" | "color";
 
 export interface ActiveProjectModuleElement {
   readonly moduleId: string;
@@ -64,6 +65,7 @@ export interface ActiveProjectModuleElement {
   readonly primitive: ModuleElementDefinition["primitive"];
   readonly elementId: string;
   readonly displayName: string;
+  readonly objectColorStyleKey: DomainObjectColorStyleKey | null;
   readonly description: string;
   readonly disabledReason: ModuleElementDisabledReason | null;
   readonly definition: ModuleElementDefinition;
@@ -140,6 +142,29 @@ function categoryFor(element: ModuleElementDefinition): ModuleElementCategory {
   if (element.primitive === "connection") return "connection";
   if (element.primitive === "domain-object") return "object";
   return "overlay";
+}
+
+function objectColorStyleKey(
+  element: ModuleElementDefinition,
+): DomainObjectColorStyleKey | null {
+  if (element.primitive !== "domain-object") return null;
+  const representation = domainRepresentation(element);
+  const key =
+    representation === "cell-style" || representation === "map-shape"
+      ? "fillColor"
+      : representation === "edge-style"
+        ? "strokeColor"
+        : representation === "marker" || representation === "text"
+          ? "color"
+          : null;
+  if (key === null) return null;
+  const style = element.defaultStyle.style;
+  return style !== null &&
+    typeof style === "object" &&
+    !Array.isArray(style) &&
+    typeof (style as Readonly<Record<string, unknown>>)[key] === "string"
+    ? key
+    : null;
 }
 
 /** 使用 Unicode 码点顺序，避免系统区域设置改变目录元素排序。 */
@@ -684,6 +709,7 @@ export class ActiveProjectModuleSession {
             primitive: definition.primitive,
             elementId: definition.elementId,
             displayName: displayText(definition.nameKey, language, module),
+            objectColorStyleKey: objectColorStyleKey(definition),
             description: displayText(
               definition.descriptionKey,
               language,
@@ -726,6 +752,7 @@ export class ActiveProjectModuleSession {
                 primitive: definition.primitive,
                 elementId: definition.elementId,
                 displayName: displayText(definition.nameKey, language, module),
+                objectColorStyleKey: objectColorStyleKey(definition),
                 description: displayText(
                   definition.descriptionKey,
                   language,
@@ -1247,6 +1274,7 @@ export class ActiveProjectModuleSession {
   placeDomainGroup(
     elementId: string,
     memberCellIds: readonly string[],
+    styleOverrides: Readonly<Record<string, unknown>> = {},
   ): string {
     const element = this.#requirePrimitive(elementId, "domain-object");
     const group = element.definition.group;
@@ -1270,6 +1298,10 @@ export class ActiveProjectModuleSession {
     }
     return this.#store.addModuleInstance({
       ...this.#baseInstance(element),
+      styleOverrides: normalizeStyleOverrides(
+        element.definition,
+        styleOverrides,
+      ),
       kind: "domain-group",
       memberCellIds: geometry.memberCellIds,
     });
@@ -1660,21 +1692,34 @@ export class ActiveProjectModuleSession {
         } else if (descriptor.kind === "cell-style") {
           geometry.memberCellIds.forEach((cellId, index) => {
             const coordinate = parseCellId(cellId);
+            const points = cellPolygon(
+              state.grid,
+              coordinate.row,
+              coordinate.column,
+            );
             result.push({
               ...base,
               kind: "polygon",
-              points: cellPolygon(
-                state.grid,
-                coordinate.row,
-                coordinate.column,
-              ),
+              points,
               fillColor: descriptor.fillColor,
               opacity: descriptor.fillOpacity * layerOpacity,
               ...(descriptor.pattern === undefined
                 ? {}
                 : { patternResource: descriptor.pattern }),
               stableId: `${instance.instanceId}:cell:${cellId}`,
-              partRank: index,
+              partRank: index * 2,
+            });
+            result.push({
+              ...base,
+              kind: "outline",
+              points,
+              closed: true,
+              strokeColor: state.style.gridColor,
+              strokeWidth: Math.max(1, state.style.gridWidth),
+              opacity: Math.max(0.55, state.style.gridOpacity) * layerOpacity,
+              lineStyle: "solid",
+              stableId: `${instance.instanceId}:cell-outline:${cellId}`,
+              partRank: index * 2 + 1,
             });
           });
         } else if (descriptor.kind === "edge-style") {

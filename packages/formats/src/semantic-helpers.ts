@@ -463,7 +463,20 @@ export function validateKnownBasicInstance(
       if (instance.layerId !== "tessera.basic.domain-object") {
         throw makeError("basic-layer-mismatch", { pointer });
       }
-      assertExactKeys(instance.styleOverrides, [], [], stylePointer, makeError);
+      assertExactKeys(
+        instance.styleOverrides,
+        [],
+        ["fillColor"],
+        stylePointer,
+        makeError,
+      );
+      if (instance.styleOverrides.fillColor !== undefined) {
+        assertColor(
+          instance.styleOverrides.fillColor,
+          `${stylePointer}/fillColor`,
+          makeError,
+        );
+      }
       assertExactKeys(
         instance.attributes,
         [],

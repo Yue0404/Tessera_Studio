@@ -17,6 +17,7 @@ import {
   type ParsedModulePackage,
 } from "@tessera/module-runtime";
 import { describe, expect, it, vi } from "vitest";
+import { planFixedFootprint } from "@tessera/renderer";
 import {
   captureVisualExportSnapshot,
   executeVisualExportPng,
@@ -666,9 +667,11 @@ describe("ActiveProjectModuleSession", () => {
       [BASIC_MODULE_PACKAGE, modulePackage],
       "zh-CN",
     );
-    const singleId = session.placeDomainGroup("tessera.basic:object", [
-      "cell:square:1:1",
-    ]);
+    const singleId = session.placeDomainGroup(
+      "tessera.basic:object",
+      ["cell:square:1:1"],
+      { fillColor: "#123456FF" },
+    );
     const footprint = [
       "cell:square:3:2",
       "cell:square:3:3",
@@ -681,6 +684,15 @@ describe("ActiveProjectModuleSession", () => {
     expect(store.state.moduleInstances.get(singleId)).toMatchObject({
       kind: "domain-group",
       memberCellIds: ["cell:square:1:1"],
+      styleOverrides: { fillColor: "#123456FF" },
+    });
+    session.updateInstance(singleId, {
+      styleOverrides: { fillColor: "#ABCDEFEE" },
+    });
+    const recolored = store.state.moduleInstances.get(singleId);
+    if (recolored === undefined) throw new Error("basic-object-missing");
+    expect(session.resolveVisual(recolored)).toMatchObject({
+      fillColor: "#ABCDEFEE",
     });
     expect(store.state.moduleInstances.get(multiId)).toMatchObject({
       kind: "domain-group",
@@ -708,10 +720,78 @@ describe("ActiveProjectModuleSession", () => {
         moduleResolutionMode: "strict",
       }),
     );
-    expect(restored.state.moduleInstances.get(singleId)).toBeDefined();
+    expect(restored.state.moduleInstances.get(singleId)).toMatchObject({
+      styleOverrides: { fillColor: "#ABCDEFEE" },
+    });
     expect(restored.state.moduleInstances.get(multiId)).toMatchObject({
       memberCellIds: footprint,
     });
+  });
+
+  it("七格六边形以一个实例导出七个独立着色格及七条边界", () => {
+    const store = new EditorStore(
+      createProject({
+        name: "七格六边形",
+        grid: { type: "hex-pointy", width: 8, height: 8, cellSize: 32 },
+        style: {
+          canvasBackground: "#09141DFF",
+          defaultCellColor: "#14232DFF",
+          gridColor: "#59656AFF",
+          gridOpacity: 0.7,
+          gridWidth: 1,
+          defaultEdgeColor: "#59656AFF",
+        },
+      }),
+    );
+    const session = new ActiveProjectModuleSession(
+      store,
+      [BASIC_MODULE_PACKAGE],
+      "zh-CN",
+    );
+    const preset = session.get("tessera.basic:object.hex-cluster")?.definition
+      .group?.placementPreset?.["hex-pointy"];
+    if (preset === undefined) throw new Error("hex-cluster-preset-missing");
+    const footprint = planFixedFootprint(
+      store.state.grid,
+      { row: 4, column: 4 },
+      {
+        gridType: "hex-pointy",
+        offsets: preset,
+      },
+    );
+    if (footprint.status !== "committed")
+      throw new Error("hex-cluster-footprint-rejected");
+
+    const instanceId = session.placeDomainGroup(
+      "tessera.basic:object.hex-cluster",
+      footprint.memberCellIds,
+      { fillColor: "#336699DD" },
+    );
+    expect(store.state.moduleInstances.get(instanceId)).toMatchObject({
+      kind: "domain-group",
+      memberCellIds: expect.arrayContaining([...footprint.memberCellIds]),
+      styleOverrides: { fillColor: "#336699DD" },
+    });
+    expect(footprint.memberCellIds).toHaveLength(7);
+
+    const primitives = captureVisualExportSnapshot(
+      store.state,
+      session.visualExportCaptureOptions(),
+    )
+      .extensions.flatMap((extension) => extension.descriptors)
+      .filter((primitive) => primitive.stableId.startsWith(instanceId));
+    expect(primitives).toHaveLength(14);
+    expect(
+      primitives.filter((primitive) => primitive.kind === "polygon"),
+    ).toHaveLength(7);
+    expect(
+      primitives.filter((primitive) => primitive.kind === "outline"),
+    ).toHaveLength(7);
+    expect(
+      primitives
+        .filter((primitive) => primitive.kind === "polygon")
+        .every((primitive) => primitive.fillColor === "#336699DD"),
+    ).toBe(true);
   });
 
   it("DomainGroup 成员更新跨分块同步索引，支持撤销重做且非法更新回滚", () => {
@@ -825,8 +905,8 @@ describe("ActiveProjectModuleSession", () => {
       "cell-style",
       { fillColor: "#123456FF", fillOpacity: 0.7 },
       emptyAttributes,
-      2,
-      "polygon",
+      4,
+      "cell-mixed",
     ],
     [
       "edge-style",
@@ -923,7 +1003,14 @@ describe("ActiveProjectModuleSession", () => {
         .flatMap((extension) => extension.descriptors)
         .filter((primitive) => primitive.stableId.startsWith(instanceId));
       expect(primitives).toHaveLength(count);
-      if (kind === "mixed") {
+      if (kind === "cell-mixed") {
+        expect(primitives.map((primitive) => primitive.kind)).toEqual([
+          "polygon",
+          "outline",
+          "polygon",
+          "outline",
+        ]);
+      } else if (kind === "mixed") {
         expect(primitives.map((primitive) => primitive.kind)).toEqual([
           "polygon",
           "outline",

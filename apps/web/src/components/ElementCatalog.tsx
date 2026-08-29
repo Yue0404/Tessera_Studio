@@ -64,6 +64,7 @@ export interface ElementCatalogEntry {
   readonly elementId: string;
   readonly displayName: string;
   readonly disabledReason?: string | null;
+  readonly objectColorStyleKey?: "fillColor" | "strokeColor" | "color" | null;
 }
 
 function catalogCategoryId(entry: ElementCatalogEntry): string {
@@ -81,6 +82,7 @@ interface Props {
   brushColor: string;
   brushMode: BrushMode;
   edgeColor: string;
+  objectColor?: string;
   markerLabel: string;
   overlay: OverlayPlacement;
   textOptions: TextPlacementOptions;
@@ -89,6 +91,7 @@ interface Props {
   onBrushColor(color: string): void;
   onBrushMode(mode: BrushMode): void;
   onEdgeColor(color: string): void;
+  onObjectColor?(color: string): void;
   onMarkerLabel(label: string): void;
   onOverlay(value: OverlayPlacement): void;
   onTextOptions(value: TextPlacementOptions): void;
@@ -132,6 +135,8 @@ export function ElementCatalog(props: Props) {
   const [query, setQuery] = useState("");
   const [moduleId, setModuleId] = useState("tessera.basic");
   const [category, setCategory] = useState("all");
+  const [directoryView, setDirectoryView] = useState<"top" | "objects">("top");
+  const categoryBeforeObjects = useRef("all");
   const basicElements = useMemo<readonly ElementCatalogEntry[]>(
     () => [
       {
@@ -141,6 +146,7 @@ export function ElementCatalog(props: Props) {
         primitive: "domain-object",
         elementId: "tessera.basic:object",
         displayName: t("element.objectCircle"),
+        objectColorStyleKey: "fillColor",
       },
       {
         moduleId: "tessera.basic",
@@ -149,6 +155,7 @@ export function ElementCatalog(props: Props) {
         primitive: "domain-object",
         elementId: "tessera.basic:object.square",
         displayName: t("element.objectSquare"),
+        objectColorStyleKey: "fillColor",
       },
       {
         moduleId: "tessera.basic",
@@ -157,6 +164,7 @@ export function ElementCatalog(props: Props) {
         primitive: "domain-object",
         elementId: "tessera.basic:object.hex-cluster",
         displayName: t("element.objectHexCluster"),
+        objectColorStyleKey: "fillColor",
       },
       {
         moduleId: "tessera.basic",
@@ -272,6 +280,34 @@ export function ElementCatalog(props: Props) {
       (normalizedQuery === "" ||
         entry.displayName.toLocaleLowerCase().includes(normalizedQuery)),
   );
+  const objectPresetEntries = filteredElements.filter(
+    (entry) =>
+      entry.primitive === "domain-object" || entry.category === "object",
+  );
+  const topLevelEntries = filteredElements.filter(
+    (entry) =>
+      entry.primitive !== "domain-object" && entry.category !== "object",
+  );
+  const selectedModuleObjects = elements.filter(
+    (entry) =>
+      entry.moduleId === selectedModuleId &&
+      (entry.primitive === "domain-object" || entry.category === "object"),
+  );
+  const objectGroupMatchesQuery =
+    normalizedQuery === "" ||
+    t("catalog.category.object")
+      .toLocaleLowerCase()
+      .includes(normalizedQuery) ||
+    selectedModuleObjects.some((entry) =>
+      entry.displayName.toLocaleLowerCase().includes(normalizedQuery),
+    );
+  const showObjectGroup =
+    directoryView === "top" &&
+    (selectedCategory === "all" || selectedCategory === "object") &&
+    selectedModuleObjects.length > 0 &&
+    objectGroupMatchesQuery;
+  const visibleEntries =
+    directoryView === "objects" ? objectPresetEntries : topLevelEntries;
   const activeEntry = elements.find(
     (entry) => entry.elementId === props.activeElementId,
   );
@@ -419,6 +455,19 @@ export function ElementCatalog(props: Props) {
             <div className={styles.stack}>
               {usesModuleDefaultStyle ? (
                 <p>{t("catalog.moduleDefaultStyle")}</p>
+              ) : null}
+              {activeEntry?.objectColorStyleKey !== null &&
+              activeEntry?.objectColorStyleKey !== undefined ? (
+                <label>
+                  <span>{t("inspector.objectColor")}</span>
+                  <input
+                    type="color"
+                    value={props.objectColor ?? "#D9B866"}
+                    onChange={(event) =>
+                      props.onObjectColor?.(event.target.value)
+                    }
+                  />
+                </label>
               ) : null}
               <p>{t("catalog.objectPlacementHint")}</p>
             </div>
@@ -638,7 +687,27 @@ export function ElementCatalog(props: Props) {
         </section>
       ) : null}
       <section className={styles.directory}>
-        <h2>{t("catalog.directory")}</h2>
+        <div className={styles.directoryHeading}>
+          {directoryView === "objects" ? (
+            <button
+              className={styles.directoryBack}
+              type="button"
+              onClick={() => {
+                setDirectoryView("top");
+                setCategory(categoryBeforeObjects.current);
+              }}
+              aria-label={t("catalog.backToDirectory")}
+            >
+              <ChevronLeft size={15} />
+              <span>{t("action.back")}</span>
+            </button>
+          ) : null}
+          <h2>
+            {directoryView === "objects"
+              ? t("catalog.objectPresetDirectory")
+              : t("catalog.directory")}
+          </h2>
+        </div>
         <label>
           <span>{t("catalog.search")}</span>
           <input
@@ -656,7 +725,7 @@ export function ElementCatalog(props: Props) {
           }))}
           onChange={(value) => {
             setModuleId(value);
-            setCategory("all");
+            setCategory(directoryView === "objects" ? "object" : "all");
           }}
         />
         <Choice
@@ -669,13 +738,40 @@ export function ElementCatalog(props: Props) {
               label: item.label,
             })),
           ]}
-          onChange={setCategory}
+          onChange={(value) => {
+            setCategory(value);
+            if (directoryView === "objects" && value !== "object")
+              setDirectoryView("top");
+          }}
         />
-        {filteredElements.length === 0 ? (
+        {visibleEntries.length === 0 && !showObjectGroup ? (
           <p>{t("catalog.noResults")}</p>
         ) : (
           <ul aria-label={t("catalog.results")}>
-            {filteredElements.map((entry) => (
+            {showObjectGroup ? (
+              <li>
+                <button
+                  type="button"
+                  aria-label={t("catalog.openObjectPresets")}
+                  onClick={() => {
+                    categoryBeforeObjects.current = selectedCategory;
+                    setCategory("object");
+                    setQuery("");
+                    setDirectoryView("objects");
+                    if (panelRef.current !== null)
+                      panelRef.current.scrollTop = 0;
+                  }}
+                >
+                  <span>{t("catalog.category.object")}</span>
+                  <small>
+                    {t("catalog.objectPresetCount", {
+                      count: selectedModuleObjects.length,
+                    })}
+                  </small>
+                </button>
+              </li>
+            ) : null}
+            {visibleEntries.map((entry) => (
               <li key={entry.elementId}>
                 {props.onElementSelect === undefined ? (
                   <div>

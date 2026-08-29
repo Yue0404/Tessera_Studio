@@ -77,6 +77,12 @@ describe("内置基础模块", () => {
       byId.get("tessera.basic:object.hex-cluster")?.supportedGrids,
     ).toEqual(["hex-pointy"]);
     expect(
+      byId.get("tessera.basic:object.hex-cluster")?.defaultStyle,
+    ).toMatchObject({
+      representation: "cell-style",
+      style: { fillColor: "#B66A4CCC", fillOpacity: 0.82 },
+    });
+    expect(
       byId.get("tessera.basic:object.hex-cluster")?.group?.placementPreset?.[
         "hex-pointy"
       ],

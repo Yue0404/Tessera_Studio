@@ -10,6 +10,8 @@ describe("ElementCatalog", () => {
       onElementSelect?: (elementId: string) => void;
       elements?: readonly ElementCatalogEntry[];
       activeElementId?: string | null;
+      objectColor?: string;
+      onObjectColor?: (color: string) => void;
     } = {},
   ) {
     return render(
@@ -21,6 +23,7 @@ describe("ElementCatalog", () => {
           brushColor="#E3614D"
           brushMode="paint"
           edgeColor="#D9B866"
+          objectColor={overrides.objectColor ?? "#D9B866"}
           markerLabel=""
           overlay={{ type: "marker", anchor: "cell", markerShape: "pin" }}
           textOptions={{
@@ -40,6 +43,7 @@ describe("ElementCatalog", () => {
           onBrushColor={vi.fn()}
           onBrushMode={vi.fn()}
           onEdgeColor={vi.fn()}
+          onObjectColor={overrides.onObjectColor ?? vi.fn()}
           onMarkerLabel={vi.fn()}
           onOverlay={vi.fn()}
           onTextOptions={vi.fn()}
@@ -172,7 +176,7 @@ describe("ElementCatalog", () => {
 
   it("按显示名称和分类筛选已载入基础元素，清空搜索恢复全部", () => {
     renderCatalog();
-    expect(screen.getAllByRole("listitem")).toHaveLength(9);
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
     const categoryOptions = within(screen.getByLabelText("分类"))
       .getAllByRole("option")
       .map((option) => option.textContent);
@@ -187,7 +191,7 @@ describe("ElementCatalog", () => {
       ),
     ).toBeDefined();
     fireEvent.change(search, { target: { value: "" } });
-    expect(screen.getAllByRole("listitem")).toHaveLength(9);
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
     fireEvent.change(screen.getByLabelText("分类"), {
       target: { value: "overlay" },
     });
@@ -218,7 +222,7 @@ describe("ElementCatalog", () => {
 
   it("没有选择回调时目录项保持可读但不伪装成按钮", () => {
     renderCatalog();
-    expect(screen.getAllByRole("listitem")).toHaveLength(9);
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
     expect(
       screen.queryByRole("button", { name: /tessera\.basic:marker/u }),
     ).toBeNull();
@@ -229,7 +233,7 @@ describe("ElementCatalog", () => {
     ).toBeDefined();
   });
 
-  it("外部会话误传 basic 重复项时仍保留九个可用内置元素", () => {
+  it("外部会话误传 basic 重复项时仍保留七个顶层入口", () => {
     renderCatalog({
       onElementSelect: vi.fn(),
       elements: [
@@ -243,7 +247,7 @@ describe("ElementCatalog", () => {
         },
       ],
     });
-    expect(screen.getAllByRole("listitem")).toHaveLength(9);
+    expect(screen.getAllByRole("listitem")).toHaveLength(7);
     const text = screen.getByRole("button", {
       name: "使用目录元素 tessera.basic:text",
     });
@@ -337,7 +341,23 @@ describe("ElementCatalog", () => {
     expect(screen.queryByText("example.weather:storm-building")).toBeNull();
     expect(screen.queryByText("example.weather:storm-area")).toBeNull();
     fireEvent.change(category, { target: { value: "object" } });
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "打开物体预设" }));
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "返回元素目录" })).toBeDefined();
+  });
+
+  it("物体设置显示可持久化放置颜色并通过受控回调修改", () => {
+    const onObjectColor = vi.fn();
+    renderCatalog({
+      activeElementId: "tessera.basic:object.square",
+      objectColor: "#123456",
+      onObjectColor,
+    });
+    const input = screen.getByLabelText("物体颜色") as HTMLInputElement;
+    expect(input.value).toBe("#123456");
+    fireEvent.change(input, { target: { value: "#abcdef" } });
+    expect(onObjectColor).toHaveBeenCalledWith("#abcdef");
   });
 
   it("受控标记设置位于目录搜索前且不混入文字选项", () => {

@@ -350,6 +350,11 @@ test("真实非 Civ6 模块 ZIP 完成五种 primitive 与领域对象、缺包�
   await categorySelect.selectOption("object");
   await expect(categorySelect.locator("option:checked")).toHaveText("物体");
   await expect(results.getByRole("listitem")).toHaveCount(1);
+  await page.getByRole("button", { name: "打开物体预设" }).click();
+  await expect(
+    page.getByRole("button", { name: "返回元素目录" }),
+  ).toBeVisible();
+  await expect(results.getByRole("listitem")).toHaveCount(1);
   await selectModuleElement(page, ids.domain);
   await expect(activeSettings).toContainText(
     "使用模块默认样式，放置后选择对象编辑。",

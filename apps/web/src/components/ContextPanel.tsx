@@ -30,6 +30,9 @@ interface Props {
     typeof SelectionInspector
   >[0]["onDomainGroupMembers"];
   moduleRuleHints?: readonly ProjectRuleHint[];
+  moduleInstanceColor?: Parameters<
+    typeof SelectionInspector
+  >[0]["moduleInstanceColor"];
   connectionRebind: ConnectionRebindTarget | null;
   onReverseConnection(connectionId: string): void;
   onBeginConnectionRebind(target: ConnectionRebindTarget): void;
@@ -57,6 +60,7 @@ export function ContextPanel({
   onModuleInstance,
   onDomainGroupMembers,
   moduleRuleHints,
+  moduleInstanceColor,
   connectionRebind,
   onReverseConnection,
   onBeginConnectionRebind,
@@ -104,6 +108,9 @@ export function ContextPanel({
             ? {}
             : { onDomainGroupMembers })}
           {...(moduleRuleHints === undefined ? {} : { moduleRuleHints })}
+          {...(moduleInstanceColor === undefined
+            ? {}
+            : { moduleInstanceColor })}
           connectionRebind={connectionRebind}
           onReverseConnection={onReverseConnection}
           onBeginConnectionRebind={onBeginConnectionRebind}
