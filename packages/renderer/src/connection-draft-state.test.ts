@@ -7,6 +7,19 @@ const endpoint = (cellId: string) => ({
 });
 
 describe("渲染器临时连线", () => {
+  it("只读暴露吸附后的起点且每次返回独立快照", () => {
+    const draft = new ConnectionDraftState();
+    draft.begin({ kind: "map-point", point: { x: 4, y: 8 } }, null);
+    const first = draft.start;
+    const second = draft.start;
+    expect(first).toEqual({ kind: "map-point", point: { x: 4, y: 8 } });
+    expect(second).toEqual(first);
+    expect(second).not.toBe(first);
+    if (first?.kind !== "map-point" || second?.kind !== "map-point")
+      throw new Error("draft-start-missing");
+    expect(second.point).not.toBe(first.point);
+  });
+
   it("提交返回 false 后清空旧起点并可立即开始下一条线", () => {
     const draft = new ConnectionDraftState();
     draft.begin(endpoint("cell:square:0:0"), null);

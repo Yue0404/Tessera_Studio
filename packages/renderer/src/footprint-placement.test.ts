@@ -7,6 +7,7 @@ import {
 } from "@tessera/core";
 import {
   FootprintPlacementState,
+  fixedFootprintIntent,
   planFixedFootprint,
   type FixedFootprintPlacementPreset,
 } from "./footprint-placement.js";
@@ -93,6 +94,14 @@ describe("固定对象 footprint", () => {
       status: "rejected",
       code: "footprint-out-of-bounds",
     });
+    expect(
+      fixedFootprintIntent(grid, { row: 0, column: 0 }, hexSeven),
+    ).toHaveLength(7);
+    expect(
+      fixedFootprintIntent(grid, { row: 0, column: 0 }, hexSeven).some(
+        (coordinate) => coordinate.row < 0 || coordinate.column < 0,
+      ),
+    ).toBe(true);
   });
 
   it("按住拖动不改变 footprint，且只在结束时提交一次", () => {

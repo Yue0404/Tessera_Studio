@@ -11,7 +11,7 @@ import type {
   RendererInteractionRejection,
 } from "@tessera/renderer";
 import { I18nextProvider } from "react-i18next";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n.js";
 import { EditorView } from "./EditorView.js";
 
@@ -96,6 +96,8 @@ function deferredSave() {
 }
 
 describe("EditorView renderer initialization", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
     rendererMocks.destroy.mockReset();
     rendererMocks.initialize.mockReset();
@@ -832,5 +834,47 @@ describe("EditorView renderer initialization", () => {
       bottom: 0,
       left: 398,
     });
+  });
+
+  it("预览适配器解析画刷、填充与物体视觉时不发布工程状态", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    rendererMocks.initialize.mockResolvedValue();
+    const store = new EditorStore(project());
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EditorView
+          store={store}
+          repository={{ save: vi.fn(async () => undefined) }}
+          onNew={vi.fn()}
+          onOpenFile={vi.fn(async () => undefined)}
+          onOpenFragmentFile={vi.fn(async () => undefined)}
+        />
+      </I18nextProvider>,
+    );
+    await act(async () => Promise.resolve());
+    const revision = store.state.revision;
+
+    fireEvent.click(screen.getByRole("button", { name: "画刷" }));
+    const brushVisual =
+      rendererMocks.interaction?.getPlacementPreviewVisual?.();
+    expect(brushVisual).toMatchObject({ kind: "cell-style" });
+    const fill = rendererMocks.interaction?.previewFillCells?.(0, 0);
+    expect(fill?.requiresConfirmation).toBe(false);
+    await expect(fill?.task.result).resolves.toHaveLength(16);
+
+    fireEvent.click(screen.getByRole("button", { name: "物体" }));
+    fireEvent.click(screen.getByRole("radio", { name: "圆形物体" }));
+    const objectVisual =
+      rendererMocks.interaction?.getPlacementPreviewVisual?.();
+    expect(objectVisual).toMatchObject({ kind: "map-shape", shape: "circle" });
+    expect(store.state.revision).toBe(revision);
+    expect(store.canUndo).toBe(false);
   });
 });

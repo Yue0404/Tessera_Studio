@@ -1157,6 +1157,36 @@ describe("ActiveProjectModuleSession", () => {
     ).toBe(true);
   });
 
+  it("未提交元素可解析有效预览视觉且不发布工程状态", () => {
+    const store = storeWithActiveModule();
+    const session = new ActiveProjectModuleSession(
+      store,
+      [BASIC_MODULE_PACKAGE, modulePackage],
+      "zh-CN",
+    );
+    const revision = store.state.revision;
+    const transactionId = store.state.lastTransactionId;
+
+    expect(
+      session.resolvePlacementVisual("tessera.basic:object.square", {
+        fillColor: "#123456CC",
+      }),
+    ).toMatchObject({
+      kind: "map-shape",
+      shape: "square",
+      fillColor: "#123456CC",
+    });
+    expect(
+      session.resolvePlacementVisual(
+        "example.weather:marker.radar",
+        {},
+        { label: "预览" },
+      ),
+    ).toMatchObject({ kind: "marker", shape: "diamond" });
+    expect(store.state.revision).toBe(revision);
+    expect(store.state.lastTransactionId).toBe(transactionId);
+  });
+
   it("session 身份稳定时动态响应图层锁定、隐藏与恢复", () => {
     const store = storeWithActiveModule();
     const session = new ActiveProjectModuleSession(

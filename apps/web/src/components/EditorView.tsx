@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import {
   BackgroundTaskError,
   cellId as projectCellId,
+  startFillRegionTask,
   type BackgroundTask,
   type EditorStore,
   type MapRect,
@@ -402,6 +403,98 @@ export function EditorView({
         eraseCell: (row, column) => store.eraseCell(row, column),
         fillCells: (row, column) => startFill(row, column),
         getBrushMode: () => placementRef.current.brushMode,
+        previewFillCells: (row, column) => {
+          const fillColor = alphaColor(placementRef.current.brushColor);
+          try {
+            return {
+              task: startFillRegionTask(store.state, row, column, fillColor, {
+                workerFactory: createFillRegionWorker,
+              }),
+              requiresConfirmation: false,
+            };
+          } catch (error) {
+            if (!(
+              error instanceof BackgroundTaskError &&
+              error.code === "batch-confirmation-required"
+            ))
+              throw error;
+            return {
+              task: startFillRegionTask(store.state, row, column, fillColor, {
+                confirmed: true,
+                workerFactory: createFillRegionWorker,
+              }),
+              requiresConfirmation: true,
+            };
+          }
+        },
+        getPlacementPreviewVisual: () => {
+          const current = placementRef.current;
+          const elementId =
+            activeModuleElementId.current ??
+            (store.toolState.tool === "brush"
+              ? "tessera.basic:cell.color"
+              : store.toolState.tool === "edge"
+                ? "tessera.basic:edge.style"
+                : store.toolState.tool === "marker"
+                  ? current.overlay.type === "text"
+                    ? "tessera.basic:text"
+                    : "tessera.basic:marker"
+                  : store.toolState.tool === "connection"
+                    ? current.connection.kind === "arrow"
+                      ? "tessera.basic:connection.arrow"
+                      : "tessera.basic:connection.line"
+                    : null);
+          if (elementId === null) return null;
+          const element = moduleSession.get(elementId);
+          if (element === undefined) return null;
+          const styleOverrides: Record<string, unknown> = {};
+          const attributes: Record<string, string> = {};
+          const basic = element.moduleId === "tessera.basic";
+          if (basic && element.definition.primitive === "cell-style") {
+            styleOverrides.fillColor = alphaColor(current.brushColor);
+          } else if (basic && element.definition.primitive === "edge-style") {
+            styleOverrides.strokeColor = alphaColor(current.edgeColor);
+          } else if (element.definition.primitive === "domain-object") {
+            const key = element.objectColorStyleKey;
+            if (key !== null)
+              styleOverrides[key] = alphaColor(current.objectColor);
+          } else if (basic && element.definition.primitive === "marker") {
+            styleOverrides.shape = current.overlay.markerShape;
+            styleOverrides.color = alphaColor(current.brushColor);
+          } else if (element.definition.primitive === "text") {
+            if (basic) {
+              styleOverrides.color = alphaColor(current.textOptions.color);
+              styleOverrides.fontSize = current.textOptions.fontSize;
+              styleOverrides.fontWeight = current.textOptions.fontWeight;
+              styleOverrides.align = current.textOptions.align;
+              styleOverrides.rotation = current.textOptions.rotation;
+            }
+            attributes.text = current.textOptions.text;
+          } else if (basic && element.definition.primitive === "connection") {
+            styleOverrides.strokeColor = alphaColor(current.edgeColor);
+            styleOverrides.arrowStart =
+              current.connection.kind === "arrow" &&
+              current.connection.arrowMode === "both";
+            styleOverrides.arrowEnd = current.connection.kind === "arrow";
+          }
+          try {
+            const visual = moduleSession.resolvePlacementVisual(
+              elementId,
+              styleOverrides,
+              attributes,
+            );
+            return visual?.kind === "marker" &&
+              element.moduleId === "tessera.basic"
+              ? {
+                  ...visual,
+                  label:
+                    current.markerLabel === "" ? null : current.markerLabel,
+                }
+              : visual;
+          } catch {
+            return null;
+          }
+        },
         getEraserMode: () => placementRef.current.eraserMode,
         paintEdge: (edgeId, adjacentCellIds) => {
           const elementId = activeModuleElementId.current;

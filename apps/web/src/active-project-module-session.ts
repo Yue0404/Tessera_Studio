@@ -813,6 +813,83 @@ export class ActiveProjectModuleSession {
     };
   }
 
+  /**
+   * 解析未提交元素的有效视觉。临时实例不会进入 Store，也不会生成事务或 UUID。
+   */
+  resolvePlacementVisual(
+    elementId: string,
+    styleOverrides: Readonly<Record<string, unknown>> = {},
+    attributes: Readonly<Record<string, JsonValue>> = {},
+  ): GenericModuleVisualDescriptor | null {
+    const element = this.#requireEnabled(elementId);
+    const common = {
+      instanceId: "tessera-render-preview",
+      elementId,
+      layerId: element.definition.layerId,
+      styleOverrides: normalizeStyleOverrides(
+        element.definition,
+        styleOverrides,
+      ),
+      attributes: {
+        ...this.initialAttributes(elementId),
+        ...structuredClone(attributes),
+      },
+      extensions: {},
+      runtimeStatus: "available" as const,
+    };
+    const instance: ModuleRuntimeInstance =
+      element.definition.primitive === "cell-style"
+        ? {
+            ...common,
+            kind: "cell",
+            cellId: `cell:${this.#store.state.grid.type}:0:0`,
+          }
+        : element.definition.primitive === "edge-style"
+          ? {
+              ...common,
+              kind: "edge",
+              edgeId: "tessera-render-preview",
+              adjacentCellIds: [],
+            }
+          : element.definition.primitive === "marker" ||
+              element.definition.primitive === "text"
+            ? {
+                ...common,
+                kind: "overlay",
+                objectKind: "free-overlay",
+                overlayType: element.definition.primitive,
+                point: { x: 0, y: 0 },
+                orderInLayer: 0,
+              }
+            : element.definition.primitive === "connection"
+              ? {
+                  ...common,
+                  kind: "connection",
+                  objectKind:
+                    element.definition.defaultStyle.arrowStart === true ||
+                    element.definition.defaultStyle.arrowEnd === true
+                      ? "arrow"
+                      : "line",
+                  start: {
+                    kind: "map-point",
+                    point: { x: 0, y: 0 },
+                    extensions: {},
+                  },
+                  end: {
+                    kind: "map-point",
+                    point: { x: 1, y: 1 },
+                    extensions: {},
+                  },
+                  label: null,
+                }
+              : {
+                  ...common,
+                  kind: "domain-group",
+                  memberCellIds: [`cell:${this.#store.state.grid.type}:0:0`],
+                };
+    return this.resolveVisual(instance);
+  }
+
   #resourceIdentity(
     element: ActiveProjectModuleElement,
     style: Readonly<Record<string, JsonValue>>,

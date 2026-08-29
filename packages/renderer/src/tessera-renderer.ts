@@ -1,6 +1,7 @@
 import "pixi.js/unsafe-eval";
 import { Application, Container, Graphics } from "pixi.js";
 import {
+  cellCenter,
   cellPolygon,
   domainGroupGeometry,
   edgeSegment,
@@ -12,6 +13,7 @@ import {
   type MapPoint,
   type MapRect,
   type ConnectionEndpoint,
+  type ModuleDomainGroupInstance,
   type ProjectState,
   type SelectedObject,
   type ToolState,
@@ -32,6 +34,7 @@ import {
   genericConnectionPoints,
   genericOverlayPoint,
   GenericModuleRenderer,
+  type GenericModuleVisualDescriptor,
   type GenericModuleVisualResolver,
 } from "./generic-module-renderer.js";
 import { OverlayRenderer } from "./overlay-renderer.js";
@@ -47,9 +50,15 @@ import { enableRenderLayerSorting } from "./render-layer-order.js";
 import { InteractionRangeState } from "./interaction-range-state.js";
 import {
   FootprintPlacementState,
+  fixedFootprintIntent,
+  planFixedFootprint,
   type FixedFootprintPlacementPreset,
   type FootprintPlacementRejection,
 } from "./footprint-placement.js";
+import {
+  FillHoverPreviewState,
+  type FillHoverPreviewRequest,
+} from "./fill-hover-preview-state.js";
 import {
   WebGlContextLifecycle,
   type RendererContextStatus,
@@ -75,6 +84,15 @@ import {
   type ScreenInsets,
   type ViewNavigationPlan,
 } from "./viewport-navigation.js";
+import { domainMapShapeGeometry } from "./domain-map-shape.js";
+import {
+  createPixiMarker,
+  createPixiText,
+  drawPixiArrow,
+  drawPixiStroke,
+} from "./pixi-visual.js";
+import { markerMapSize, textMapSize } from "./overlay-visibility.js";
+import { arrowShaftSegment } from "./visual-style.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
 export type EraserMode = "click" | "drag";
@@ -121,6 +139,8 @@ export interface RendererInteraction {
   eraseCell(row: number, column: number): void;
   fillCells(row: number, column: number): void;
   getBrushMode(): BrushMode;
+  previewFillCells?(row: number, column: number): FillHoverPreviewRequest;
+  getPlacementPreviewVisual?(): GenericModuleVisualDescriptor | null;
   getEraserMode(): EraserMode;
   paintEdge(edgeId: string, adjacentCellIds: readonly string[]): void;
   getOverlayPlacement(): OverlayPlacement;
@@ -161,11 +181,24 @@ export interface RendererPerformanceStats {
   readonly renderDurationMs: number;
 }
 
+type HoverPreviewMetadata = Readonly<{
+  kind: string;
+  count: number;
+  status: "none" | "pending" | "valid" | "invalid" | "requires-confirmation";
+}>;
+
+const NO_HOVER_PREVIEW: HoverPreviewMetadata = Object.freeze({
+  kind: "none",
+  count: 0,
+  status: "none",
+});
+
 export class TesseraRenderer {
   readonly #application = new Application();
   readonly #root = new Container();
   readonly #content = new Container();
   readonly #preview = new Graphics();
+  readonly #previewItems = new Container();
   readonly #host: HTMLElement;
   readonly #interaction: RendererInteraction;
   readonly #gridRenderer: GridRenderer;
@@ -180,6 +213,14 @@ export class TesseraRenderer {
   readonly #eraserGesture = new EraserGestureState();
   readonly #connectionDraft = new ConnectionDraftState();
   readonly #footprintPlacement = new FootprintPlacementState();
+  readonly #fillPreview = new FillHoverPreviewState(() => {
+    if (!this.#destroyed && !this.#contextLost) this.#renderPreview();
+  });
+  #hoverPoint: MapPoint | null = null;
+  #fillPreviewTargetKey: string | null = null;
+  #previewTool: ToolState["tool"] | null = null;
+  #previewRevision: number;
+  #previewViewportKey: string | null = null;
   #transientHighlight: SelectedObject | null = null;
   #camera = { x: 0, y: 0 };
   #zoom = 1;
@@ -204,6 +245,7 @@ export class TesseraRenderer {
     this.#state = state;
     this.#interaction = interaction;
     this.#canvasLabel = canvasLabel;
+    this.#previewRevision = state.revision;
     enableRenderLayerSorting(this.#content);
     this.#gridRenderer = new GridRenderer(this.#content);
     this.#connectionRenderer = new ConnectionRenderer(this.#content);
@@ -250,7 +292,7 @@ export class TesseraRenderer {
         onRestored: this.#handleContextRestored,
       },
     );
-    this.#root.addChild(this.#content, this.#preview);
+    this.#root.addChild(this.#content, this.#preview, this.#previewItems);
     this.#application.stage.addChild(this.#root);
     this.#application.canvas.addEventListener(
       "pointerdown",
@@ -283,7 +325,16 @@ export class TesseraRenderer {
 
   render(state: Readonly<ProjectState>): void {
     const startedAt = performance.now();
+    const tool = this.#interaction.getToolState().tool;
+    if (
+      state.revision !== this.#previewRevision ||
+      (this.#previewTool !== null && tool !== this.#previewTool)
+    ) {
+      this.#clearHoverPreview(false);
+    }
     this.#state = state;
+    this.#previewRevision = state.revision;
+    this.#previewTool = tool;
     if (this.#contextLost) return;
     const width = Math.max(1, this.#host.clientWidth);
     const height = Math.max(1, this.#host.clientHeight);
@@ -296,6 +347,16 @@ export class TesseraRenderer {
       viewport.maxX,
       viewport.maxY,
     );
+    const viewportKey = `${this.#visible[0]?.cellId ?? "none"}:${
+      this.#visible.at(-1)?.cellId ?? "none"
+    }:${this.#visible.length}`;
+    if (
+      this.#previewViewportKey !== null &&
+      viewportKey !== this.#previewViewportKey &&
+      this.#fillPreview.snapshot.status !== "none"
+    )
+      this.#clearHoverPreview(false);
+    this.#previewViewportKey = viewportKey;
     state.cells.updateRuntimeViewport(state.grid, this.#visible, {
       prefetchRings: 2,
       maxLoaded: 256,
@@ -355,7 +416,9 @@ export class TesseraRenderer {
     this.#destroyed = true;
     this.#transientHighlight = null;
     this.#footprintPlacement.cancel();
+    this.#clearHoverPreview(false);
     this.#preview.clear();
+    for (const child of this.#previewItems.removeChildren()) child.destroy();
     this.#resizeObserver?.disconnect();
     this.#contextLifecycle?.destroy();
     this.#contextLifecycle = undefined;
@@ -425,6 +488,7 @@ export class TesseraRenderer {
     };
     const next = zoomCameraAt(this.#camera, this.#zoom, value, anchor);
     if (next.zoom === this.#zoom) return this.#zoom;
+    this.#clearHoverPreview(false);
     this.#zoom = next.zoom;
     this.#camera = next.camera;
     this.render(this.#state);
@@ -471,6 +535,7 @@ export class TesseraRenderer {
 
   #applyViewPlan(plan: ViewNavigationPlan): ViewNavigationPlan {
     if (plan.status !== "applied") return plan;
+    this.#clearHoverPreview(false);
     this.#camera = { ...plan.camera };
     this.#zoom = plan.zoom;
     this.render(this.#state);
@@ -615,6 +680,554 @@ export class TesseraRenderer {
       .stroke({ color: 0xffd978, alpha: 0.95, width: 2 });
   }
 
+  #drawPreviewPolygon(
+    points: readonly MapPoint[],
+    fillColor: string,
+    opacity: number,
+    valid = true,
+  ): void {
+    const fill = this.#colorValue(valid ? fillColor : "#E74C3CFF");
+    const stroke = this.#colorValue(
+      valid ? this.#state.style.gridColor : "#FF5A52FF",
+    );
+    const screenPoints = points.map((point) =>
+      mapToScreen(point, this.#camera, this.#zoom),
+    );
+    this.#preview
+      .poly(screenPoints.flatMap((point) => [point.x, point.y]))
+      .fill({ color: fill.color, alpha: fill.alpha * opacity })
+      .stroke({
+        color: stroke.color,
+        alpha: valid ? Math.max(0.75, stroke.alpha) : 1,
+        width: Math.max(1, this.#state.style.gridWidth * this.#zoom),
+      });
+  }
+
+  #drawPreviewSegment(
+    start: MapPoint,
+    end: MapPoint,
+    color: string,
+    width: number,
+    opacity: number,
+    valid = true,
+  ): void {
+    const screenStart = mapToScreen(start, this.#camera, this.#zoom);
+    const screenEnd = mapToScreen(end, this.#camera, this.#zoom);
+    const stroke = this.#colorValue(valid ? color : "#FF5A52FF");
+    this.#preview
+      .moveTo(screenStart.x, screenStart.y)
+      .lineTo(screenEnd.x, screenEnd.y)
+      .stroke({
+        color: stroke.color,
+        alpha: stroke.alpha * opacity,
+        width: Math.max(2, width * this.#zoom),
+      });
+  }
+
+  #drawCellPreview(
+    cell: Readonly<VisibleCell>,
+    visual: Extract<GenericModuleVisualDescriptor, { kind: "cell-style" }>,
+    valid = true,
+  ): void {
+    this.#drawPreviewPolygon(
+      cell.polygon,
+      visual.fillColor,
+      Math.min(0.58, visual.fillOpacity * 0.58),
+      valid,
+    );
+  }
+
+  #drawObjectPreview(
+    memberCellIds: readonly string[],
+    visual: GenericModuleVisualDescriptor | null,
+    valid: boolean,
+  ): void {
+    const members = memberCellIds.map((cellId) => {
+      const coordinate = parseCellId(cellId);
+      return {
+        ...coordinate,
+        polygon: cellPolygon(
+          this.#state.grid,
+          coordinate.row,
+          coordinate.column,
+        ),
+      };
+    });
+    if (!valid || visual === null) {
+      for (const member of members)
+        this.#drawPreviewPolygon(member.polygon, "#E74C3CFF", 0.32, false);
+      return;
+    }
+    if (visual.kind === "cell-style") {
+      for (const member of members)
+        this.#drawPreviewPolygon(
+          member.polygon,
+          visual.fillColor,
+          Math.min(0.62, visual.fillOpacity * 0.62),
+        );
+      return;
+    }
+    const geometry = domainGroupGeometry(this.#state.grid, memberCellIds);
+    if (visual.kind === "map-shape") {
+      const shape = domainMapShapeGeometry(
+        this.#state,
+        { memberCellIds } as ModuleDomainGroupInstance,
+        visual.shape,
+        visual.sizeScale,
+        visual.rotation,
+      );
+      const fill = this.#colorValue(visual.fillColor);
+      const stroke = this.#colorValue(visual.strokeColor);
+      const points = shape.points.map((point) =>
+        mapToScreen(point, this.#camera, this.#zoom),
+      );
+      this.#preview
+        .poly(points.flatMap((point) => [point.x, point.y]))
+        .fill({
+          color: fill.color,
+          alpha: fill.alpha * visual.fillOpacity * 0.68,
+        })
+        .stroke({
+          color: stroke.color,
+          alpha: stroke.alpha * visual.strokeOpacity,
+          width: Math.max(1, visual.strokeWidth * this.#zoom),
+        });
+      return;
+    }
+    if (visual.kind === "edge-style") {
+      for (const boundary of geometry.boundaryEdges) {
+        const segment = edgeSegment(
+          this.#state.grid,
+          boundary.edgeId,
+          boundary.adjacentCellIds,
+        );
+        if (segment !== undefined)
+          this.#drawPreviewSegment(
+            segment[0],
+            segment[1],
+            visual.strokeColor,
+            visual.strokeWidth,
+            visual.strokeOpacity,
+          );
+      }
+      return;
+    }
+    this.#drawOverlayVisual(geometry.center, visual, true);
+  }
+
+  #overlayPreviewPoint(
+    point: Readonly<MapPoint>,
+    cell: Readonly<VisibleCell> | undefined,
+  ): { readonly point: MapPoint; readonly valid: boolean } {
+    const placement = this.#interaction.getOverlayPlacement();
+    if (placement.anchor === "map-point")
+      return {
+        point: { ...point },
+        valid: pointInsideMapBounds(point, gridMapBounds(this.#state.grid)),
+      };
+    if (cell === undefined) return { point: { ...point }, valid: false };
+    if (placement.anchor === "cell")
+      return {
+        point: cellCenter(this.#state.grid, cell.row, cell.column),
+        valid: true,
+      };
+    const edge = this.#edgeTarget(cell, point);
+    const segment = edgeSegment(
+      this.#state.grid,
+      edge.edgeId,
+      edge.adjacentCellIds,
+    );
+    return segment === undefined
+      ? { point: { ...point }, valid: false }
+      : {
+          point: {
+            x: (segment[0].x + segment[1].x) / 2,
+            y: (segment[0].y + segment[1].y) / 2,
+          },
+          valid: true,
+        };
+  }
+
+  #drawOverlayVisual(
+    point: Readonly<MapPoint>,
+    visual: GenericModuleVisualDescriptor,
+    valid: boolean,
+  ): void {
+    const screen = mapToScreen(point, this.#camera, this.#zoom);
+    if (!valid) {
+      this.#preview
+        .circle(screen.x, screen.y, 10)
+        .fill({ color: 0xe74c3c, alpha: 0.28 })
+        .stroke({ color: 0xff5a52, alpha: 1, width: 2 });
+      return;
+    }
+    if (visual.kind === "marker") {
+      const size = markerMapSize(visual.displaySize, this.#zoom) * this.#zoom;
+      const marker = createPixiMarker(
+        screen,
+        visual.shape,
+        size,
+        visual.rotation,
+        visual.color,
+        visual.opacity * 0.72,
+      );
+      this.#previewItems.addChild(marker);
+      if (visual.label !== null && visual.label !== undefined) {
+        this.#previewItems.addChild(
+          createPixiText(
+            { x: screen.x, y: screen.y + size * 0.8 },
+            visual.label,
+            {
+              fontSize: Math.max(9, size * 0.32),
+              fontWeight: "normal",
+              align: "center",
+              rotation: 0,
+              color: visual.color,
+              opacity: visual.opacity * 0.72,
+              backgroundVisible: false,
+            },
+            null,
+          ),
+        );
+      }
+      return;
+    }
+    if (visual.kind === "text") {
+      this.#previewItems.addChild(
+        createPixiText(
+          screen,
+          visual.text,
+          {
+            fontSize: textMapSize(visual.fontSize, this.#zoom) * this.#zoom,
+            fontWeight: visual.fontWeight,
+            align: visual.align,
+            rotation: visual.rotation,
+            color: visual.color,
+            opacity: visual.opacity * 0.72,
+            backgroundVisible: visual.backgroundColor !== null,
+            ...(visual.wrapWidth === null
+              ? {}
+              : { wrapWidth: visual.wrapWidth * this.#zoom }),
+          },
+          visual.backgroundColor,
+        ),
+      );
+      return;
+    }
+    this.#drawHighlightPoint(point);
+  }
+
+  #connectionEndpointPoint(
+    endpoint: Readonly<ConnectionEndpoint>,
+  ): MapPoint | undefined {
+    return endpointPoint(this.#state, endpoint);
+  }
+
+  #drawConnectionVisual(
+    start: Readonly<MapPoint>,
+    end: Readonly<MapPoint>,
+    visual: Extract<GenericModuleVisualDescriptor, { kind: "connection" }>,
+    valid: boolean,
+  ): void {
+    const screenStart = mapToScreen(start, this.#camera, this.#zoom);
+    const screenEnd = mapToScreen(end, this.#camera, this.#zoom);
+    const color = valid ? visual.strokeColor : "#FF5A52FF";
+    const opacity = valid ? visual.strokeOpacity * 0.78 : 1;
+    const arrowSize = visual.arrowSize * this.#zoom;
+    const shaft = arrowShaftSegment(
+      screenStart,
+      screenEnd,
+      visual.arrowStart,
+      visual.arrowEnd,
+      arrowSize,
+    );
+    if (shaft !== null)
+      drawPixiStroke(this.#preview, shaft[0], shaft[1], shaft[0], shaft[1], {
+        color,
+        width: Math.max(2, visual.strokeWidth * this.#zoom),
+        opacity,
+        lineStyle: visual.lineStyle,
+        ...(visual.dashPattern === undefined
+          ? {}
+          : {
+              dashPattern: visual.dashPattern.map(
+                (value) => value * this.#zoom,
+              ),
+            }),
+        lineCap: "butt",
+      });
+    if (visual.arrowStart)
+      drawPixiArrow(
+        this.#preview,
+        screenEnd,
+        screenStart,
+        arrowSize,
+        color,
+        opacity,
+      );
+    if (visual.arrowEnd)
+      drawPixiArrow(
+        this.#preview,
+        screenStart,
+        screenEnd,
+        arrowSize,
+        color,
+        opacity,
+      );
+  }
+
+  #requestFillPreview(
+    cell: Readonly<VisibleCell>,
+    visual: GenericModuleVisualDescriptor | null,
+  ): void {
+    const key = `${this.#state.revision}:${cell.cellId}:${
+      visual?.kind === "cell-style" ? visual.fillColor : "none"
+    }`;
+    if (key === this.#fillPreviewTargetKey) return;
+    this.#fillPreviewTargetKey = key;
+    const request = this.#interaction.previewFillCells;
+    if (request === undefined) {
+      this.#fillPreview.invalidate();
+      return;
+    }
+    try {
+      this.#fillPreview.begin(
+        this.#state.grid.type,
+        new Set(this.#visible.map((item) => item.cellId)),
+        request(cell.row, cell.column),
+      );
+    } catch {
+      this.#fillPreview.invalidate();
+    }
+  }
+
+  #renderToolHover(): HoverPreviewMetadata {
+    const point = this.#hoverPoint;
+    if (point === null) return NO_HOVER_PREVIEW;
+    const tool = this.#interaction.getToolState().tool;
+    const cell = this.#target(point);
+    const visual = this.#interaction.getPlacementPreviewVisual?.() ?? null;
+    if (tool === "brush") {
+      const mode = this.#interaction.getBrushMode();
+      if (cell === undefined) return NO_HOVER_PREVIEW;
+      if (mode === "fill") {
+        this.#requestFillPreview(cell, visual);
+        const snapshot = this.#fillPreview.snapshot;
+        const fillVisual =
+          visual?.kind === "cell-style"
+            ? visual
+            : {
+                kind: "cell-style" as const,
+                fillColor: "#73B7C8CC",
+                fillOpacity: 1,
+              };
+        if (
+          snapshot.status === "valid" ||
+          snapshot.status === "requires-confirmation"
+        ) {
+          for (const visible of this.#visible)
+            if (snapshot.visibleCellIds.has(visible.cellId))
+              this.#drawCellPreview(visible, fillVisual);
+        } else if (snapshot.status === "invalid") {
+          this.#drawCellPreview(cell, fillVisual, false);
+        } else {
+          this.#drawPreviewPolygon(cell.polygon, "#73B7C8FF", 0.12);
+        }
+        return {
+          kind: "fill",
+          count: snapshot.count,
+          status: snapshot.status,
+        };
+      }
+      this.#fillPreview.clear(false);
+      this.#fillPreviewTargetKey = null;
+      if (mode === "erase") {
+        this.#drawPreviewPolygon(cell.polygon, "#E74C3CFF", 0.24, false);
+        return { kind: "brush-erase", count: 1, status: "valid" };
+      }
+      const cellVisual =
+        visual?.kind === "cell-style"
+          ? visual
+          : {
+              kind: "cell-style" as const,
+              fillColor: "#73B7C8CC",
+              fillOpacity: 1,
+            };
+      this.#drawCellPreview(cell, cellVisual);
+      return { kind: "brush-paint", count: 1, status: "valid" };
+    }
+    this.#fillPreview.clear(false);
+    this.#fillPreviewTargetKey = null;
+    if (tool === "edge") {
+      if (cell === undefined) return NO_HOVER_PREVIEW;
+      const edge = this.#edgeTarget(cell, point);
+      const segment = edgeSegment(
+        this.#state.grid,
+        edge.edgeId,
+        edge.adjacentCellIds,
+      );
+      if (segment === undefined)
+        return { kind: "edge", count: 0, status: "invalid" };
+      const edgeVisual =
+        visual?.kind === "edge-style"
+          ? visual
+          : {
+              strokeColor: this.#state.style.defaultEdgeColor,
+              strokeOpacity: 1,
+              strokeWidth: Math.max(1, this.#state.style.gridWidth),
+            };
+      this.#drawPreviewSegment(
+        segment[0],
+        segment[1],
+        edgeVisual.strokeColor,
+        edgeVisual.strokeWidth,
+        edgeVisual.strokeOpacity,
+      );
+      return { kind: "edge", count: 1, status: "valid" };
+    }
+    if (tool === "object") {
+      const preset = this.#interaction.getDomainGroupPlacementPreset?.();
+      if (cell === undefined || preset === null || preset === undefined) {
+        if (cell !== undefined)
+          this.#drawPreviewPolygon(cell.polygon, "#E74C3CFF", 0.32, false);
+        return { kind: "object", count: 0, status: "invalid" };
+      }
+      const plan = planFixedFootprint(this.#state.grid, cell, preset);
+      if (plan.status === "rejected") {
+        const intent = fixedFootprintIntent(this.#state.grid, cell, preset);
+        if (intent.length === 0)
+          this.#drawPreviewPolygon(cell.polygon, "#E74C3CFF", 0.32, false);
+        else
+          for (const coordinate of intent)
+            this.#drawPreviewPolygon(
+              cellPolygon(this.#state.grid, coordinate.row, coordinate.column),
+              "#E74C3CFF",
+              0.32,
+              false,
+            );
+        return {
+          kind: "object",
+          count: intent.length,
+          status: "invalid",
+        };
+      }
+      this.#drawObjectPreview(plan.memberCellIds, visual, true);
+      return {
+        kind: "object",
+        count: plan.memberCellIds.length,
+        status: "valid",
+      };
+    }
+    if (tool === "marker") {
+      const target = this.#overlayPreviewPoint(point, cell);
+      if (visual !== null)
+        this.#drawOverlayVisual(target.point, visual, target.valid);
+      else if (!target.valid)
+        this.#drawOverlayVisual(
+          target.point,
+          {
+            kind: "marker",
+            shape: "diamond",
+            color: "#FF5A52FF",
+            opacity: 1,
+            displaySize: 20,
+            rotation: 0,
+          },
+          false,
+        );
+      return {
+        kind: this.#interaction.getOverlayPlacement().type,
+        count: target.valid ? 1 : 0,
+        status: target.valid && visual !== null ? "valid" : "invalid",
+      };
+    }
+    if (tool === "eraser") {
+      return this.#transientHighlight === null
+        ? NO_HOVER_PREVIEW
+        : { kind: "eraser", count: 1, status: "valid" };
+    }
+    if (tool === "connection") {
+      const target = this.#connectionEndpoint(point, cell);
+      const connectionVisual =
+        visual?.kind === "connection"
+          ? visual
+          : {
+              kind: "connection" as const,
+              strokeColor: "#73B7C8FF",
+              strokeOpacity: 0.9,
+              strokeWidth: 2,
+              arrowStart: false,
+              arrowEnd: false,
+              arrowSize: this.#state.grid.cellSize * 0.18,
+              lineStyle: "solid" as const,
+            };
+      const startEndpoint = this.#connectionDraft.start;
+      if (startEndpoint === null) {
+        const targetPoint =
+          target === null
+            ? point
+            : (this.#connectionEndpointPoint(target.endpoint) ?? point);
+        this.#drawOverlayVisual(
+          targetPoint,
+          {
+            kind: "marker",
+            shape: "circle",
+            color: connectionVisual.strokeColor,
+            opacity: 1,
+            displaySize: 12,
+            rotation: 0,
+          },
+          target !== null,
+        );
+        return {
+          kind: "connection-start",
+          count: target === null ? 0 : 1,
+          status: target === null ? "invalid" : "valid",
+        };
+      }
+      const start = this.#connectionEndpointPoint(startEndpoint);
+      const end =
+        target === null
+          ? point
+          : this.#connectionEndpointPoint(target.endpoint);
+      if (start !== undefined && end !== undefined)
+        this.#drawConnectionVisual(
+          start,
+          end,
+          connectionVisual,
+          target !== null,
+        );
+      return {
+        kind: "connection-end",
+        count: target === null ? 0 : 1,
+        status: target === null ? "invalid" : "valid",
+      };
+    }
+    return NO_HOVER_PREVIEW;
+  }
+
+  #updatePreviewDataset(metadata: HoverPreviewMetadata): void {
+    if (!this.#applicationInitialized || this.#applicationDestroyed) return;
+    const canvas = this.#application.canvas;
+    canvas.dataset.previewKind = metadata.kind;
+    canvas.dataset.previewCount = String(metadata.count);
+    canvas.dataset.previewStatus = metadata.status;
+    canvas.dataset.previewValid =
+      metadata.status === "valid" || metadata.status === "requires-confirmation"
+        ? "true"
+        : metadata.status === "pending"
+          ? "pending"
+          : "false";
+  }
+
+  #clearHoverPreview(render = true): void {
+    this.#hoverPoint = null;
+    this.#fillPreviewTargetKey = null;
+    this.#fillPreview.clear(false);
+    this.#transientHighlight = null;
+    if (render && !this.#destroyed && !this.#contextLost) this.#renderPreview();
+  }
+
   #renderTransientHighlight(): void {
     const selected =
       this.#transientHighlight === null
@@ -712,9 +1325,9 @@ export class TesseraRenderer {
 
   #renderPreview(): void {
     this.#preview.clear();
+    for (const child of this.#previewItems.removeChildren()) child.destroy();
     this.#renderTransientHighlight();
-    for (const cell of this.#footprintPlacement.preview(this.#visible))
-      this.#drawHighlightPolygon(cell.polygon);
+    const metadata = this.#renderToolHover();
     const state = this.#interaction.getToolState();
     if (
       (state.phase !== "previewing-end" && state.phase !== "committing") ||
@@ -742,6 +1355,11 @@ export class TesseraRenderer {
           )
           .stroke({ color: 0x73b7c8, alpha: 0.9, width: 1 });
       }
+      this.#updatePreviewDataset(metadata);
+      return;
+    }
+    if (state.tool === "connection") {
+      this.#updatePreviewDataset(metadata);
       return;
     }
     const start = mapToScreen(state.startPoint, this.#camera, this.#zoom);
@@ -750,6 +1368,7 @@ export class TesseraRenderer {
       .moveTo(start.x, start.y)
       .lineTo(end.x, end.y)
       .stroke({ color: 0x73b7c8, alpha: 0.9, width: 2 });
+    this.#updatePreviewDataset(metadata);
   }
 
   readonly #onPointerDown = (event: PointerEvent): void => {
@@ -949,12 +1568,14 @@ export class TesseraRenderer {
     this.#reportPointerStatus(screen);
     const panDelta = this.#pan.move(event.pointerId, event.buttons, screen);
     if (panDelta !== null) {
+      this.#clearHoverPreview(false);
       this.#camera.x += panDelta.x;
       this.#camera.y += panDelta.y;
       this.render(this.#state);
       return;
     }
     const point = this.#mapPoint(screen);
+    this.#hoverPoint = point;
     if (this.#footprintPlacement.move(event.pointerId)) {
       this.render(this.#state);
       return;
@@ -977,7 +1598,7 @@ export class TesseraRenderer {
 
   readonly #onPointerLeave = (): void => {
     this.#interaction.pointerStatusChanged?.(null);
-    this.setTransientHighlight(null);
+    this.#clearHoverPreview();
   };
 
   #reportPointerStatus(screen: MapPoint): void {
@@ -1033,6 +1654,7 @@ export class TesseraRenderer {
       this.render(this.#state);
       return;
     }
+    this.#clearHoverPreview(false);
     this.#cancelTransientInteraction();
   };
 
@@ -1044,6 +1666,7 @@ export class TesseraRenderer {
     this.#painting = false;
     this.#connectionDraft.reset();
     this.#footprintPlacement.cancel();
+    this.#clearHoverPreview(false);
     this.#interaction.cancelTool();
     this.render(this.#state);
   };
@@ -1089,6 +1712,7 @@ export class TesseraRenderer {
     this.#painting = false;
     this.#connectionDraft.reset();
     this.#footprintPlacement.cancel();
+    this.#clearHoverPreview(false);
     this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.render(this.#state);
@@ -1113,6 +1737,7 @@ export class TesseraRenderer {
     this.#painting = false;
     this.#connectionDraft.reset();
     this.#footprintPlacement.cancel();
+    this.#clearHoverPreview(false);
     this.#interaction.cancelConnectionRebind();
     this.#interaction.cancelTool();
     this.render(this.#state);
@@ -1131,7 +1756,7 @@ export class TesseraRenderer {
 
   readonly #handleContextLost = (): void => {
     this.#contextLost = true;
-    this.#transientHighlight = null;
+    this.#clearHoverPreview(false);
     this.#preview.clear();
     this.#application.stop();
     if (this.#painting) this.#interaction.cancelStroke();

@@ -34,18 +34,13 @@ function insideGrid(grid: Readonly<ProjectGrid>, row: number, column: number) {
   return row >= 0 && column >= 0 && row < grid.height && column < grid.width;
 }
 
-/** 从声明式相对坐标一次性计算固定 footprint，不枚举地图面积。 */
-export function planFixedFootprint(
+/** 计算包含越界坐标的完整放置意图，供无效位置红色幽灵预览复用。 */
+export function fixedFootprintIntent(
   grid: Readonly<ProjectGrid>,
   anchor: Readonly<{ row: number; column: number }>,
   preset: Readonly<FixedFootprintPlacementPreset>,
-): FixedFootprintPlan {
-  if (preset.gridType !== grid.type)
-    return { status: "rejected", code: "footprint-empty" };
-  if (preset.offsets.length === 0)
-    return { status: "rejected", code: "footprint-empty" };
-  if (preset.offsets.length > DOMAIN_GROUP_MAX_MEMBERS)
-    return { status: "rejected", code: "footprint-too-large" };
+): readonly { readonly row: number; readonly column: number }[] {
+  if (preset.gridType !== grid.type || preset.offsets.length === 0) return [];
   const anchorAxial = grid.type === "hex-pointy" ? oddRToAxial(anchor) : null;
   const coordinates = preset.offsets.map((offset) => {
     if (preset.gridType === "square") {
@@ -61,21 +56,37 @@ export function planFixedFootprint(
       r: anchorAxial.r + offset.r,
     });
   });
-  if (
-    coordinates.some(
-      (coordinate) =>
-        coordinate === null ||
-        !insideGrid(grid, coordinate.row, coordinate.column),
-    )
-  )
-    return { status: "rejected", code: "footprint-out-of-bounds" };
-  const validCoordinates = coordinates.filter(
+  return coordinates.every(
     (
       coordinate,
     ): coordinate is { readonly row: number; readonly column: number } =>
       coordinate !== null,
-  );
-  const memberCellIds = validCoordinates.map((coordinate) =>
+  )
+    ? coordinates
+    : [];
+}
+
+/** 从声明式相对坐标一次性计算固定 footprint，不枚举地图面积。 */
+export function planFixedFootprint(
+  grid: Readonly<ProjectGrid>,
+  anchor: Readonly<{ row: number; column: number }>,
+  preset: Readonly<FixedFootprintPlacementPreset>,
+): FixedFootprintPlan {
+  if (preset.gridType !== grid.type)
+    return { status: "rejected", code: "footprint-empty" };
+  if (preset.offsets.length === 0)
+    return { status: "rejected", code: "footprint-empty" };
+  if (preset.offsets.length > DOMAIN_GROUP_MAX_MEMBERS)
+    return { status: "rejected", code: "footprint-too-large" };
+  const coordinates = fixedFootprintIntent(grid, anchor, preset);
+  if (
+    coordinates.length === 0 ||
+    coordinates.some(
+      (coordinate) => !insideGrid(grid, coordinate.row, coordinate.column),
+    )
+  )
+    return { status: "rejected", code: "footprint-out-of-bounds" };
+  const memberCellIds = coordinates.map((coordinate) =>
     cellId(grid.type, coordinate.row, coordinate.column),
   );
   if (new Set(memberCellIds).size !== memberCellIds.length)
