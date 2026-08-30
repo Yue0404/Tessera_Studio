@@ -4,6 +4,7 @@
   left: 50%;
   bottom: 12px;
   transform: translateX(-50%);
+  max-width: calc(100% - 24px);
   min-height: 38px;
   display: flex;
   align-items: center;
@@ -85,4 +86,73 @@
   border-radius: 5px;
   font: inherit;
   text-align: right;
+}
+
+.controlDivider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--color-border);
+}
+
+.rotation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.zoom .iconButton {
+  display: grid;
+  min-width: 26px;
+  padding: 0;
+  place-items: center;
+}
+
+.rotationInput {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.rotationInput > span:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.rotationInput input {
+  width: 54px;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  font: inherit;
+  text-align: right;
+}
+
+.zoom .rotationReset {
+  min-width: 34px;
+  padding: 0 5px;
+}
+
+@media (width <= 1180px) {
+  .status {
+    gap: 10px;
+  }
+
+  .metric {
+    display: none;
+  }
+}
+
+@media (width <= 760px) {
+  .pointerStatus {
+    display: none;
+  }
 }

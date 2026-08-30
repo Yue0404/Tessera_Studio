@@ -240,6 +240,7 @@ export function EditorView({
   const [fillProgress, setFillProgress] = useState(0);
   const [rendererContextLost, setRendererContextLost] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
   const [pointerStatus, setPointerStatus] =
     useState<PointerLogicalStatus | null>(null);
   const [connectionRebind, setConnectionRebind] =
@@ -250,6 +251,11 @@ export function EditorView({
   const autosaveBaseline = useRef({ store, revision });
   const saveGeneration = useRef({ store, value: 0 });
   const saveRequestSequence = useRef(0);
+  useEffect(() => {
+    // 摄像机是工程外的纯视图状态；切换工程时恢复默认视角。
+    setZoom(1);
+    setRotation(0);
+  }, [store]);
   if (saveGeneration.current.store !== store)
     saveGeneration.current = {
       store,
@@ -319,6 +325,26 @@ export function EditorView({
     // 原生 canvas 事件不等待 React 提交，ref 必须与受控输入同步更新。
     placementRef.current.connection = next;
     setConnection(next);
+  }, []);
+
+  const currentCanvasInsets = useCallback(() => {
+    const root = editorRoot.current;
+    if (root === null) return undefined;
+    const viewport = root.getBoundingClientRect();
+    const obstructions = [
+      ...root.querySelectorAll<HTMLElement>("[data-canvas-obstruction]"),
+    ].flatMap((element) => {
+      const side = element.dataset.canvasObstruction;
+      return side === "left" || side === "right"
+        ? [
+            {
+              side: side === "left" ? ("left" as const) : ("right" as const),
+              rect: element.getBoundingClientRect(),
+            },
+          ]
+        : [];
+    });
+    return canvasObstructionInsets(viewport, obstructions);
   }, []);
 
   useEffect(() => {
@@ -749,6 +775,9 @@ export function EditorView({
         },
         zoomChanged: (value) => {
           if (!cancelled) setZoom(value);
+        },
+        rotationChanged: (value) => {
+          if (!cancelled) setRotation(value);
         },
         pointerStatusChanged: (value) => {
           if (!cancelled)
@@ -1355,45 +1384,35 @@ export function EditorView({
         <EditorStatusBar
           state={state}
           zoom={zoom}
+          rotation={rotation}
           saveStatusKey={saveStatusKey}
           pointerStatus={pointerStatus}
           onZoomOut={() => renderer.current?.zoomByStep(-1)}
           onZoomIn={() => renderer.current?.zoomByStep(1)}
           onZoomChange={(value) => renderer.current?.setZoom(value)}
+          onRotateCounterclockwise={() =>
+            renderer.current?.rotateByStep(-1, currentCanvasInsets())
+          }
+          onRotateClockwise={() =>
+            renderer.current?.rotateByStep(1, currentCanvasInsets())
+          }
+          onRotationChange={(value) =>
+            renderer.current?.setRotation(value, currentCanvasInsets())
+          }
           onResetZoom={() => renderer.current?.setZoom(1)}
+          onResetRotation={() =>
+            renderer.current?.setRotation(0, currentCanvasInsets())
+          }
           onCenterMap={() => {
-            const root = editorRoot.current;
-            if (root === null) return;
-            const viewport = root.getBoundingClientRect();
-            const obstructions = [
-              ...root.querySelectorAll<HTMLElement>(
-                "[data-canvas-obstruction]",
-              ),
-            ].flatMap((element) => {
-              const side = element.dataset.canvasObstruction;
-              return side === "left" || side === "right"
-                ? [
-                    {
-                      side:
-                        side === "left"
-                          ? ("left" as const)
-                          : ("right" as const),
-                      rect: element.getBoundingClientRect(),
-                    },
-                  ]
-                : [];
-            });
-            renderer.current?.centerMap(
-              canvasObstructionInsets(viewport, obstructions),
-            );
+            renderer.current?.centerMap(currentCanvasInsets());
           }}
           onFitMap={() => {
-            const result = renderer.current?.fitMap();
+            const result = renderer.current?.fitMap(currentCanvasInsets());
             if (result?.status === "limited")
               setErrorKey("error.fitMapLimited");
           }}
           onFitContent={() => {
-            const result = renderer.current?.fitContent();
+            const result = renderer.current?.fitContent(currentCanvasInsets());
             if (result?.status === "empty")
               setErrorKey("error.fitContentEmpty");
           }}

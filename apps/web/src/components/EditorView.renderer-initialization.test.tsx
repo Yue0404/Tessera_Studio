@@ -26,6 +26,8 @@ const rendererMocks = vi.hoisted(() => ({
   centerMap: vi.fn(),
   setZoom: vi.fn(),
   zoomByStep: vi.fn(),
+  setRotation: vi.fn(),
+  rotateByStep: vi.fn(),
   interaction: undefined as RendererInteraction | undefined,
 }));
 
@@ -68,6 +70,14 @@ vi.mock("@tessera/renderer", async (importOriginal) => {
 
       zoomByStep(direction: number): void {
         rendererMocks.zoomByStep(direction);
+      }
+
+      setRotation(value: number, insets?: unknown): void {
+        rendererMocks.setRotation(value, insets);
+      }
+
+      rotateByStep(direction: number, insets?: unknown): void {
+        rendererMocks.rotateByStep(direction, insets);
       }
 
       destroy(): void {
@@ -114,6 +124,8 @@ describe("EditorView renderer initialization", () => {
     rendererMocks.centerMap.mockReset();
     rendererMocks.setZoom.mockReset();
     rendererMocks.zoomByStep.mockReset();
+    rendererMocks.setRotation.mockReset();
+    rendererMocks.rotateByStep.mockReset();
     rendererMocks.interaction = undefined;
   });
 
@@ -818,7 +830,7 @@ describe("EditorView renderer initialization", () => {
     vi.useRealTimers();
   });
 
-  it("居中时按当前左右 DOM 占用计算画布边距", async () => {
+  it("居中与旋转按当前左右 DOM 占用计算画布边距且不修改工程", async () => {
     rendererMocks.initialize.mockResolvedValue();
     const store = new EditorStore(project());
     render(
@@ -878,13 +890,27 @@ describe("EditorView renderer initialization", () => {
     );
 
     await act(async () => Promise.resolve());
-    fireEvent.click(screen.getByRole("button", { name: "居中" }));
-    expect(rendererMocks.centerMap).toHaveBeenCalledWith({
+    const revision = store.state.revision;
+    const expectedInsets = {
       top: 0,
       right: 60,
       bottom: 0,
       left: 398,
-    });
+    };
+    fireEvent.click(screen.getByRole("button", { name: "居中" }));
+    expect(rendererMocks.centerMap).toHaveBeenCalledWith(expectedInsets);
+    fireEvent.click(screen.getByRole("button", { name: "顺时针旋转 15°" }));
+    expect(rendererMocks.rotateByStep).toHaveBeenCalledWith(1, expectedInsets);
+    const rotationInput = screen.getByRole("spinbutton", { name: "旋转角度" });
+    fireEvent.focus(rotationInput);
+    fireEvent.change(rotationInput, { target: { value: "45.5" } });
+    fireEvent.keyDown(rotationInput, { key: "Enter" });
+    expect(rendererMocks.setRotation).toHaveBeenCalledWith(
+      45.5,
+      expectedInsets,
+    );
+    expect(store.state.revision).toBe(revision);
+    expect(store.canUndo).toBe(false);
   });
 
   it("预览适配器解析画刷、填充与物体视觉时不发布工程状态", async () => {

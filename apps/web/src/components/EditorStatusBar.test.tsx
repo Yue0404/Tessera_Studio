@@ -18,20 +18,31 @@ const state = createProject({
   },
 });
 
-function statusBar(zoom: number, onZoomChange = vi.fn()) {
+function statusBar(
+  zoom: number,
+  onZoomChange = vi.fn(),
+  rotation = 0,
+  onRotationChange = vi.fn(),
+) {
   return {
     onZoomChange,
+    onRotationChange,
     view: (
       <I18nextProvider i18n={i18n}>
         <EditorStatusBar
           state={state}
           zoom={zoom}
+          rotation={rotation}
           saveStatusKey="status.saved"
           pointerStatus={null}
           onZoomOut={vi.fn()}
           onZoomIn={vi.fn()}
           onZoomChange={onZoomChange}
+          onRotateCounterclockwise={vi.fn()}
+          onRotateClockwise={vi.fn()}
+          onRotationChange={onRotationChange}
           onResetZoom={vi.fn()}
+          onResetRotation={vi.fn()}
           onCenterMap={vi.fn()}
           onFitMap={vi.fn()}
           onFitContent={vi.fn()}
@@ -75,5 +86,46 @@ describe("EditorStatusBar 缩放输入", () => {
     fireEvent.blur(input);
     expect((input as HTMLInputElement).value).toBe("100");
     expect(current.onZoomChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("EditorStatusBar 旋转输入", () => {
+  it("提交任意有限小数并把越界值夹到 -360°–360°", () => {
+    const current = statusBar(1);
+    const rendered = render(current.view);
+    const input = screen.getByRole("spinbutton", { name: "旋转角度" });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "37.5" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(current.onRotationChange).toHaveBeenLastCalledWith(37.5);
+
+    const clamped = statusBar(
+      1,
+      current.onZoomChange,
+      37.5,
+      current.onRotationChange,
+    );
+    rendered.rerender(clamped.view);
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "-720" } });
+    fireEvent.blur(input);
+    expect(current.onRotationChange).toHaveBeenLastCalledWith(-360);
+  });
+
+  it("Escape 回退到已应用角度且空值不提交", () => {
+    const current = statusBar(1, vi.fn(), -22.25);
+    render(current.view);
+    const input = screen.getByRole("spinbutton", { name: "旋转角度" });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "85" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect((input as HTMLInputElement).value).toBe("-22.25");
+    expect(current.onRotationChange).not.toHaveBeenCalled();
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    expect((input as HTMLInputElement).value).toBe("-22.25");
+    expect(current.onRotationChange).not.toHaveBeenCalled();
   });
 });

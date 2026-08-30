@@ -106,4 +106,35 @@ describe("视口导航", () => {
       camera: { x: centerX - 50, y: 350 },
     });
   });
+
+  it("旋转后居中仍把地图中心放到工具栏之间的有效中心", () => {
+    expect(
+      centerBoundsPlan(
+        { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        1_000,
+        800,
+        1,
+        { top: 0, right: 200, bottom: 0, left: 300 },
+        90,
+      ),
+    ).toMatchObject({
+      status: "applied",
+      camera: { x: 600, y: 350 },
+    });
+  });
+
+  it("适应范围按旋转后包围盒尺寸计算并使用有效可视区域", () => {
+    const plan = fitBoundsPlan(
+      { minX: 0, minY: 0, maxX: 100, maxY: 50 },
+      500,
+      180,
+      0,
+      90,
+      { top: 0, right: 100, bottom: 0, left: 100 },
+    );
+    expect(plan).toMatchObject({ status: "applied", zoom: 1.8 });
+    if (plan.status !== "applied") throw new Error("旋转适应计划未应用");
+    expect(plan.camera.x).toBeCloseTo(295, 10);
+    expect(plan.camera.y).toBeCloseTo(0, 10);
+  });
 });
