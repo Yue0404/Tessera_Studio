@@ -50,6 +50,7 @@ async function moveToCell(
     cameraX: Number(element.dataset.cameraX),
     cameraY: Number(element.dataset.cameraY),
     zoom: Number(element.dataset.zoom),
+    rotation: Number(element.dataset.rotation ?? "0"),
     cellSize: Number(element.dataset.gridCellSize),
   }));
   const mapX =
@@ -60,9 +61,12 @@ async function moveToCell(
     gridType === "square"
       ? (row + 0.5) * view.cellSize
       : view.cellSize * (1 + 1.5 * row);
+  const radians = (view.rotation * Math.PI) / 180;
+  const rotatedX = mapX * Math.cos(radians) - mapY * Math.sin(radians);
+  const rotatedY = mapX * Math.sin(radians) + mapY * Math.cos(radians);
   const position = {
-    x: view.cameraX + mapX * view.zoom,
-    y: view.cameraY + mapY * view.zoom,
+    x: view.cameraX + rotatedX * view.zoom,
+    y: view.cameraY + rotatedY * view.zoom,
   };
   if (dispatchDirectly) {
     await canvas.dispatchEvent("pointermove", {
@@ -524,6 +528,104 @@ test("非空短标签在三种端点模式下均可连续完成连线", async ({
   await canvas.click({ position: { x: 680, y: 440 } });
   await expect(page.getByTestId("connection-count")).toContainText("3");
   await expect(page.getByTestId("connection-notice")).toHaveCount(0);
+  expect(runtime.errors).toEqual([]);
+  runtime.dispose();
+});
+
+test("摄像机旋转保持视图纯净并支持旋转后的绘制选择与连线", async ({ page }) => {
+  test.setTimeout(120_000);
+  const runtime = captureRuntimeErrors(page);
+  await page.setViewportSize({ width: 1080, height: 720 });
+  await createProject(page, "正方形", "摄像机旋转回归");
+  const canvas = page.getByLabel("地图编辑画布");
+  const editor = page.locator("main[data-project-revision]");
+  await page.getByRole("button", { name: "居中" }).click();
+
+  const initialRevision = await editor.getAttribute("data-project-revision");
+  const rotationInput = page.getByRole("spinbutton", { name: "旋转角度" });
+  const clockwise = page.getByRole("button", { name: "顺时针旋转 15°" });
+  const counterclockwise = page.getByRole("button", {
+    name: "逆时针旋转 15°",
+  });
+  const resetRotation = page.getByRole("button", { name: "旋转归零" });
+  const navigation = page.getByRole("group", { name: "地图缩放" });
+  const navigationBounds = await navigation.boundingBox();
+  if (navigationBounds === null)
+    throw new Error("view-navigation-bounds-missing");
+  expect(navigationBounds.x).toBeGreaterThanOrEqual(0);
+  expect(navigationBounds.x + navigationBounds.width).toBeLessThanOrEqual(1080);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  for (const control of [
+    rotationInput,
+    clockwise,
+    counterclockwise,
+    resetRotation,
+  ]) {
+    await expect(control).toBeVisible();
+    const bounds = await control.boundingBox();
+    if (bounds === null) throw new Error("rotation-control-bounds-missing");
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(1080);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(720);
+  }
+
+  await rotationInput.fill("45.5");
+  await rotationInput.press("Enter");
+  await expect(canvas).toHaveAttribute("data-rotation", "45.5");
+  await clockwise.click();
+  await expect(canvas).toHaveAttribute("data-rotation", "60.5");
+  await counterclockwise.click();
+  await expect(canvas).toHaveAttribute("data-rotation", "45.5");
+  await rotationInput.fill("720");
+  await rotationInput.press("Enter");
+  await expect(canvas).toHaveAttribute("data-rotation", "360");
+  await resetRotation.click();
+  await expect(canvas).toHaveAttribute("data-rotation", "0");
+  await rotationInput.fill("123");
+  await rotationInput.press("Escape");
+  await expect(rotationInput).toHaveValue("0");
+  await expect(editor).toHaveAttribute(
+    "data-project-revision",
+    initialRevision ?? "0",
+  );
+  await expect(page.getByTestId("status-save")).toHaveText("已保存");
+
+  await rotationInput.fill("45");
+  await rotationInput.press("Enter");
+  await expect(canvas).toHaveAttribute("data-rotation", "45");
+  await page.getByRole("button", { name: "画刷" }).click();
+  const painted = await moveToCell(page, canvas, "square", 10, 10);
+  await canvas.click({ position: painted });
+  await expect(page.getByTestId("cell-count")).toContainText("1");
+
+  await page.getByRole("button", { name: "选择" }).click();
+  await canvas.click({ position: painted });
+  await expect(page.getByRole("heading", { name: "属性" })).toBeVisible();
+
+  await page.getByRole("button", { name: "框选" }).click();
+  const boxStart = await moveToCell(page, canvas, "square", 9, 9);
+  const boxEnd = await moveToCell(page, canvas, "square", 11, 11);
+  await drag(page, canvas, "left", boxStart, boxEnd);
+  await expect(page.getByText("已选择 1 个对象")).toBeVisible();
+
+  await page.getByRole("button", { name: "连线与箭头" }).click();
+  await page.getByLabel("端点类型").selectOption("cell-center");
+  const start = await moveToCell(page, canvas, "square", 9, 8);
+  const end = await moveToCell(page, canvas, "square", 9, 12);
+  await canvas.click({ position: start });
+  await canvas.click({ position: end });
+  await expect(page.getByTestId("connection-count")).toContainText("1");
+
+  await expect(page.getByTestId("status-save")).toHaveText("已保存");
+  await page.reload();
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute("data-rotation", "0");
+  await expect(page.getByTestId("cell-count")).toContainText("1");
+  await expect(page.getByTestId("connection-count")).toContainText("1");
   expect(runtime.errors).toEqual([]);
   runtime.dispose();
 });

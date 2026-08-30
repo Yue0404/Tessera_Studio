@@ -8,7 +8,7 @@ import {
   type ProjectGrid,
   type ProjectState,
 } from "@tessera/core";
-import { clampZoom } from "./camera-transform.js";
+import { clampZoom, rotateMapVector } from "./camera-transform.js";
 
 export type ViewNavigationPlan =
   | {
@@ -39,6 +39,39 @@ export const EMPTY_SCREEN_INSETS: ScreenInsets = {
   bottom: 0,
   left: 0,
 };
+
+export function insetScreenRect(
+  viewportWidth: number,
+  viewportHeight: number,
+  insets: Readonly<ScreenInsets> = EMPTY_SCREEN_INSETS,
+): ScreenRect {
+  const width = Math.max(1, viewportWidth);
+  const height = Math.max(1, viewportHeight);
+  const left = Math.max(0, Math.min(width, insets.left));
+  const right = Math.max(0, Math.min(width - left, insets.right));
+  const top = Math.max(0, Math.min(height, insets.top));
+  const bottom = Math.max(0, Math.min(height - top, insets.bottom));
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, width - left - right),
+    height: Math.max(1, height - top - bottom),
+  };
+}
+
+function rotatedBoundsSize(
+  bounds: Readonly<MapRect>,
+  rotation: number,
+): { readonly width: number; readonly height: number } {
+  const width = Math.max(1, bounds.maxX - bounds.minX);
+  const height = Math.max(1, bounds.maxY - bounds.minY);
+  const xAxis = rotateMapVector({ x: width, y: 0 }, rotation);
+  const yAxis = rotateMapVector({ x: 0, y: height }, rotation);
+  return {
+    width: Math.abs(xAxis.x) + Math.abs(yAxis.x),
+    height: Math.abs(xAxis.y) + Math.abs(yAxis.y),
+  };
+}
 
 function includePoint(
   bounds: MapRect | null,
@@ -119,24 +152,33 @@ export function fitBoundsPlan(
   viewportWidth: number,
   viewportHeight: number,
   padding = 32,
+  rotation = 0,
+  insets: Readonly<ScreenInsets> = EMPTY_SCREEN_INSETS,
 ): ViewNavigationPlan {
   if (bounds === null) return { status: "empty" };
-  const width = Math.max(1, bounds.maxX - bounds.minX);
-  const height = Math.max(1, bounds.maxY - bounds.minY);
-  const availableWidth = Math.max(1, viewportWidth - padding * 2);
-  const availableHeight = Math.max(1, viewportHeight - padding * 2);
+  const size = rotatedBoundsSize(bounds, rotation);
+  const screen = insetScreenRect(viewportWidth, viewportHeight, insets);
+  const availableWidth = Math.max(1, screen.width - padding * 2);
+  const availableHeight = Math.max(1, screen.height - padding * 2);
   const requiredZoom = Math.min(
-    availableWidth / width,
-    availableHeight / height,
+    availableWidth / size.width,
+    availableHeight / size.height,
   );
   if (requiredZoom < 0.25) return { status: "limited", requiredZoom };
   const zoom = clampZoom(requiredZoom);
+  const center = rotateMapVector(
+    {
+      x: (bounds.minX + bounds.maxX) / 2,
+      y: (bounds.minY + bounds.maxY) / 2,
+    },
+    rotation,
+  );
   return {
     status: "applied",
     zoom,
     camera: {
-      x: (viewportWidth - width * zoom) / 2 - bounds.minX * zoom,
-      y: (viewportHeight - height * zoom) / 2 - bounds.minY * zoom,
+      x: screen.x + screen.width / 2 - center.x * zoom,
+      y: screen.y + screen.height / 2 - center.y * zoom,
     },
   };
 }
@@ -147,20 +189,25 @@ export function centerBoundsPlan(
   viewportHeight: number,
   zoom: number,
   insets: Readonly<ScreenInsets> = EMPTY_SCREEN_INSETS,
+  rotation = 0,
 ): ViewNavigationPlan {
-  const left = Math.max(0, Math.min(viewportWidth, insets.left));
-  const right = Math.max(0, Math.min(viewportWidth - left, insets.right));
-  const top = Math.max(0, Math.min(viewportHeight, insets.top));
-  const bottom = Math.max(0, Math.min(viewportHeight - top, insets.bottom));
-  const availableCenterX = left + (viewportWidth - left - right) / 2;
-  const availableCenterY = top + (viewportHeight - top - bottom) / 2;
+  const screen = insetScreenRect(viewportWidth, viewportHeight, insets);
+  const availableCenterX = screen.x + screen.width / 2;
+  const availableCenterY = screen.y + screen.height / 2;
   const safeZoom = clampZoom(zoom);
+  const center = rotateMapVector(
+    {
+      x: (bounds.minX + bounds.maxX) / 2,
+      y: (bounds.minY + bounds.maxY) / 2,
+    },
+    rotation,
+  );
   return {
     status: "applied",
     zoom: safeZoom,
     camera: {
-      x: availableCenterX - ((bounds.minX + bounds.maxX) / 2) * safeZoom,
-      y: availableCenterY - ((bounds.minY + bounds.maxY) / 2) * safeZoom,
+      x: availableCenterX - center.x * safeZoom,
+      y: availableCenterY - center.y * safeZoom,
     },
   };
 }

@@ -7,6 +7,8 @@ import {
   edgeSegment,
   edgeIdentity,
   hitTestCell,
+  markerLabelFontSize,
+  markerLabelPoint,
   nearestEdge,
   parseCellId,
   visibleCellsInRect,
@@ -64,9 +66,13 @@ import {
   type RendererContextStatus,
 } from "./webgl-context-lifecycle.js";
 import {
+  ROTATION_STEP,
   ZOOM_STEP,
+  applyCameraViewTransform,
+  clampRotation,
   clampZoom,
   mapToScreen,
+  rotateCameraAt,
   screenToMap,
   strokeAlignmentOffsetMapUnits,
   zoomCameraAt,
@@ -80,6 +86,7 @@ import {
   centerBoundsPlan,
   fitBoundsPlan,
   gridMapBounds,
+  insetScreenRect,
   projectContentBounds,
   type ScreenInsets,
   type ViewNavigationPlan,
@@ -91,7 +98,11 @@ import {
   drawPixiArrow,
   drawPixiStroke,
 } from "./pixi-visual.js";
-import { markerMapSize, textMapSize } from "./overlay-visibility.js";
+import {
+  markerMapSize,
+  textMapSize,
+  textWrapMapSize,
+} from "./overlay-visibility.js";
 import { arrowShaftSegment } from "./visual-style.js";
 
 export type BrushMode = "paint" | "erase" | "fill";
@@ -170,6 +181,7 @@ export interface RendererInteraction {
   cancelTool(): void;
   contextStatusChanged?(status: RendererContextStatus): void;
   zoomChanged?(zoom: number): void;
+  rotationChanged?(rotation: number): void;
   pointerStatusChanged?(status: PointerLogicalStatus | null): void;
 }
 
@@ -224,6 +236,7 @@ export class TesseraRenderer {
   #transientHighlight: SelectedObject | null = null;
   #camera = { x: 0, y: 0 };
   #zoom = 1;
+  #rotation = 0;
   #spacePressed = false;
   #resizeObserver: ResizeObserver | undefined;
   #contextLifecycle: WebGlContextLifecycle | undefined;
@@ -334,7 +347,13 @@ export class TesseraRenderer {
     if (this.#contextLost) return;
     const width = Math.max(1, this.#host.clientWidth);
     const height = Math.max(1, this.#host.clientHeight);
-    this.#ranges.updateViewport(this.#camera, width, height, this.#zoom);
+    this.#ranges.updateViewport(
+      this.#camera,
+      width,
+      height,
+      this.#zoom,
+      this.#rotation,
+    );
     const viewport = this.#ranges.getViewportBounds();
     this.#visible = visibleCellsInRect(
       state.grid,
@@ -360,8 +379,18 @@ export class TesseraRenderer {
     const background = this.#colorValue(state.style.canvasBackground);
     this.#application.renderer.background.color = background.color;
     this.#application.renderer.background.alpha = background.alpha;
-    this.#content.position.set(this.#camera.x, this.#camera.y);
-    this.#content.scale.set(this.#zoom);
+    applyCameraViewTransform(
+      this.#content,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
+    applyCameraViewTransform(
+      this.#previewItems,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
     this.#gridRenderer.render(
       state,
       this.#visible,
@@ -383,6 +412,7 @@ export class TesseraRenderer {
     const stats = this.getPerformanceStats();
     const canvas = this.#application.canvas;
     canvas.dataset.zoom = String(this.#zoom);
+    canvas.dataset.rotation = String(this.#rotation);
     canvas.dataset.cameraX = String(this.#camera.x);
     canvas.dataset.cameraY = String(this.#camera.y);
     canvas.dataset.gridCellSize = String(state.grid.cellSize);
@@ -485,6 +515,10 @@ export class TesseraRenderer {
     return this.#zoom;
   }
 
+  getRotation(): number {
+    return this.#rotation;
+  }
+
   /** 设置纯渲染态高亮；不会发布 store，也不会生成历史事务。 */
   setTransientHighlight(object: SelectedObject | null): void {
     if (this.#destroyed) return;
@@ -503,7 +537,13 @@ export class TesseraRenderer {
       x: bounds.width / 2,
       y: bounds.height / 2,
     };
-    const next = zoomCameraAt(this.#camera, this.#zoom, value, anchor);
+    const next = zoomCameraAt(
+      this.#camera,
+      this.#zoom,
+      value,
+      anchor,
+      this.#rotation,
+    );
     if (next.zoom === this.#zoom) return this.#zoom;
     this.#clearHoverPreview(false);
     this.#zoom = next.zoom;
@@ -518,6 +558,39 @@ export class TesseraRenderer {
     return this.setZoom(next);
   }
 
+  setRotation(value: number, insets?: Readonly<ScreenInsets>): number {
+    const screen = insetScreenRect(
+      this.#application.canvas.clientWidth || this.#host.clientWidth,
+      this.#application.canvas.clientHeight || this.#host.clientHeight,
+      insets,
+    );
+    const anchor = {
+      x: screen.x + screen.width / 2,
+      y: screen.y + screen.height / 2,
+    };
+    const next = rotateCameraAt(
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+      value,
+      anchor,
+    );
+    if (next.rotation === this.#rotation) return this.#rotation;
+    this.#clearHoverPreview(false);
+    this.#rotation = next.rotation;
+    this.#camera = next.camera;
+    this.render(this.#state);
+    this.#interaction.rotationChanged?.(this.#rotation);
+    return this.#rotation;
+  }
+
+  rotateByStep(direction: -1 | 1, insets?: Readonly<ScreenInsets>): number {
+    return this.setRotation(
+      clampRotation(this.#rotation + direction * ROTATION_STEP),
+      insets,
+    );
+  }
+
   centerMap(insets?: Readonly<ScreenInsets>): ViewNavigationPlan {
     return this.#applyViewPlan(
       centerBoundsPlan(
@@ -526,26 +599,33 @@ export class TesseraRenderer {
         this.#host.clientHeight,
         this.#zoom,
         insets,
+        this.#rotation,
       ),
     );
   }
 
-  fitMap(): ViewNavigationPlan {
+  fitMap(insets?: Readonly<ScreenInsets>): ViewNavigationPlan {
     return this.#applyViewPlan(
       fitBoundsPlan(
         gridMapBounds(this.#state.grid),
         this.#host.clientWidth,
         this.#host.clientHeight,
+        32,
+        this.#rotation,
+        insets,
       ),
     );
   }
 
-  fitContent(): ViewNavigationPlan {
+  fitContent(insets?: Readonly<ScreenInsets>): ViewNavigationPlan {
     return this.#applyViewPlan(
       fitBoundsPlan(
         projectContentBounds(this.#state),
         this.#host.clientWidth,
         this.#host.clientHeight,
+        32,
+        this.#rotation,
+        insets,
       ),
     );
   }
@@ -576,7 +656,7 @@ export class TesseraRenderer {
   }
 
   #mapPoint(screen: MapPoint): MapPoint {
-    return screenToMap(screen, this.#camera, this.#zoom);
+    return screenToMap(screen, this.#camera, this.#zoom, this.#rotation);
   }
 
   #target(point: MapPoint): VisibleCell | undefined {
@@ -676,7 +756,7 @@ export class TesseraRenderer {
 
   #drawHighlightPolygon(points: readonly MapPoint[]): void {
     const screenPoints = points.map((point) =>
-      mapToScreen(point, this.#camera, this.#zoom),
+      mapToScreen(point, this.#camera, this.#zoom, this.#rotation),
     );
     this.#preview
       .poly(screenPoints.flatMap((point) => [point.x, point.y]))
@@ -685,8 +765,18 @@ export class TesseraRenderer {
   }
 
   #drawHighlightSegment(start: MapPoint, end: MapPoint): void {
-    const screenStart = mapToScreen(start, this.#camera, this.#zoom);
-    const screenEnd = mapToScreen(end, this.#camera, this.#zoom);
+    const screenStart = mapToScreen(
+      start,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
+    const screenEnd = mapToScreen(
+      end,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
     this.#preview
       .moveTo(screenStart.x, screenStart.y)
       .lineTo(screenEnd.x, screenEnd.y)
@@ -694,7 +784,7 @@ export class TesseraRenderer {
   }
 
   #drawHighlightPoint(point: MapPoint): void {
-    const screen = mapToScreen(point, this.#camera, this.#zoom);
+    const screen = mapToScreen(point, this.#camera, this.#zoom, this.#rotation);
     this.#preview
       .circle(screen.x, screen.y, 10)
       .fill({ color: 0xffc857, alpha: 0.2 })
@@ -712,7 +802,7 @@ export class TesseraRenderer {
       valid ? this.#state.style.gridColor : "#FF5A52FF",
     );
     const screenPoints = points.map((point) =>
-      mapToScreen(point, this.#camera, this.#zoom),
+      mapToScreen(point, this.#camera, this.#zoom, this.#rotation),
     );
     this.#preview
       .poly(screenPoints.flatMap((point) => [point.x, point.y]))
@@ -732,8 +822,18 @@ export class TesseraRenderer {
     opacity: number,
     valid = true,
   ): void {
-    const screenStart = mapToScreen(start, this.#camera, this.#zoom);
-    const screenEnd = mapToScreen(end, this.#camera, this.#zoom);
+    const screenStart = mapToScreen(
+      start,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
+    const screenEnd = mapToScreen(
+      end,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
     const stroke = this.#colorValue(valid ? color : "#FF5A52FF");
     this.#preview
       .moveTo(screenStart.x, screenStart.y)
@@ -800,7 +900,7 @@ export class TesseraRenderer {
       const fill = this.#colorValue(visual.fillColor);
       const stroke = this.#colorValue(visual.strokeColor);
       const points = shape.points.map((point) =>
-        mapToScreen(point, this.#camera, this.#zoom),
+        mapToScreen(point, this.#camera, this.#zoom, this.#rotation),
       );
       this.#preview
         .poly(points.flatMap((point) => [point.x, point.y]))
@@ -874,7 +974,7 @@ export class TesseraRenderer {
     visual: GenericModuleVisualDescriptor,
     valid: boolean,
   ): void {
-    const screen = mapToScreen(point, this.#camera, this.#zoom);
+    const screen = mapToScreen(point, this.#camera, this.#zoom, this.#rotation);
     if (!valid) {
       this.#preview
         .circle(screen.x, screen.y, 10)
@@ -883,9 +983,9 @@ export class TesseraRenderer {
       return;
     }
     if (visual.kind === "marker") {
-      const size = markerMapSize(visual.displaySize, this.#zoom) * this.#zoom;
+      const size = markerMapSize(visual.displaySize, this.#zoom);
       const marker = createPixiMarker(
-        screen,
+        point,
         visual.shape,
         size,
         visual.rotation,
@@ -894,12 +994,16 @@ export class TesseraRenderer {
       );
       this.#previewItems.addChild(marker);
       if (visual.label !== null && visual.label !== undefined) {
+        const fontSize = textMapSize(
+          markerLabelFontSize(visual.displaySize),
+          this.#zoom,
+        );
         this.#previewItems.addChild(
           createPixiText(
-            { x: screen.x, y: screen.y + size * 0.8 },
+            markerLabelPoint(point, size, fontSize),
             visual.label,
             {
-              fontSize: Math.max(9, size * 0.32),
+              fontSize,
               fontWeight: "normal",
               align: "center",
               rotation: 0,
@@ -916,10 +1020,10 @@ export class TesseraRenderer {
     if (visual.kind === "text") {
       this.#previewItems.addChild(
         createPixiText(
-          screen,
+          point,
           visual.text,
           {
-            fontSize: textMapSize(visual.fontSize, this.#zoom) * this.#zoom,
+            fontSize: textMapSize(visual.fontSize, this.#zoom),
             fontWeight: visual.fontWeight,
             align: visual.align,
             rotation: visual.rotation,
@@ -928,7 +1032,7 @@ export class TesseraRenderer {
             backgroundVisible: visual.backgroundColor !== null,
             ...(visual.wrapWidth === null
               ? {}
-              : { wrapWidth: visual.wrapWidth * this.#zoom }),
+              : { wrapWidth: textWrapMapSize(visual.wrapWidth, this.#zoom) }),
           },
           visual.backgroundColor,
         ),
@@ -950,8 +1054,18 @@ export class TesseraRenderer {
     visual: Extract<GenericModuleVisualDescriptor, { kind: "connection" }>,
     valid: boolean,
   ): void {
-    const screenStart = mapToScreen(start, this.#camera, this.#zoom);
-    const screenEnd = mapToScreen(end, this.#camera, this.#zoom);
+    const screenStart = mapToScreen(
+      start,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
+    const screenEnd = mapToScreen(
+      end,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
     const color = valid ? visual.strokeColor : "#FF5A52FF";
     const opacity = valid ? visual.strokeOpacity * 0.78 : 1;
     const arrowSize = visual.arrowSize * this.#zoom;
@@ -1361,19 +1475,19 @@ export class TesseraRenderer {
         state.previewPoint !== null
       ) {
         const left = Math.min(state.startPoint.x, state.previewPoint.x);
+        const right = Math.max(state.startPoint.x, state.previewPoint.x);
         const top = Math.min(state.startPoint.y, state.previewPoint.y);
-        const start = mapToScreen(
+        const bottom = Math.max(state.startPoint.y, state.previewPoint.y);
+        const points = [
           { x: left, y: top },
-          this.#camera,
-          this.#zoom,
+          { x: right, y: top },
+          { x: right, y: bottom },
+          { x: left, y: bottom },
+        ].map((point) =>
+          mapToScreen(point, this.#camera, this.#zoom, this.#rotation),
         );
         this.#preview
-          .rect(
-            start.x,
-            start.y,
-            Math.abs(state.previewPoint.x - state.startPoint.x) * this.#zoom,
-            Math.abs(state.previewPoint.y - state.startPoint.y) * this.#zoom,
-          )
+          .poly(points.flatMap((point) => [point.x, point.y]))
           .stroke({ color: 0x73b7c8, alpha: 0.9, width: 1 });
       }
       this.#updatePreviewDataset(metadata);
@@ -1383,8 +1497,18 @@ export class TesseraRenderer {
       this.#updatePreviewDataset(metadata);
       return;
     }
-    const start = mapToScreen(state.startPoint, this.#camera, this.#zoom);
-    const end = mapToScreen(state.previewPoint, this.#camera, this.#zoom);
+    const start = mapToScreen(
+      state.startPoint,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
+    const end = mapToScreen(
+      state.previewPoint,
+      this.#camera,
+      this.#zoom,
+      this.#rotation,
+    );
     this.#preview
       .moveTo(start.x, start.y)
       .lineTo(end.x, end.y)

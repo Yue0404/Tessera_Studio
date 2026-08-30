@@ -1,4 +1,5 @@
 import type { MapPoint, MapRect } from "@tessera/core";
+import { screenToMap } from "./camera-transform.js";
 
 function copyRect(rect: Readonly<MapRect>): MapRect {
   return { ...rect };
@@ -35,17 +36,24 @@ export class InteractionRangeState {
     width: number,
     height: number,
     zoom = 1,
+    rotation = 0,
   ): void {
     const safeWidth = Math.max(1, width);
     const safeHeight = Math.max(1, height);
     if (!Number.isFinite(zoom) || zoom <= 0) {
       throw new RangeError("viewport-zoom-invalid");
     }
+    const corners = [
+      screenToMap({ x: 0, y: 0 }, camera, zoom, rotation),
+      screenToMap({ x: safeWidth, y: 0 }, camera, zoom, rotation),
+      screenToMap({ x: safeWidth, y: safeHeight }, camera, zoom, rotation),
+      screenToMap({ x: 0, y: safeHeight }, camera, zoom, rotation),
+    ];
     this.#viewport = {
-      minX: -camera.x / zoom,
-      minY: -camera.y / zoom,
-      maxX: (safeWidth - camera.x) / zoom,
-      maxY: (safeHeight - camera.y) / zoom,
+      minX: Math.min(...corners.map((point) => point.x)),
+      minY: Math.min(...corners.map((point) => point.y)),
+      maxX: Math.max(...corners.map((point) => point.x)),
+      maxY: Math.max(...corners.map((point) => point.y)),
     };
   }
 

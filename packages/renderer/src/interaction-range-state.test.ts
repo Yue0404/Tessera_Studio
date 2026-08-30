@@ -49,4 +49,19 @@ describe("InteractionRangeState", () => {
       "viewport-zoom-invalid",
     );
   });
+
+  it("旋转视口使用四个屏幕角反变换后的地图 AABB", () => {
+    const ranges = new InteractionRangeState();
+    ranges.updateViewport({ x: 0, y: 0 }, 100, 50, 1, 90);
+    const viewport = ranges.getViewportBounds();
+    expect(viewport.minX).toBeCloseTo(0, 10);
+    expect(viewport.minY).toBeCloseTo(-100, 10);
+    expect(viewport.maxX).toBeCloseTo(50, 10);
+    expect(viewport.maxY).toBeCloseTo(0, 10);
+
+    ranges.updateViewport({ x: 0, y: 0 }, 100, 50, 1, -45);
+    const diagonal = ranges.getViewportBounds();
+    expect(diagonal.maxX - diagonal.minX).toBeGreaterThan(100);
+    expect(diagonal.maxY - diagonal.minY).toBeGreaterThan(50);
+  });
 });

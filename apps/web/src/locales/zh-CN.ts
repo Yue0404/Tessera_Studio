@@ -373,6 +373,11 @@ export const zhCN = {
     "zoom.center": "居中",
     "zoom.fitMap": "适应地图",
     "zoom.fitContent": "适应已有内容",
+    "rotation.controls": "地图旋转",
+    "rotation.input": "旋转角度",
+    "rotation.counterclockwise": "逆时针旋转 15°",
+    "rotation.clockwise": "顺时针旋转 15°",
+    "rotation.reset": "旋转归零",
     "status.pointerEmpty": "指针：地图外",
     "status.pointer": "指针：行 {{row}}，列 {{column}} · {{kind}}",
     "error.fitMapLimited":
