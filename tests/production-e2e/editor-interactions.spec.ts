@@ -454,12 +454,15 @@ test("所有写入工具提供纯渲染 hover 预览并在离开或切换时清�
   await expect(canvas).toHaveAttribute("data-preview-kind", "text");
 
   await page.getByRole("button", { name: "连线与箭头" }).click();
+  await expect(canvas).toHaveAttribute("data-preview-kind", "none");
   const connectionStart = await moveToCell(page, canvas, "square", 9, 13);
   await expect(canvas).toHaveAttribute("data-preview-kind", "connection-start");
   await canvas.click({ position: connectionStart });
   await moveToCell(page, canvas, "square", 9, 14);
   await expect(canvas).toHaveAttribute("data-preview-kind", "connection-end");
-  await page.keyboard.press("Escape");
+  // 重选同一个连线工具也必须同步重置 Store FSM 与渲染器草稿。
+  await page.getByRole("button", { name: "连线与箭头" }).click();
+  await expect(canvas).toHaveAttribute("data-preview-kind", "none");
 
   await page.getByRole("button", { name: "画刷" }).click();
   await page.getByLabel("操作模式").selectOption("paint");
@@ -486,6 +489,41 @@ test("所有写入工具提供纯渲染 hover 预览并在离开或切换时清�
   await expect(canvas).toHaveAttribute("data-preview-kind", "brush-paint");
   await page.getByRole("button", { name: "选择" }).click();
   await expect(canvas).toHaveAttribute("data-preview-kind", "none");
+  expect(runtime.errors).toEqual([]);
+  runtime.dispose();
+});
+
+test("非空短标签在三种端点模式下均可连续完成连线", async ({ page }) => {
+  test.setTimeout(120_000);
+  const runtime = captureRuntimeErrors(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await createProject(page, "正方形", "短标签端点回归");
+  const canvas = page.getByLabel("地图编辑画布");
+  await page.getByRole("button", { name: "连线与箭头" }).click();
+  await page.getByLabel("连线类型").selectOption("line");
+  const label = page.getByLabel("短标签");
+  await label.fill("测试");
+
+  await page.getByLabel("端点类型").selectOption("cell-center");
+  const cellStart = await moveToCell(page, canvas, "square", 5, 12);
+  const cellEnd = await moveToCell(page, canvas, "square", 5, 15);
+  await canvas.click({ position: cellStart });
+  await canvas.click({ position: cellEnd });
+  await expect(page.getByTestId("connection-count")).toContainText("1");
+
+  await page.getByLabel("端点类型").selectOption("edge-midpoint");
+  await canvas.click({ position: { x: 480, y: 360 } });
+  // 草稿开始后更新标签，第二端仍须沿用起点已经确认的边中点模式。
+  await label.fill("边标签");
+  await canvas.click({ position: { x: 650, y: 360 } });
+  await expect(page.getByTestId("connection-count")).toContainText("2");
+
+  await page.getByLabel("端点类型").selectOption("map-point");
+  await label.fill("自由点");
+  await canvas.click({ position: { x: 500, y: 440 } });
+  await canvas.click({ position: { x: 680, y: 440 } });
+  await expect(page.getByTestId("connection-count")).toContainText("3");
+  await expect(page.getByTestId("connection-notice")).toHaveCount(0);
   expect(runtime.errors).toEqual([]);
   runtime.dispose();
 });

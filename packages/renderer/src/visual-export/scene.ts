@@ -18,6 +18,7 @@ import {
   arrowSize,
   cellLabelStyle,
   conservativeTextBoundsSize,
+  connectionLabelPoint,
   connectionLabelStyle,
   rotatedRectBounds,
   textBackgroundColor,
@@ -415,10 +416,15 @@ function connectionPrimitives(
       orderInLayer: 0,
       stableId: connection.connectionId,
       partRank: 3,
-      point: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+      point: connectionLabelPoint(
+        start,
+        end,
+        snapshot.grid.cellSize,
+        connection.style.strokeWidth,
+      ),
       text: connection.label,
       ...labelStyle,
-      backgroundColor: null,
+      backgroundColor: textBackgroundColor(snapshot.style.canvasBackground),
     };
     if (bounds === null || intersects(textBounds(label), bounds)) {
       result.push(label);

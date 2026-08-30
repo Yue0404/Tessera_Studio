@@ -14,6 +14,11 @@ export class ConnectionDraftState {
     return this.#start === null ? null : structuredClone(this.#start);
   }
 
+  /** 第二端沿用起点已确认的端点类型，避免设置面板更新打断同一条草稿。 */
+  get endpointKind(): ConnectionEndpoint["kind"] | null {
+    return this.#start?.kind ?? null;
+  }
+
   begin(start: ConnectionEndpoint, edge: EdgePlacementTarget | null): void {
     this.#start = start;
     this.#edges = edge === null ? [] : [edge];

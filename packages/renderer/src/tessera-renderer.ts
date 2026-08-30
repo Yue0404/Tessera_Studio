@@ -325,16 +325,12 @@ export class TesseraRenderer {
 
   render(state: Readonly<ProjectState>): void {
     const startedAt = performance.now();
-    const tool = this.#interaction.getToolState().tool;
-    if (
-      state.revision !== this.#previewRevision ||
-      (this.#previewTool !== null && tool !== this.#previewTool)
-    ) {
+    this.synchronizeToolState();
+    if (state.revision !== this.#previewRevision) {
       this.#clearHoverPreview(false);
     }
     this.#state = state;
     this.#previewRevision = state.revision;
-    this.#previewTool = tool;
     if (this.#contextLost) return;
     const width = Math.max(1, this.#host.clientWidth);
     const height = Math.max(1, this.#host.clientHeight);
@@ -409,6 +405,27 @@ export class TesseraRenderer {
       );
     }
     canvas.dataset.renderDurationMs = String(this.#renderDurationMs);
+  }
+
+  /**
+   * 在 React 提交下一帧前同步工具切换，立即销毁旧预览和未完成草稿。
+   * 返回值只用于测试和调用方避免无意义重绘。
+   */
+  synchronizeToolState(options: { readonly force?: boolean } = {}): boolean {
+    const tool = this.#interaction.getToolState().tool;
+    if (this.#previewTool === null && options.force !== true) {
+      this.#previewTool = tool;
+      return false;
+    }
+    if (tool === this.#previewTool && options.force !== true) return false;
+    this.#connectionDraft.reset();
+    this.#footprintPlacement.cancel();
+    this.#clearHoverPreview(false);
+    this.#preview.clear();
+    for (const child of this.#previewItems.removeChildren()) child.destroy();
+    this.#updatePreviewDataset(NO_HOVER_PREVIEW);
+    this.#previewTool = tool;
+    return true;
   }
 
   destroy(): void {
@@ -591,8 +608,12 @@ export class TesseraRenderer {
   #connectionEndpoint(
     point: MapPoint,
     cell: VisibleCell | undefined,
+    endpointKind?: ConnectionPlacement["endpoint"],
   ): { endpoint: ConnectionEndpoint; edge: EdgePlacementTarget | null } | null {
-    const kind = this.#interaction.getConnectionPlacement().endpoint;
+    const kind =
+      endpointKind ??
+      this.#connectionDraft.endpointKind ??
+      this.#interaction.getConnectionPlacement().endpoint;
     if (kind === "map-point") {
       if (!pointInsideMapBounds(point, gridMapBounds(this.#state.grid)))
         return null;

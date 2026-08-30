@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const pixiMock = vi.hoisted(() => {
   const instances: {
-    calls: (readonly [string, number, number])[];
+    calls: (readonly unknown[])[];
   }[] = [];
   class Graphics {
-    readonly calls: (readonly [string, number, number])[] = [];
+    readonly calls: (readonly unknown[])[] = [];
 
     constructor() {
       instances.push(this);
@@ -35,6 +35,11 @@ const pixiMock = vi.hoisted(() => {
       return this;
     }
 
+    roundRect(x: number, y: number, width: number, height: number) {
+      this.calls.push(["roundRect", x, y, width, height]);
+      return this;
+    }
+
     fill() {
       return this;
     }
@@ -45,6 +50,15 @@ const pixiMock = vi.hoisted(() => {
   }
   class Container {
     readonly children: any[] = [];
+    readonly position = {
+      x: 0,
+      y: 0,
+      set: (x: number, y: number) => {
+        this.position.x = x;
+        this.position.y = y;
+      },
+    };
+    rotation = 0;
 
     addChild(...children: any[]) {
       this.children.push(...children);
@@ -59,18 +73,24 @@ const pixiMock = vi.hoisted(() => {
       return undefined;
     }
   }
-  return { Container, Graphics, instances };
+  class Text {
+    readonly anchor = { set: vi.fn() };
+    alpha = 1;
+
+    constructor(readonly options: unknown) {}
+  }
+  return { Container, Graphics, Text, instances };
 });
 
 vi.mock("pixi.js", () => ({
   Graphics: pixiMock.Graphics,
   Container: pixiMock.Container,
-  Text: vi.fn(),
+  Text: pixiMock.Text,
 }));
 
 import { ConnectionRenderer } from "./connection-renderer.js";
 
-function stateWithLine(startX: number, endX: number) {
+function stateWithLine(startX: number, endX: number, label?: string) {
   const store = new EditorStore(
     createProject({
       name: "裁切",
@@ -88,7 +108,7 @@ function stateWithLine(startX: number, endX: number) {
   store.createConnection(
     { kind: "map-point", point: { x: startX, y: 50 } },
     { kind: "map-point", point: { x: endX, y: 50 } },
-    "line",
+    { kind: "line", ...(label === undefined ? {} : { label }) },
   );
   return store.state;
 }
@@ -140,6 +160,30 @@ describe("ConnectionRenderer 视口集成裁切", () => {
       ["moveTo", 0, 50],
       ["lineTo", 50, 50],
     ]);
+  });
+
+  it("短标签位于线体之后的上层容器并带背景", () => {
+    const parent = { addChild: vi.fn() } as any;
+    const renderer = new ConnectionRenderer(parent);
+    renderer.render(stateWithLine(20, 80, "道路"), {
+      minX: 0,
+      minY: 0,
+      maxX: 100,
+      maxY: 100,
+    });
+    const layer = parent.addChild.mock.calls[0]?.[0] as
+      InstanceType<typeof pixiMock.Container> | undefined;
+    const item = layer?.children[0] as
+      InstanceType<typeof pixiMock.Container> | undefined;
+    const label = item?.children[1] as
+      InstanceType<typeof pixiMock.Container> | undefined;
+    expect(item?.children[0]).toBeInstanceOf(pixiMock.Graphics);
+    expect(label?.position).toMatchObject({ x: 50, y: 42.96 });
+    expect(label?.children[0]).toBeInstanceOf(pixiMock.Graphics);
+    expect(
+      (label?.children[0] as InstanceType<typeof pixiMock.Graphics>)
+        .calls[0]?.[0],
+    ).toBe("roundRect");
   });
 
   it.each([3, 12])(

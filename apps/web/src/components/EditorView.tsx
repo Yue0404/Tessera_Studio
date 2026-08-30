@@ -306,6 +306,21 @@ export function EditorView({
     connection,
   };
 
+  const activateTool = useCallback(
+    (tool: Parameters<EditorStore["setTool"]>[0]) => {
+      store.setTool(tool);
+      // Store 发布早于 React effect；立即同步可避免旧草稿在下一帧短暂重现。
+      renderer.current?.synchronizeToolState({ force: true });
+    },
+    [store],
+  );
+
+  const updateConnectionPlacement = useCallback((next: ConnectionPlacement) => {
+    // 原生 canvas 事件不等待 React 提交，ref 必须与受控输入同步更新。
+    placementRef.current.connection = next;
+    setConnection(next);
+  }, []);
+
   useEffect(() => {
     const host = canvasHost.current;
     if (host === null) return;
@@ -929,35 +944,35 @@ export function EditorView({
         select: () => {
           activeModuleElementId.current = null;
           setActiveElementId(null);
-          store.setTool("select");
+          activateTool("select");
         },
         pan: () => {
           activeModuleElementId.current = null;
           setActiveElementId(null);
-          store.setTool("pan");
+          activateTool("pan");
         },
         brush: () => {
           activeModuleElementId.current = null;
           setActiveElementId("tessera.basic:cell.color");
           setBrushMode("paint");
-          store.setTool("brush");
+          activateTool("brush");
         },
         fill: () => {
           activeModuleElementId.current = null;
           setActiveElementId("tessera.basic:cell.color");
           setBrushMode("fill");
-          store.setTool("brush");
+          activateTool("brush");
         },
         erase: () => {
           activeModuleElementId.current = null;
           setActiveElementId(null);
-          store.setTool("eraser");
+          activateTool("eraser");
         },
         text: () => {
           activeModuleElementId.current = null;
           setActiveElementId("tessera.basic:text");
           setOverlay((value) => ({ ...value, type: "text" }));
-          store.setTool("marker");
+          activateTool("marker");
         },
         undo: () => store.undo(),
         redo: () => store.redo(),
@@ -971,7 +986,7 @@ export function EditorView({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [save, store]);
+  }, [activateTool, save, store]);
 
   const openExportDialog = async () => {
     dialogPreviousFocus.current =
@@ -1032,13 +1047,13 @@ export function EditorView({
         if (element.definition.primitive === "domain-object") {
           activeModuleElementId.current = elementId;
           setErrorKey(null);
-          store.setTool("object");
+          activateTool("object");
           return;
         }
         activeModuleElementId.current = elementId;
         if (element.definition.primitive === "cell-style") {
           setBrushMode("paint");
-          store.setTool("brush");
+          activateTool("brush");
         } else if (
           element.definition.primitive === "marker" ||
           element.definition.primitive === "text"
@@ -1056,48 +1071,48 @@ export function EditorView({
             type: overlayType,
             anchor,
           }));
-          store.setTool("marker");
+          activateTool("marker");
         } else if (element.definition.primitive === "edge-style") {
-          store.setTool("edge");
+          activateTool("edge");
         } else if (element.definition.primitive === "connection") {
           const endpoint = element.definition.anchors.includes("cell-center")
             ? "cell-center"
             : element.definition.anchors.includes("map-point")
               ? "map-point"
               : "edge-midpoint";
-          setConnection((value) => ({
-            ...value,
+          updateConnectionPlacement({
+            ...placementRef.current.connection,
             kind:
               element.definition.defaultStyle.arrowStart === true ||
               element.definition.defaultStyle.arrowEnd === true
                 ? "arrow"
                 : "line",
             endpoint,
-          }));
-          store.setTool("connection");
+          });
+          activateTool("connection");
         }
         return;
       }
-      if (elementId === "tessera.basic:cell.color") store.setTool("brush");
-      else if (elementId === "tessera.basic:edge.style") store.setTool("edge");
+      if (elementId === "tessera.basic:cell.color") activateTool("brush");
+      else if (elementId === "tessera.basic:edge.style") activateTool("edge");
       else if (elementId === "tessera.basic:marker") {
         setOverlay((value) => ({ ...value, type: "marker" }));
-        store.setTool("marker");
+        activateTool("marker");
       } else if (elementId === "tessera.basic:text") {
         setOverlay((value) => ({ ...value, type: "text" }));
-        store.setTool("marker");
+        activateTool("marker");
       } else if (
         elementId === "tessera.basic:connection.line" ||
         elementId === "tessera.basic:connection.arrow"
       ) {
-        setConnection((value) => ({
-          ...value,
+        updateConnectionPlacement({
+          ...placementRef.current.connection,
           kind: elementId.endsWith(".line") ? "line" : "arrow",
-        }));
-        store.setTool("connection");
+        });
+        activateTool("connection");
       }
     },
-    [moduleSession, store],
+    [activateTool, moduleSession, updateConnectionPlacement],
   );
 
   return (
@@ -1190,7 +1205,7 @@ export function EditorView({
             );
           }}
           onTextInvalid={() => setErrorKey("error.moduleTextInvalid")}
-          onConnection={setConnection}
+          onConnection={updateConnectionPlacement}
           onElementSelect={handleElementSelect}
         />
         <CanvasToolRail
@@ -1206,7 +1221,7 @@ export function EditorView({
             setConnectionRebind(null);
             activeModuleElementId.current = null;
             setActiveElementId(null);
-            store.setTool("eraser");
+            activateTool("eraser");
           }}
           onOverlayType={(type) => {
             setConnectionRebind(null);
@@ -1215,7 +1230,7 @@ export function EditorView({
             setActiveElementId(
               type === "text" ? "tessera.basic:text" : "tessera.basic:marker",
             );
-            store.setTool("marker");
+            activateTool("marker");
           }}
           onTool={(nextTool) => {
             setConnectionRebind(null);
@@ -1248,7 +1263,7 @@ export function EditorView({
                   : "tessera.basic:connection.arrow",
               );
             }
-            store.setTool(nextTool);
+            activateTool(nextTool);
           }}
           onContext={(panel) =>
             setContextPanel((current) => (current === panel ? null : panel))

@@ -51,7 +51,34 @@ export function connectionLabelStyle(
     rotation: 0,
     color: strokeColor,
     opacity,
-    backgroundVisible: false,
+    backgroundVisible: true,
+  };
+}
+
+/** 把短标签稳定放在线段上方，并至少避开一半线宽。 */
+export function connectionLabelPoint(
+  start: Point,
+  end: Point,
+  cellSize: number,
+  strokeWidth: number,
+): Point {
+  const midpoint = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  };
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+  if (length === 0) return midpoint;
+  let normalX = -(end.y - start.y) / length;
+  let normalY = (end.x - start.x) / length;
+  // 屏幕坐标的上方是较小的 Y；竖线则固定放在右侧，避免方向反转时跳边。
+  if (normalY > 0 || (normalY === 0 && normalX < 0)) {
+    normalX = -normalX;
+    normalY = -normalY;
+  }
+  const offset = Math.max(cellSize * 0.22, strokeWidth / 2 + cellSize * 0.12);
+  return {
+    x: midpoint.x + normalX * offset,
+    y: midpoint.y + normalY * offset,
   };
 }
 
