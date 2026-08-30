@@ -19,6 +19,9 @@ const rendererMocks = vi.hoisted(() => ({
   destroy: vi.fn(),
   initialize: vi.fn<() => Promise<void>>(),
   render: vi.fn(),
+  synchronizeToolState: vi.fn<
+    (options?: { readonly force?: boolean }) => boolean
+  >(() => true),
   transientHighlight: vi.fn(),
   centerMap: vi.fn(),
   setZoom: vi.fn(),
@@ -45,6 +48,10 @@ vi.mock("@tessera/renderer", async (importOriginal) => {
 
       render(): void {
         rendererMocks.render();
+      }
+
+      synchronizeToolState(options?: { readonly force?: boolean }): boolean {
+        return rendererMocks.synchronizeToolState(options);
       }
 
       setTransientHighlight(selected: SelectedObject | null): void {
@@ -102,6 +109,7 @@ describe("EditorView renderer initialization", () => {
     rendererMocks.destroy.mockReset();
     rendererMocks.initialize.mockReset();
     rendererMocks.render.mockReset();
+    rendererMocks.synchronizeToolState.mockClear();
     rendererMocks.transientHighlight.mockReset();
     rendererMocks.centerMap.mockReset();
     rendererMocks.setZoom.mockReset();
@@ -164,6 +172,49 @@ describe("EditorView renderer initialization", () => {
       .closest("aside");
     if (inspector === null) throw new Error("属性面板缺失");
     expect(within(inspector).getByLabelText("标记形状")).toBeDefined();
+  });
+
+  it("短标签输入在 React 下一次提交前同步给原生画布交互", async () => {
+    rendererMocks.initialize.mockResolvedValue();
+    const store = new EditorStore(project());
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EditorView
+          store={store}
+          repository={{ save: vi.fn(async () => undefined) }}
+          onNew={vi.fn()}
+          onOpenFile={vi.fn(async () => undefined)}
+          onOpenFragmentFile={vi.fn(async () => undefined)}
+        />
+      </I18nextProvider>,
+    );
+    await act(async () => Promise.resolve());
+    const forcedSynchronizationsBefore =
+      rendererMocks.synchronizeToolState.mock.calls.filter(
+        ([options]) => options?.force === true,
+      ).length;
+    fireEvent.click(screen.getByRole("button", { name: "连线与箭头" }));
+    fireEvent.click(screen.getByRole("button", { name: "连线与箭头" }));
+    expect(
+      rendererMocks.synchronizeToolState.mock.calls.filter(
+        ([options]) => options?.force === true,
+      ),
+    ).toHaveLength(forcedSynchronizationsBefore + 2);
+    const label = screen.getByLabelText("短标签");
+    let placementDuringNativeEvent:
+      ReturnType<RendererInteraction["getConnectionPlacement"]> | undefined;
+    const observeAfterReactHandler = () => {
+      placementDuringNativeEvent =
+        rendererMocks.interaction?.getConnectionPlacement();
+    };
+    document.addEventListener("input", observeAfterReactHandler);
+    fireEvent.input(label, { target: { value: "测试" } });
+    document.removeEventListener("input", observeAfterReactHandler);
+
+    expect(placementDuringNativeEvent).toMatchObject({
+      endpoint: "cell-center",
+      label: "测试",
+    });
   });
 
   it("空白普通点击清除选择并关闭属性，Shift 空白保持原选择且不误开", async () => {

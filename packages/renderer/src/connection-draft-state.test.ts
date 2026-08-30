@@ -7,6 +7,18 @@ const endpoint = (cellId: string) => ({
 });
 
 describe("渲染器临时连线", () => {
+  it.each([
+    { kind: "cell-center" as const, cellId: "cell:square:0:0" },
+    { kind: "edge-midpoint" as const, edgeId: "edge:square:0:0:0" },
+    { kind: "map-point" as const, point: { x: 4.5, y: 8.25 } },
+  ])("草稿锁定起点端点模式 $kind", (start) => {
+    const draft = new ConnectionDraftState();
+    draft.begin(start, null);
+    expect(draft.endpointKind).toBe(start.kind);
+    draft.reset();
+    expect(draft.endpointKind).toBeNull();
+  });
+
   it("只读暴露吸附后的起点且每次返回独立快照", () => {
     const draft = new ConnectionDraftState();
     draft.begin({ kind: "map-point", point: { x: 4, y: 8 } }, null);

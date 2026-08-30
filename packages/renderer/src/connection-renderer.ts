@@ -15,7 +15,9 @@ import { configureRenderLayer } from "./render-layer-order.js";
 import {
   arrowShaftSegment,
   arrowSize,
+  connectionLabelPoint,
   connectionLabelStyle,
+  textBackgroundColor,
 } from "./visual-style.js";
 
 export class ConnectionRenderer {
@@ -100,14 +102,19 @@ export class ConnectionRenderer {
       if (connection.label !== null) {
         item.addChild(
           createPixiText(
-            { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+            connectionLabelPoint(
+              start,
+              end,
+              state.grid.cellSize,
+              connection.style.strokeWidth,
+            ),
             connection.label,
             connectionLabelStyle(
               state.grid.cellSize,
               connection.style.strokeColor,
               opacity,
             ),
-            null,
+            textBackgroundColor(state.style.canvasBackground),
           ),
         );
       }

@@ -225,6 +225,25 @@ describe("视觉导出快照与安全规划", () => {
     expect(bounds?.maxX).toBeGreaterThanOrEqual(160);
   });
 
+  it("导出短标签与画布渲染一致地避开线体并绘制背景", () => {
+    const store = createStore("square", 20, 20, 20);
+    store.createConnection(
+      { kind: "map-point", point: { x: 40, y: 80 } },
+      { kind: "map-point", point: { x: 160, y: 80 } },
+      { kind: "line", label: "道路" },
+    );
+    const plan = planVisualExport(snapshotOf(store.state), svgRequest());
+    const label = [...iterateVisualPrimitives(plan)].find(
+      (primitive) => primitive.kind === "text" && primitive.text === "道路",
+    );
+    expect(label).toMatchObject({
+      kind: "text",
+      point: { x: 100, y: 75.6 },
+      backgroundColor: "#09141DCC",
+      backgroundVisible: true,
+    });
+  });
+
   it("content-bounds 将 outline 描边向外扩 strokeWidth 的一半", () => {
     const store = createStore();
     store.setLayerState("tessera.basic.cell-style", { visible: false });
